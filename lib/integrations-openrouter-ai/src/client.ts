@@ -1,18 +1,27 @@
 import OpenAI from "openai";
 
-if (!process.env.AI_INTEGRATIONS_OPENROUTER_BASE_URL) {
+const apiKey = process.env.OPENROUTER_API_KEY || process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY;
+const baseURL = process.env.OPENROUTER_API_KEY
+  ? "https://openrouter.ai/api/v1"
+  : process.env.AI_INTEGRATIONS_OPENROUTER_BASE_URL;
+
+if (!apiKey) {
   throw new Error(
-    "AI_INTEGRATIONS_OPENROUTER_BASE_URL must be set. Did you forget to provision the OpenRouter AI integration?",
+    "No OpenRouter API key found. Set OPENROUTER_API_KEY to use your own key.",
   );
 }
 
-if (!process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY) {
+if (!baseURL) {
   throw new Error(
-    "AI_INTEGRATIONS_OPENROUTER_API_KEY must be set. Did you forget to provision the OpenRouter AI integration?",
+    "No OpenRouter base URL found. Set OPENROUTER_API_KEY or provision the Replit OpenRouter AI integration.",
   );
 }
 
 export const openrouter = new OpenAI({
-  baseURL: process.env.AI_INTEGRATIONS_OPENROUTER_BASE_URL,
-  apiKey: process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY,
+  baseURL,
+  apiKey,
+  defaultHeaders: {
+    "HTTP-Referer": "https://wild-rift-coach.replit.app",
+    "X-Title": "Wild Rift Macro Coach",
+  },
 });
