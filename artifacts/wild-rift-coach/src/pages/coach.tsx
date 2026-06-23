@@ -1,10 +1,11 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Link } from "wouter";
 import { useModelStorage } from "@/hooks/use-model-storage";
-import { useCropConfig, useTimerCropConfig, usePortraitConfig, usePortraitStripConfig, DEFAULT_PORTRAIT_CONFIG, useLanePaths, useZones, useFavoriteChamps, LanePaths, ZoneData, Point } from "@/hooks/use-map-config";
+import { useCropConfig, useTimerCropConfig, usePortraitConfig, usePortraitStripConfig, DEFAULT_PORTRAIT_CONFIG, useLanePaths, useZones, useFavoriteChamps, useTowerConfig, TOWER_LABELS, LanePaths, ZoneData, Point } from "@/hooks/use-map-config";
 import { CropCalibrator } from "@/components/crop-calibrator";
 import { PortraitPlacer } from "@/components/portrait-placer";
 import { ZoneEditor } from "@/components/zone-editor";
+import { TowerCalibrator } from "@/components/tower-calibrator";
 import { PROMPT_KEY, DEFAULT_SYSTEM_PROMPT } from "@/hooks/use-system-prompt";
 import {
   GameContext,
@@ -23,7 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import {
   Target, Settings, AlertCircle, Loader2, Send, Upload,
   MessageSquare, X, Search, UserRound, Users, Swords,
-  ChevronDown, ChevronUp, Crop, Map, Star, RotateCcw, Bug, Timer, Clock,
+  ChevronDown, ChevronUp, Crop, Map, Star, RotateCcw, Bug, Timer, Clock, Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -443,6 +444,7 @@ export default function CoachPage(){
   const{paths:lanePaths,save:saveLanes}=useLanePaths();
   const{zones,save:saveZones}=useZones();
   const{favorites,toggle:toggleFav}=useFavoriteChamps();
+  const{config:towerConfig,save:saveTowerConfig}=useTowerConfig();
 
   // Load persisted session once on mount
   const[_sess]=useState(()=>loadSession());
@@ -457,6 +459,7 @@ export default function CoachPage(){
   const[showTimerCropEditor,setShowTimerCropEditor]=useState(false);
   const[showPortraitBarEditor,setShowPortraitBarEditor]=useState(false);
   const[showPortraitStripEditor,setShowPortraitStripEditor]=useState(false);
+  const[showTowerCalibrator,setShowTowerCalibrator]=useState(false);
   const[screenshotCollapsed,setScreenshotCollapsed]=useState(()=>localStorage.getItem("wildrift_screenshot_collapsed")==="true");
   const toggleScreenshotCollapsed=()=>{const n=!screenshotCollapsed;setScreenshotCollapsed(n);localStorage.setItem("wildrift_screenshot_collapsed",String(n));};
   const[showZoneEditor,setShowZoneEditor]=useState(false);
@@ -483,6 +486,9 @@ export default function CoachPage(){
   const[elderBuff,setElderBuff]=useState<BuffHolder>((_sess.elderBuff as BuffHolder)??null);
   const[alliesDown,setAlliesDown]=useState<number[]>((_sess.alliesDown as number[])??[]);
   const[enemiesDown,setEnemiesDown]=useState<number[]>((_sess.enemiesDown as number[])??[]);
+  const[towersDown,setTowersDown]=useState<{ally:number[];enemy:number[]}>(
+    (_sess.towersDown as {ally:number[];enemy:number[]})??{ally:[],enemy:[]}
+  );
   const[contextOpen,setContextOpen]=useState(true);
   const[champPickOpen,setChampPickOpen]=useState(false);
 
@@ -515,14 +521,14 @@ export default function CoachPage(){
 
   // ── Persist session to localStorage on every change ───────────────────────────
   useEffect(()=>{
-    saveSession({imageBase64,minimapBase64,pins,myRole,myChamp,dragon,elderDragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown,gameTimeSecs,activeConversationId,advice,userNotes});
+    saveSession({imageBase64,minimapBase64,pins,myRole,myChamp,dragon,elderDragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown,towersDown,gameTimeSecs,activeConversationId,advice,userNotes});
   },[imageBase64,minimapBase64,pins,myRole,myChamp,dragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown,gameTimeSecs,activeConversationId,advice,userNotes]);
 
   const handleClearSession=useCallback(()=>{
     clearSessionStorage();
     setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setPins([]);setPlaceMode(null);
     setMyRole(null);setMyChamp(null);setDragon(null);setElderDragon(null);setBaron(null);setHerald(null);
-    setBaronBuff(null);setElderBuff(null);setAlliesDown([]);setEnemiesDown([]);
+    setBaronBuff(null);setElderBuff(null);setAlliesDown([]);setEnemiesDown([]);setTowersDown({ally:[],enemy:[]});
     setUserNotes('');setGameTimeSecs(0);setActiveConversationId(null);setAdvice("");setChatMessages([]);
     setDebugInfo(null);setDebugMinimapUrl(null);setPortraitStripCrop(null);
   },[]);
@@ -649,11 +655,15 @@ export default function CoachPage(){
         else if(elderBuff==="them")parts.push("Enemy has Elder Dragon Buff");
         if(alliesDown.length>0)parts.push(`Dead allies: ${alliesDown.sort((a,b)=>a-b).map(n=>`A${n}`).join(", ")}`);
         if(enemiesDown.length>0)parts.push(`Dead enemies: ${enemiesDown.sort((a,b)=>a-b).map(n=>`E${n}`).join(", ")}`);
+        const allyTowersDown=towersDown.ally.map(i=>TOWER_LABELS[i]).filter(Boolean);
+        const enemyTowersDown=towersDown.enemy.map(i=>TOWER_LABELS[i]).filter(Boolean);
+        if(allyTowersDown.length>0)parts.push(`Our destroyed towers: ${allyTowersDown.join(", ")}`);
+        if(enemyTowersDown.length>0)parts.push(`Enemy destroyed towers: ${enemyTowersDown.join(", ")}`);
         if(userNotes.trim())parts.push(userNotes.trim());
         return parts.length?parts.join(". "):null;
       })(),
     };
-  },[pins,gameTimeSecs,myRole,myChamp,dragon,elderDragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown,userNotes]);
+  },[pins,gameTimeSecs,myRole,myChamp,dragon,elderDragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown,towersDown,userNotes]);
 
   // Always return annotated minimap when available (with pins + game-time crop if present)
   const getAnnotatedMinimap=useCallback(async():Promise<string|null>=>{
@@ -928,6 +938,41 @@ export default function CoachPage(){
                     </div>
                   </div>
                 ))}
+                {/* Tower overlays — tappable on minimap */}
+                {(["ally","enemy"] as const).map(team=>
+                  towerConfig[team].map((pos,idx)=>{
+                    if(!pos)return null;
+                    const down=towersDown[team].includes(idx);
+                    const color=team==="ally"?"#38BDF8":"#EF4444";
+                    const lane=["B","M","D"][Math.floor(idx/3)]!;
+                    const tier=(idx%3)+1;
+                    return(
+                      <button key={`tw-${team}-${idx}`}
+                        data-pin="true"
+                        className="absolute -translate-x-1/2 -translate-y-1/2 z-10 rounded-sm border flex items-center justify-center font-bold leading-none active:scale-90 transition-transform"
+                        style={{
+                          left:`${pos.x}%`,top:`${pos.y}%`,
+                          width:"5%",aspectRatio:"1",
+                          fontSize:"1.8vw",
+                          background:down?"rgba(5,12,28,0.92)":"rgba(5,12,28,0.72)",
+                          borderColor:down?"rgba(100,100,100,0.5)":color,
+                          color:down?"rgba(100,100,100,0.6)":color,
+                          opacity:down?0.55:1,
+                          textDecoration:down?"line-through":"none",
+                        }}
+                        title={`${team==="ally"?"Allied":"Enemy"} ${TOWER_LABELS[idx]}${down?" (destroyed)":""}`}
+                        onClick={e=>{
+                          e.stopPropagation();
+                          setTowersDown(prev=>({
+                            ...prev,
+                            [team]:down?prev[team].filter(i=>i!==idx):[...prev[team],idx],
+                          }));
+                        }}>
+                        {`${lane}${tier}`}
+                      </button>
+                    );
+                  })
+                )}
               </div>
 
               {/* Position tags */}
@@ -1078,6 +1123,11 @@ export default function CoachPage(){
                 <button className="border border-sky-400/40 text-sky-400 text-xs px-2 py-1 rounded-lg flex items-center gap-1 active:scale-95 hover:bg-sky-400/10"
                   onClick={()=>setShowPortraitBarEditor(true)}>
                   <Users className="w-3 h-3"/> Portraits
+                </button>
+                <button className={cn("text-xs px-2 py-1 rounded-lg flex items-center gap-1 active:scale-95 border hover:bg-white/5",
+                  (towersDown.ally.length>0||towersDown.enemy.length>0)?"border-amber-400/60 text-amber-400":"border-border/30 text-muted-foreground/60")}
+                  onClick={()=>setShowTowerCalibrator(true)}>
+                  <Building2 className="w-3 h-3"/> Towers
                 </button>
               </div>
             </>)}
@@ -1336,6 +1386,14 @@ export default function CoachPage(){
           zones={zones}
           onSave={(l,z)=>{saveLanes(l);saveZones(z);}}
           onClose={()=>setShowZoneEditor(false)}
+        />
+      )}
+      {showTowerCalibrator&&minimapBase64&&(
+        <TowerCalibrator
+          imageDataUrl={minimapBase64}
+          config={towerConfig}
+          onSave={saveTowerConfig}
+          onClose={()=>setShowTowerCalibrator(false)}
         />
       )}
 

@@ -146,4 +146,39 @@ export function useFavoriteChamps() {
   return { favorites, toggle } as const;
 }
 
-export const ALL_CONFIG_KEYS = [CROP_KEY, TIMER_CROP_KEY, PORTRAIT_STRIP_KEY, PORTRAIT_BAR_KEY, PORTRAIT_CONFIG_KEY, LANES_KEY, ZONES_KEY, FAVORITES_KEY] as const;
+// ── Tower positions (on minimap, % of minimap width/height) ──────────────────
+export interface TowerPos { x: number; y: number }
+
+export interface TowerConfig {
+  ally:  (TowerPos | null)[];  // 9 slots: [B-T1,B-T2,B-T3, M-T1,M-T2,M-T3, D-T1,D-T2,D-T3]
+  enemy: (TowerPos | null)[];
+}
+
+export const TOWER_LABELS = [
+  "Baron T1","Baron T2","Baron T3",
+  "Mid T1","Mid T2","Mid T3",
+  "Dragon T1","Dragon T2","Dragon T3",
+] as const;
+
+const TOWER_CONFIG_KEY = "wildrift_towers_v1";
+
+export const DEFAULT_TOWER_CONFIG: TowerConfig = {
+  ally: [
+    {x:12,y:55},{x:10,y:38},{x:12,y:20},
+    {x:32,y:70},{x:22,y:60},{x:15,y:48},
+    {x:42,y:85},{x:30,y:82},{x:18,y:78},
+  ],
+  enemy: [
+    {x:55,y:10},{x:72,y:10},{x:85,y:15},
+    {x:68,y:30},{x:78,y:38},{x:85,y:52},
+    {x:58,y:58},{x:70,y:68},{x:82,y:80},
+  ],
+};
+
+export function useTowerConfig() {
+  const [config, setConfig] = useState<TowerConfig>(() => load(TOWER_CONFIG_KEY, DEFAULT_TOWER_CONFIG));
+  const save = useCallback((c: TowerConfig) => { setConfig(c); localStorage.setItem(TOWER_CONFIG_KEY, JSON.stringify(c)); }, []);
+  return { config, save } as const;
+}
+
+export const ALL_CONFIG_KEYS = [CROP_KEY, TIMER_CROP_KEY, PORTRAIT_STRIP_KEY, PORTRAIT_BAR_KEY, PORTRAIT_CONFIG_KEY, LANES_KEY, ZONES_KEY, FAVORITES_KEY, TOWER_CONFIG_KEY] as const;
