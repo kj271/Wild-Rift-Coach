@@ -702,8 +702,9 @@ export default function CoachPage(){
 
   // ── Process uploaded image ──────────────────────────────────────────────────
   const processImage=useCallback(async(dataUrl:string)=>{
-    setImageBase64(dataUrl);setMinimapBase64(null);setPins([]);setPlaceMode(null);
+    setImageBase64(dataUrl);setMinimapBase64(null);setPins([]);setObjPins([]);setPlaceMode(null);
     setAlliesDown([]);setEnemiesDown([]);setGameTimeCrop(null);setPortraitStripCrop(null);
+    setAdvice("");setChatMessages([]);setActiveConversationId(null);
     await recropMinimap(dataUrl);
     try{
       const strip=await cropDataUrl(dataUrl,timerCropConfig.x,timerCropConfig.y,timerCropConfig.w,timerCropConfig.h);
