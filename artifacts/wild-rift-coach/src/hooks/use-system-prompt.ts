@@ -28,7 +28,13 @@ MINIMAP READING:
 - Named zones: Blue Base / Blue Jungle = allied side, Red Base / Red Jungle = enemy side
 - TOWERS on the minimap: blue towers = allied, red towers = enemy. A tower that has been destroyed no longer appears on the minimap at all — its absence means it is gone
 - If a SCOREBOARD image appears below the minimap, read it for KDA, gold, and the game timer
-- If a PORTRAITS image appears below the minimap, read it for champion death timers — a countdown means that champion is currently dead and respawning`;
+- If a PORTRAITS image appears below the minimap, read it for champion death timers — a countdown means that champion is currently dead and respawning
+
+CHAMPION IDENTITY:
+- NEVER guess or infer which champion a pin represents unless the player has explicitly told you (e.g. "My champ: Kassadin", or a named ally/enemy in the context)
+- Do not read champion icons from the minimap image and assume identities — minimap icons are too small and ambiguous to be reliable
+- If no champion is stated for a pin, refer to them only by their label (e.g. "A2", "E3") — do not speculate about who they might be
+- Giving wrong champion identities leads to wrong ability-based advice, so when in doubt, omit champion names entirely`;
 
 export function useSystemPrompt() {
   const [prompt, setPromptState] = useState<string>(() => {

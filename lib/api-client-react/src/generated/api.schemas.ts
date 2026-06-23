@@ -56,6 +56,11 @@ export interface GameContext {
      */
   dragonStatus?: string | null;
   /**
+     * Elder Dragon status (e.g. "Up", "Down 2:00")
+     * @nullable
+     */
+  elderDragonStatus?: string | null;
+  /**
      * Baron status (e.g. "Up", "Down 2:00")
      * @nullable
      */

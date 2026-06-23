@@ -262,6 +262,9 @@ components:
         dragonStatus:
           type: ["string", "null"]
           description: Dragon status (e.g. "Up", "Down 1:30", "Soul point")
+        elderDragonStatus:
+          type: ["string", "null"]
+          description: Elder Dragon status (e.g. "Up", "Down 2:00")
         baronStatus:
           type: ["string", "null"]
           description: Baron status (e.g. "Up", "Down 2:00")

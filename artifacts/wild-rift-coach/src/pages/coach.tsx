@@ -458,6 +458,7 @@ export default function CoachPage(){
   const[myRole,setMyRole]=useState<Role|null>((_sess.myRole as Role|null)??null);
   const[myChamp,setMyChamp]=useState<string|null>((_sess.myChamp as string|null)??null);
   const[dragon,setDragon]=useState<ObjStatus>((_sess.dragon as ObjStatus)??null);
+  const[elderDragon,setElderDragon]=useState<ObjStatus>((_sess.elderDragon as ObjStatus)??null);
   const[baron,setBaron]=useState<ObjStatus>((_sess.baron as ObjStatus)??null);
   const[herald,setHerald]=useState<ObjStatus>((_sess.herald as ObjStatus)??null);
   const[baronBuff,setBaronBuff]=useState<BuffHolder>((_sess.baronBuff as BuffHolder)??null);
@@ -495,13 +496,13 @@ export default function CoachPage(){
 
   // ── Persist session to localStorage on every change ───────────────────────────
   useEffect(()=>{
-    saveSession({imageBase64,minimapBase64,pins,myRole,myChamp,dragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown,gameTimeSecs,activeConversationId,advice});
+    saveSession({imageBase64,minimapBase64,pins,myRole,myChamp,dragon,elderDragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown,gameTimeSecs,activeConversationId,advice});
   },[imageBase64,minimapBase64,pins,myRole,myChamp,dragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown,gameTimeSecs,activeConversationId,advice]);
 
   const handleClearSession=useCallback(()=>{
     clearSessionStorage();
     setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setPins([]);setPlaceMode(null);
-    setMyRole(null);setMyChamp(null);setDragon(null);setBaron(null);setHerald(null);
+    setMyRole(null);setMyChamp(null);setDragon(null);setElderDragon(null);setBaron(null);setHerald(null);
     setBaronBuff(null);setElderBuff(null);setAlliesDown([]);setEnemiesDown([]);
     setGameTimeSecs(0);setActiveConversationId(null);setAdvice("");setChatMessages([]);
     setDebugInfo(null);setDebugMinimapUrl(null);setPortraitStripCrop(null);
@@ -596,6 +597,7 @@ export default function CoachPage(){
     if(ctx.allyChampions)parts.push(`- Ally champions: ${ctx.allyChampions}`);
     if(ctx.enemyChampions)parts.push(`- Enemy champions: ${ctx.enemyChampions}`);
     if(ctx.dragonStatus)parts.push(`- Dragon: ${ctx.dragonStatus}`);
+    if(ctx.elderDragonStatus)parts.push(`- Elder Dragon: ${ctx.elderDragonStatus}`);
     if(ctx.baronStatus)parts.push(`- Baron: ${ctx.baronStatus}`);
     if(ctx.riftHeraldStatus)parts.push(`- Rift Herald: ${ctx.riftHeraldStatus}`);
     if(ctx.additionalNotes)parts.push(`- Additional notes: ${ctx.additionalNotes}`);
@@ -616,7 +618,7 @@ export default function CoachPage(){
       myLocation:myPin?posLabel(myPin.pos):null,
       allyChampions:allyPins.length?allyPins.map((p,i)=>{const l=posLabel(p.pos);return p.champ?`${p.champ}(A${i+1}) at ${l}`:`Ally ${i+1} at ${l}`;}).join(", "):null,
       enemyChampions:enemyPins.length?enemyPins.map((p,i)=>{const l=posLabel(p.pos);return p.champ?`${p.champ}(E${i+1}) at ${l}`:`Enemy ${i+1} at ${l}`;}).join(", "):null,
-      dragonStatus:dragon??null,baronStatus:baron??null,riftHeraldStatus:herald??null,
+      dragonStatus:dragon??null,elderDragonStatus:elderDragon??null,baronStatus:baron??null,riftHeraldStatus:herald??null,
       goldDiff:null,score:null,
       additionalNotes:(()=>{
         const parts:string[]=[];
@@ -630,7 +632,7 @@ export default function CoachPage(){
         return parts.length?parts.join(". "):null;
       })(),
     };
-  },[pins,gameTimeSecs,myRole,myChamp,dragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown]);
+  },[pins,gameTimeSecs,myRole,myChamp,dragon,elderDragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown]);
 
   // Always return annotated minimap when available (with pins + game-time crop if present)
   const getAnnotatedMinimap=useCallback(async():Promise<string|null>=>{
@@ -755,7 +757,7 @@ export default function CoachPage(){
   const myPin=pins.find(p=>p.type==="me");
   const allyPins=pins.filter(p=>p.type==="ally");
   const enemyPins=pins.filter(p=>p.type==="enemy");
-  const hasContext=pins.length>0||!!myChamp||!!myRole||!!dragon||!!baron||!!herald||!!baronBuff||!!elderBuff||gameTimeSecs>0;
+  const hasContext=pins.length>0||!!myChamp||!!myRole||!!dragon||!!elderDragon||!!baron||!!herald||!!baronBuff||!!elderBuff||gameTimeSecs>0;
   const canAdvise=!!model&&!isAdvising&&(!!imageBase64||hasContext);
   const hasBuffs=baronBuff!==null||elderBuff!==null;
 
@@ -1075,6 +1077,7 @@ export default function CoachPage(){
                 <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground">Objectives</span>
                 <div className="space-y-2.5 mt-2">
                   <ObjControl label="Dragon" value={dragon} onChange={setDragon}/>
+                  <ObjControl label="Elder Dragon" value={elderDragon} onChange={setElderDragon}/>
                   <ObjControl label="Baron" value={baron} onChange={setBaron}/>
                   <ObjControl label="Herald" value={herald} onChange={setHerald}/>
                 </div>
