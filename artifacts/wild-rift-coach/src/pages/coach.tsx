@@ -740,11 +740,15 @@ export default function CoachPage(){
                 <button key={`a${n}`}
                   onClick={()=>setAlliesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
                   title={dead?`A${n} dead — tap to revive`:`A${n} alive — tap to mark dead`}
-                  className={cn("absolute rounded-full flex items-center justify-center font-bold leading-none select-none transition-all",
-                    dead
-                      ? "bg-slate-900/85 border-2 border-sky-700/60 text-sky-400 text-[9px]"
-                      : "bg-transparent border-0")}
-                  style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",width:sz,aspectRatio:"1"}}>
+                  className="absolute rounded-full flex items-center justify-center font-bold leading-none select-none"
+                  style={{
+                    left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",
+                    width:sz,aspectRatio:"1",
+                    background: dead ? "rgba(2,6,23,0.85)" : "transparent",
+                    border: dead ? "2px solid rgba(56,189,248,0.6)" : "none",
+                    color: dead ? "#7dd3fc" : "transparent",
+                    fontSize:"9px",
+                  }}>
                   {dead?`A${n}`:""}
                 </button>
               );
@@ -756,11 +760,15 @@ export default function CoachPage(){
                 <button key={`e${n}`}
                   onClick={()=>setEnemiesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
                   title={dead?`E${n} dead — tap to revive`:`E${n} alive — tap to mark dead`}
-                  className={cn("absolute rounded-full flex items-center justify-center font-bold leading-none select-none transition-all",
-                    dead
-                      ? "bg-slate-900/85 border-2 border-red-500/70 text-red-400 text-[9px]"
-                      : "bg-transparent border-0")}
-                  style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",width:sz,aspectRatio:"1"}}>
+                  className="absolute rounded-full flex items-center justify-center font-bold leading-none select-none"
+                  style={{
+                    left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",
+                    width:sz,aspectRatio:"1",
+                    background: dead ? "rgba(2,6,23,0.85)" : "transparent",
+                    border: dead ? "2px solid rgba(239,68,68,0.7)" : "none",
+                    color: dead ? "#fca5a5" : "transparent",
+                    fontSize:"9px",
+                  }}>
                   {dead?`E${n}`:""}
                 </button>
               );

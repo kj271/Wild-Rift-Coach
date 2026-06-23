@@ -74,9 +74,19 @@ export const DEFAULT_PORTRAIT_CONFIG: PortraitConfig = {
   sizePct: 5.5,
 };
 
+function normalizePortraitConfig(raw: PortraitConfig): PortraitConfig {
+  // Trim stale data — allies must be exactly 4, enemies exactly 5
+  const def = DEFAULT_PORTRAIT_CONFIG;
+  return {
+    allies:  ([...raw.allies].slice(0,4).concat(def.allies)).slice(0,4) as PortraitConfig["allies"],
+    enemies: ([...raw.enemies].slice(0,5).concat(def.enemies)).slice(0,5) as PortraitConfig["enemies"],
+    sizePct: raw.sizePct ?? def.sizePct,
+  };
+}
+
 export function usePortraitConfig() {
-  const [config, setConfig] = useState<PortraitConfig>(() => load(PORTRAIT_CONFIG_KEY, DEFAULT_PORTRAIT_CONFIG));
-  const save = useCallback((c: PortraitConfig) => { setConfig(c); localStorage.setItem(PORTRAIT_CONFIG_KEY, JSON.stringify(c)); }, []);
+  const [config, setConfig] = useState<PortraitConfig>(() => normalizePortraitConfig(load(PORTRAIT_CONFIG_KEY, DEFAULT_PORTRAIT_CONFIG)));
+  const save = useCallback((c: PortraitConfig) => { const n = normalizePortraitConfig(c); setConfig(n); localStorage.setItem(PORTRAIT_CONFIG_KEY, JSON.stringify(n)); }, []);
   return { config, save } as const;
 }
 
