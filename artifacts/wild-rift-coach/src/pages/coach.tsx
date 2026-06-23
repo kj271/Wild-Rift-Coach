@@ -629,8 +629,8 @@ export default function CoachPage(){
         else if(baronBuff==="them")parts.push("Enemy has Baron Buff");
         if(elderBuff==="us")parts.push("We have Elder Dragon Buff");
         else if(elderBuff==="them")parts.push("Enemy has Elder Dragon Buff");
-        if(alliesDown.length>0)parts.push(`Ally slot(s) ${alliesDown.sort().join(",")} are dead`);
-        if(enemiesDown.length>0)parts.push(`Enemy slot(s) ${enemiesDown.sort().join(",")} are dead`);
+        if(alliesDown.length>0)parts.push(`Dead allies: ${alliesDown.sort().map(n=>`A${n}`).join(", ")}`);
+        if(enemiesDown.length>0)parts.push(`Dead enemies: ${enemiesDown.sort().map(n=>`E${n}`).join(", ")}`);
         if(userNotes.trim())parts.push(userNotes.trim());
         return parts.length?parts.join(". "):null;
       })(),

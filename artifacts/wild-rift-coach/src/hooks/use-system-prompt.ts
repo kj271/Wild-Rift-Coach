@@ -18,8 +18,8 @@ Format your response in clear sections:
 
 MINIMAP READING:
 - Yellow pin = the player asking for advice (ME)
-- Blue pins A1–A5 = allied champions
-- Red pins E1–E5 = enemy champions
+- Blue pins A1–A5 = allied champions; Red pins E1–E5 = enemy champions
+- A1–A5 / E1–E5 labels are shared across the minimap pins AND the dead/alive portrait tracking — "Dead enemies: E1" and a pin labeled E1 refer to the SAME enemy
 - Pin positions are described as "[Lane] X% (zone)" where 0% = near blue/allied base, 100% = near red/enemy base
   - "own side" (<25%) — champion is in or near their own base area (could be base, rotating, returning after death, etc.)
   - "mid" (25–75%) — contested zone along the lane
