@@ -1074,11 +1074,22 @@ export default function CoachPage(){
             {imageQueue.length>1&&(
               <div className="flex gap-2 px-3 py-2 border-b border-border/30 overflow-x-auto">
                 {imageQueue.map((img,i)=>(
-                  <button key={i} onClick={()=>{setActiveQueueIdx(i);processImage(img);}}
-                    className={cn("shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 active:scale-95 transition-all",
-                      i===activeQueueIdx?"border-primary":"border-border/30 opacity-50")}>
-                    <img src={img} alt={`Screenshot ${i+1}`} className="w-full h-full object-cover"/>
-                  </button>
+                  <div key={i} className="relative shrink-0">
+                    <button onClick={()=>{setActiveQueueIdx(i);processImage(img);}}
+                      className={cn("w-14 h-14 rounded-lg overflow-hidden border-2 active:scale-95 transition-all block",
+                        i===activeQueueIdx?"border-primary":"border-border/30 opacity-50")}>
+                      <img src={img} alt={`Screenshot ${i+1}`} className="w-full h-full object-cover"/>
+                    </button>
+                    <button
+                      onClick={()=>{
+                        const next=imageQueue.filter((_,j)=>j!==i);
+                        if(next.length===0){setImageQueue([]);setActiveQueueIdx(0);setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setPortraitStripCrop(null);}
+                        else{const newIdx=i>=next.length?next.length-1:i===activeQueueIdx?Math.min(i,next.length-1):activeQueueIdx>i?activeQueueIdx-1:activeQueueIdx;setImageQueue(next);setActiveQueueIdx(newIdx);if(i===activeQueueIdx)processImage(next[newIdx]!);}
+                      }}
+                      className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-black/90 border border-border/60 flex items-center justify-center text-xs font-bold text-white hover:bg-red-600 active:scale-90 transition-all touch-manipulation">
+                      ×
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
