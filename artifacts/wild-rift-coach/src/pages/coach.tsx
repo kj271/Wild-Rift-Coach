@@ -254,6 +254,39 @@ async function renderAnnotatedMinimap(
     }
   }
 
+  // Draw objective pins
+  if(objPins?.length){
+    const objColors:Record<string,string>={baron:"#a855f7",dragon:"#f97316",atakhan:"#ef4444",elder_dragon:"#10b981"};
+    const objShorts:Record<string,string>={baron:"B",dragon:"D",atakhan:"ATK",elder_dragon:"ED"};
+    const or=Math.round(W*0.045);
+    for(const op of objPins){
+      const px=op.x/100*W,py=op.y/100*H;
+      const col=op.objType?objColors[op.objType]:"#888888";
+      const short=op.objType?objShorts[op.objType]:"?";
+      const fs=Math.round(or*0.9);
+      const tw=ctx.measureText(short).width+or*1.2;
+      const bh=or*1.6;
+      const bx=px-tw/2,by=py-bh/2;
+      // Background rect
+      ctx.shadowColor="rgba(0,0,0,0.9)";ctx.shadowBlur=8;
+      ctx.fillStyle="rgba(5,12,28,0.9)";
+      ctx.beginPath();ctx.roundRect(bx,by,tw,bh,4);ctx.fill();
+      ctx.shadowBlur=0;
+      ctx.strokeStyle=col;ctx.lineWidth=Math.max(2,or*0.15);
+      ctx.beginPath();ctx.roundRect(bx,by,tw,bh,4);ctx.stroke();
+      // Label
+      ctx.fillStyle=col;ctx.font=`bold ${fs}px sans-serif`;
+      ctx.textAlign="center";ctx.textBaseline="middle";
+      ctx.fillText(short,px,py);
+      // Status dot
+      if(op.status){
+        const sc=op.status==="up"?"#22c55e":"#f59e0b";
+        ctx.fillStyle=sc;
+        ctx.beginPath();ctx.arc(bx+tw-or*0.3,by+or*0.3,or*0.22,0,Math.PI*2);ctx.fill();
+      }
+    }
+  }
+
   // Draw scoreboard strip BELOW minimap
   let nextY=H;
   if(scoreImg){
@@ -798,8 +831,8 @@ export default function CoachPage(){
   // Always return annotated minimap when available (with pins + game-time crop if present)
   const getAnnotatedMinimap=useCallback(async():Promise<string|null>=>{
     if(!minimapBase64)return null;
-    return renderAnnotatedMinimap(minimapBase64,pins,gameTimeCrop,portraitStripCrop,alliesDown,enemiesDown);
-  },[minimapBase64,pins,gameTimeCrop,portraitStripCrop,alliesDown,enemiesDown]);
+    return renderAnnotatedMinimap(minimapBase64,pins,gameTimeCrop,portraitStripCrop,alliesDown,enemiesDown,objPins);
+  },[minimapBase64,pins,objPins,gameTimeCrop,portraitStripCrop,alliesDown,enemiesDown]);
 
   // Persist debug info to sessionStorage so it survives refresh / tab switch
   useEffect(()=>{
