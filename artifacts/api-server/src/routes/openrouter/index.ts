@@ -190,6 +190,7 @@ router.post("/openrouter/conversations/:id/messages", async (req, res): Promise<
     if (context.riftHeraldStatus) ctxParts.push(`- Rift Herald: ${context.riftHeraldStatus}`);
     if (context.goldDiff) ctxParts.push(`- Gold diff: ${context.goldDiff}`);
     if (context.score) ctxParts.push(`- Score: ${context.score}`);
+    if (context.additionalNotes) ctxParts.push(`- Notes: ${context.additionalNotes}`);
     systemPrompt += ctxParts.join("\n");
   }
 
