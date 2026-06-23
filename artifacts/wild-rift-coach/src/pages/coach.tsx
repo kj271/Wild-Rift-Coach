@@ -1115,16 +1115,14 @@ export default function CoachPage(){
                         } else {
                           const newIdx=i>=next.length?next.length-1:i===activeQueueIdx?Math.min(i,next.length-1):activeQueueIdx>i?activeQueueIdx-1:activeQueueIdx;
                           if(i===activeQueueIdx){
-                            // Deleting the active image — switch to newIdx
+                            // Deleting the active image — carry forward current pins to next image
+                            const restore=perImageState.current.get(next[newIdx]!)??{pins,benchPins,objPins,alliesDown,enemiesDown,towersDown};
                             setImageQueue(next);setActiveQueueIdx(newIdx);
-                            applySlotState(perImageState.current.get(next[newIdx]!));
+                            applySlotState(restore);
                             processImage(next[newIdx]!);
                           } else {
-                            // Deleting a non-active image — save active state so index shift doesn't lose it
-                            saveCurrentSlot(imageQueue[activeQueueIdx]!);
+                            // Deleting a non-active image — active image unchanged, just update queue
                             setImageQueue(next);setActiveQueueIdx(newIdx);
-                            // Active image didn't change visually, restore its state (same data)
-                            applySlotState(perImageState.current.get(imageQueue[activeQueueIdx]!));
                           }
                         }
                       }}
