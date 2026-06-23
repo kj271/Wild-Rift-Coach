@@ -1,9 +1,11 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Link } from "wouter";
 import { useModelStorage } from "@/hooks/use-model-storage";
-import { useCropConfig, useTimerCropConfig, usePortraitBarConfig, DEFAULT_PORTRAIT_BAR, useLanePaths, useZones, useFavoriteChamps, LanePaths, ZoneData, Point } from "@/hooks/use-map-config";
+import { useCropConfig, useTimerCropConfig, usePortraitConfig, DEFAULT_PORTRAIT_CONFIG, useLanePaths, useZones, useFavoriteChamps, LanePaths, ZoneData, Point } from "@/hooks/use-map-config";
 import { CropCalibrator } from "@/components/crop-calibrator";
+import { PortraitPlacer } from "@/components/portrait-placer";
 import { ZoneEditor } from "@/components/zone-editor";
+import { PROMPT_KEY, DEFAULT_SYSTEM_PROMPT } from "@/hooks/use-system-prompt";
 import {
   GameContext,
   useCreateOpenrouterConversation,
@@ -385,7 +387,7 @@ export default function CoachPage(){
   const[model]=useModelStorage();
   const{config:cropConfig,save:saveCrop}=useCropConfig();
   const{config:timerCropConfig,save:saveTimerCrop}=useTimerCropConfig();
-  const{config:portraitBarConfig,save:savePortraitBar}=usePortraitBarConfig();
+  const{config:portraitConfig,save:savePortraitConfig}=usePortraitConfig();
   const{paths:lanePaths,save:saveLanes}=useLanePaths();
   const{zones,save:saveZones}=useZones();
   const{favorites,toggle:toggleFav}=useFavoriteChamps();
@@ -566,10 +568,10 @@ export default function CoachPage(){
     try{
       const annotated=await getAnnotatedMinimap();
       const ctx=buildContext();
-      const customPrompt=localStorage.getItem("wildrift_system_prompt");
+      const customPrompt=localStorage.getItem(PROMPT_KEY);
       const payload={
         model,
-        systemPrompt: customPrompt ?? "(using server default — customise in Settings → AI Instructions)",
+        systemPrompt: customPrompt ?? DEFAULT_SYSTEM_PROMPT,
         imageBase64:"[NOT sent — only annotated minimap below is sent]",
         minimapBase64:annotated?"[see preview below]":null,
         gameTimeCropEmbedded:!!gameTimeCrop,
@@ -600,7 +602,7 @@ export default function CoachPage(){
             const d=JSON.parse(line.slice(6));
             if(d.content)setAdvice(p=>p+d.content);
             if(d.done&&!activeConversationId){
-              const conv=await createConversation.mutateAsync({data:{title:`Game ${fmt(gameTimeSecs)}`,model}});
+              const conv=await createConversation.mutateAsync({data:{title:gameTimeSecs>0?`@ ${fmt(gameTimeSecs)}`:`Game ${new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}`,model}});
               setActiveConversationId(conv.id);
               queryClient.invalidateQueries({queryKey:getListOpenrouterConversationsQueryKey()});
             }
@@ -617,7 +619,7 @@ export default function CoachPage(){
     if(!chatInput.trim()||!model)return;
     let convId=activeConversationId;
     if(!convId){
-      const conv=await createConversation.mutateAsync({data:{title:`Game ${fmt(gameTimeSecs)}`,model}});
+      const conv=await createConversation.mutateAsync({data:{title:gameTimeSecs>0?`@ ${fmt(gameTimeSecs)}`:`Game ${new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}`,model}});
       convId=conv.id;setActiveConversationId(conv.id);
       queryClient.invalidateQueries({queryKey:getListOpenrouterConversationsQueryKey()});
     }
@@ -710,34 +712,34 @@ export default function CoachPage(){
           <div className="relative w-full rounded-xl overflow-hidden border border-border/40">
             <img src={imageBase64} alt="Game screenshot" className="w-full h-auto block" draggable={false}/>
 
-            {/* ── Portrait-bar tap overlay (who's down) ── */}
-            <div className="absolute flex" style={{
-              left:`${portraitBarConfig.x}%`,top:`${portraitBarConfig.y}%`,
-              width:`${portraitBarConfig.w}%`,height:`${portraitBarConfig.h}%`,
-            }}>
-              {[1,2,3,4,5].map(n=>{
-                const dead=alliesDown.includes(n);
-                return(
-                  <button key={`a${n}`} onClick={()=>setAlliesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
-                    title={dead?`A${n} dead — tap to revive`:`A${n} alive — tap to mark dead`}
-                    className={cn("flex-1 relative flex items-center justify-center border-r border-white/5 transition-all",
-                      dead?"bg-slate-900/70":"bg-transparent hover:bg-sky-400/10")}>
-                    <span className={cn("text-[8px] font-bold leading-none select-none",dead?"text-slate-500":"text-sky-200/40")}>A{n}</span>
-                  </button>
-                );
-              })}
-              {[1,2,3,4,5].map(n=>{
-                const dead=enemiesDown.includes(n);
-                return(
-                  <button key={`e${n}`} onClick={()=>setEnemiesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
-                    title={dead?`E${n} dead — tap to revive`:`E${n} alive — tap to mark dead`}
-                    className={cn("flex-1 relative flex items-center justify-center border-r border-white/5 last:border-r-0 transition-all",
-                      dead?"bg-slate-900/70":"bg-transparent hover:bg-red-500/10")}>
-                    <span className={cn("text-[8px] font-bold leading-none select-none",dead?"text-slate-500":"text-red-200/40")}>E{n}</span>
-                  </button>
-                );
-              })}
-            </div>
+            {/* ── Individual portrait tap targets (who's down) ── */}
+            {portraitConfig.allies.map((pos,i)=>{
+              const n=i+1,dead=alliesDown.includes(n);
+              return(
+                <button key={`a${n}`}
+                  onClick={()=>setAlliesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
+                  title={dead?`A${n} dead — tap to revive`:`A${n} alive — tap to mark dead`}
+                  className={cn("absolute flex items-center justify-center rounded text-[9px] font-bold leading-none select-none transition-all",
+                    dead?"bg-slate-800/85 border border-slate-600/80 text-slate-500":"bg-sky-500/25 border border-sky-400/60 text-sky-300 hover:bg-sky-400/40")}
+                  style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",minWidth:28,minHeight:20,width:"8%",height:"3%"}}>
+                  {dead?<Skull className="w-2.5 h-2.5"/>:`A${n}`}
+                </button>
+              );
+            })}
+            {portraitConfig.enemies.map((pos,i)=>{
+              const n=i+1,dead=enemiesDown.includes(n);
+              return(
+                <button key={`e${n}`}
+                  onClick={()=>setEnemiesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
+                  title={dead?`E${n} dead — tap to revive`:`E${n} alive — tap to mark dead`}
+                  className={cn("absolute flex items-center justify-center rounded text-[9px] font-bold leading-none select-none transition-all",
+                    dead?"bg-slate-800/85 border border-slate-600/80 text-slate-500":"bg-red-500/25 border border-red-400/60 text-red-300 hover:bg-red-400/40"
+                  )}
+                  style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",minWidth:28,minHeight:20,width:"8%",height:"3%"}}>
+                  {dead?<Skull className="w-2.5 h-2.5"/>:`E${n}`}
+                </button>
+              );
+            })}
 
             <div className="absolute top-2 right-2 flex gap-1.5">
               <button className="bg-black/70 border border-white/20 text-white text-xs px-2 py-1.5 rounded-lg flex items-center gap-1 active:scale-95"
@@ -757,7 +759,7 @@ export default function CoachPage(){
               </button>
               <button
                 className="bg-black/70 border border-sky-400/40 text-sky-400 text-xs px-2 py-1.5 rounded-lg flex items-center gap-1 active:scale-95"
-                onClick={()=>setShowPortraitBarEditor(true)} title="Set portrait bar position">
+                onClick={()=>setShowPortraitBarEditor(true)} title="Place individual portraits">
                 <Users className="w-3 h-3"/> Portraits
               </button>
               <button className="w-8 h-8 rounded-full bg-black/70 border border-white/20 flex items-center justify-center text-white active:scale-95"
@@ -1106,12 +1108,10 @@ export default function CoachPage(){
         />
       )}
       {showPortraitBarEditor&&imageBase64&&(
-        <CropCalibrator
+        <PortraitPlacer
           screenshot={imageBase64}
-          current={portraitBarConfig}
-          defaultConfig={DEFAULT_PORTRAIT_BAR}
-          title="Portrait Bar — drag box over ally + enemy portraits"
-          onSave={cfg=>{savePortraitBar(cfg);}}
+          current={portraitConfig}
+          onSave={cfg=>{savePortraitConfig(cfg);}}
           onClose={()=>setShowPortraitBarEditor(false)}
         />
       )}
