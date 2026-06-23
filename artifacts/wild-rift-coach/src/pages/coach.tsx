@@ -441,7 +441,8 @@ function QuickObjPicker({pin,pos,onUpdate,onRemove,onClose}:{
 }){
   const PW=220,PH=210;
   const left=Math.max(6,Math.min(pos.x-PW/2,window.innerWidth-PW-6));
-  const top=pos.y+20+PH>window.innerHeight?pos.y-PH-20:pos.y+20;
+  const rawTop=pos.y+20+PH>window.innerHeight?pos.y-PH-20:pos.y+20;
+  const top=Math.max(6,Math.min(rawTop,window.innerHeight-PH-6));
   return(
     <>
       <div className="fixed inset-0 z-40" onClick={onClose}/>
@@ -495,7 +496,8 @@ function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,favorites,onT
   // Clamp popup so it stays on screen (popup is ~300×420)
   const PW=300,PH=420;
   const left=Math.max(6,Math.min(pos.x-PW/2,window.innerWidth-PW-6));
-  const top=pos.y+20+PH>window.innerHeight?pos.y-PH-20:pos.y+20;
+  const rawTop=pos.y+20+PH>window.innerHeight?pos.y-PH-20:pos.y+20;
+  const top=Math.max(6,Math.min(rawTop,window.innerHeight-PH-6));
 
   const words=search.toLowerCase().split(/\s+/).filter(Boolean);
   const filtered=words.length===0?CHAMPIONS:CHAMPIONS.filter(c=>{const t=c.toLowerCase();return words.every(w=>t.includes(w));});
