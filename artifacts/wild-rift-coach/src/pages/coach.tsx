@@ -416,6 +416,7 @@ export default function CoachPage(){
 
   // Context
   const[gameTimeSecs,setGameTimeSecs]=useState((_sess.gameTimeSecs as number)??0);
+  const gameTimeSecsRef=useRef((_sess.gameTimeSecs as number)??0);
   const[myRole,setMyRole]=useState<Role|null>((_sess.myRole as Role|null)??null);
   const[myChamp,setMyChamp]=useState<string|null>((_sess.myChamp as string|null)??null);
   const[dragon,setDragon]=useState<ObjStatus>((_sess.dragon as ObjStatus)??null);
@@ -580,6 +581,9 @@ export default function CoachPage(){
     return renderAnnotatedMinimap(minimapBase64,pins,gameTimeCrop);
   },[minimapBase64,pins,gameTimeCrop]);
 
+  // Keep ref in sync so async callbacks always read the latest game time
+  useEffect(() => { gameTimeSecsRef.current = gameTimeSecs; }, [gameTimeSecs]);
+
   // ── Advise ────────────────────────────────────────────────────────────────────
   const getAdvice=async()=>{
     if(!model)return;
@@ -615,7 +619,8 @@ export default function CoachPage(){
             const d=JSON.parse(line.slice(6));
             if(d.content)setAdvice(p=>p+d.content);
             if(d.done&&!activeConversationId){
-              const conv=await createConversation.mutateAsync({data:{title:gameTimeSecs>0?`@ ${fmt(gameTimeSecs)}`:`Game ${new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}`,model}});
+              const gts=gameTimeSecsRef.current;
+              const conv=await createConversation.mutateAsync({data:{title:gts>0?`@ ${fmt(gts)}`:`Game ${new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}`,model}});
               setActiveConversationId(conv.id);
               queryClient.invalidateQueries({queryKey:getListOpenrouterConversationsQueryKey()});
             }
@@ -632,7 +637,8 @@ export default function CoachPage(){
     if(!chatInput.trim()||!model)return;
     let convId=activeConversationId;
     if(!convId){
-      const conv=await createConversation.mutateAsync({data:{title:gameTimeSecs>0?`@ ${fmt(gameTimeSecs)}`:`Game ${new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}`,model}});
+      const gts=gameTimeSecsRef.current;
+      const conv=await createConversation.mutateAsync({data:{title:gts>0?`@ ${fmt(gts)}`:`Game ${new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}`,model}});
       convId=conv.id;setActiveConversationId(conv.id);
       queryClient.invalidateQueries({queryKey:getListOpenrouterConversationsQueryKey()});
     }
@@ -729,27 +735,33 @@ export default function CoachPage(){
             {/* 4 other allies — you are the 5th so no slot for yourself */}
             {portraitConfig.allies.map((pos,i)=>{
               const n=i+1,dead=alliesDown.includes(n);
+              const sz=`${portraitConfig.sizePct??5.5}%`;
               return(
                 <button key={`a${n}`}
                   onClick={()=>setAlliesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
                   title={dead?`A${n} dead — tap to revive`:`A${n} alive — tap to mark dead`}
-                  className={cn("absolute rounded-full border-2 flex items-center justify-center text-[8px] font-bold leading-none select-none transition-all",
-                    dead?"bg-slate-900/80 border-slate-600 text-slate-600 opacity-60":"bg-sky-500/30 border-sky-400/70 text-sky-200 hover:bg-sky-400/50")}
-                  style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",width:"5.5%",aspectRatio:"1"}}>
-                  {dead?"✕":`A${n}`}
+                  className={cn("absolute rounded-full flex items-center justify-center font-bold leading-none select-none transition-all",
+                    dead
+                      ? "bg-slate-900/85 border-2 border-sky-700/60 text-sky-400 text-[9px]"
+                      : "bg-transparent border-0")}
+                  style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",width:sz,aspectRatio:"1"}}>
+                  {dead?"✕":""}
                 </button>
               );
             })}
             {portraitConfig.enemies.map((pos,i)=>{
               const n=i+1,dead=enemiesDown.includes(n);
+              const sz=`${portraitConfig.sizePct??5.5}%`;
               return(
                 <button key={`e${n}`}
                   onClick={()=>setEnemiesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
                   title={dead?`E${n} dead — tap to revive`:`E${n} alive — tap to mark dead`}
-                  className={cn("absolute rounded-full border-2 flex items-center justify-center text-[8px] font-bold leading-none select-none transition-all",
-                    dead?"bg-slate-900/80 border-slate-600 text-slate-600 opacity-60":"bg-red-500/30 border-red-400/70 text-red-200 hover:bg-red-400/50")}
-                  style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",width:"5.5%",aspectRatio:"1"}}>
-                  {dead?"✕":`E${n}`}
+                  className={cn("absolute rounded-full flex items-center justify-center font-bold leading-none select-none transition-all",
+                    dead
+                      ? "bg-slate-900/85 border-2 border-red-500/70 text-red-400 text-[9px]"
+                      : "bg-transparent border-0")}
+                  style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",width:sz,aspectRatio:"1"}}>
+                  {dead?"✕":""}
                 </button>
               );
             })}

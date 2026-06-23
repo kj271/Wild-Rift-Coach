@@ -63,6 +63,7 @@ export interface PortraitPos { x: number; y: number } // centre as % of full scr
 export interface PortraitConfig {
   allies:  [PortraitPos, PortraitPos, PortraitPos, PortraitPos]; // 4 other allies (you are the 5th)
   enemies: [PortraitPos, PortraitPos, PortraitPos, PortraitPos, PortraitPos];
+  sizePct: number; // diameter of click circles as % of screenshot width (default 5.5)
 }
 
 const PORTRAIT_CONFIG_KEY = "wildrift_portraits_v2";
@@ -70,6 +71,7 @@ const PORTRAIT_CONFIG_KEY = "wildrift_portraits_v2";
 export const DEFAULT_PORTRAIT_CONFIG: PortraitConfig = {
   allies:  [{x:5,y:7},{x:14,y:7},{x:23,y:7},{x:32,y:7}],
   enemies: [{x:64,y:7},{x:73,y:7},{x:82,y:7},{x:91,y:7},{x:96,y:7}],
+  sizePct: 5.5,
 };
 
 export function usePortraitConfig() {

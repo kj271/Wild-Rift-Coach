@@ -20,12 +20,17 @@ function label(s: Slot) { return s.team === "ally" ? `A${s.idx + 1}` : `E${s.idx
 function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 
 export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) {
-  const [cfg, setCfg] = useState<PortraitConfig>(structuredClone(current));
+  const [cfg, setCfg] = useState<PortraitConfig>(() => ({
+    ...DEFAULT_PORTRAIT_CONFIG,
+    ...structuredClone(current),
+    sizePct: current.sizePct ?? DEFAULT_PORTRAIT_CONFIG.sizePct,
+  }));
   const [active, setActive] = useState<Slot>({ team: "ally", idx: 0 });
   const [zoom, setZoom] = useState(1);
+  // dragging state: which dot + whether a real drag happened (to suppress tap)
+  const dragging = useRef<{ slot: Slot; moved: boolean } | null>(null);
 
   const imgRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
   const pinch = useRef<{ dist: number; startZoom: number } | null>(null);
 
   // ── Zoom ─────────────────────────────────────────────────────────────────────
@@ -47,45 +52,88 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) 
   }, []);
   const onTouchEnd = useCallback(() => { pinch.current = null; }, []);
 
-  // ── Tap to place ─────────────────────────────────────────────────────────────
-  const handleTap = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!imgRef.current) return;
+  // ── Convert client coords → % within image ───────────────────────────────────
+  const clientToPercent = (cx: number, cy: number): PortraitPos | null => {
+    if (!imgRef.current) return null;
     const rect = imgRef.current.getBoundingClientRect();
-    let cx: number, cy: number;
-    if ("touches" in e || "changedTouches" in e) {
-      const te = e as React.TouchEvent;
-      const t = te.changedTouches[0];
-      cx = t.clientX; cy = t.clientY;
-    } else {
-      const me = e as React.MouseEvent;
-      cx = me.clientX; cy = me.clientY;
-    }
-    const x = clamp(Math.round(((cx - rect.left) / rect.width)  * 1000) / 10, 0, 100);
-    const y = clamp(Math.round(((cy - rect.top)  / rect.height) * 1000) / 10, 0, 100);
-    const pos: PortraitPos = { x, y };
+    return {
+      x: clamp(Math.round(((cx - rect.left) / rect.width)  * 1000) / 10, 0, 100),
+      y: clamp(Math.round(((cy - rect.top)  / rect.height) * 1000) / 10, 0, 100),
+    };
+  };
 
+  // ── Tap to place (on the background, not on a dot) ───────────────────────────
+  const handleContainerClick = (e: React.MouseEvent) => {
+    // Ignore if a drag just finished
+    if (dragging.current?.moved) { dragging.current = null; return; }
+    dragging.current = null;
+    const pos = clientToPercent(e.clientX, e.clientY);
+    if (!pos) return;
+    placeAndAdvance(active, pos);
+  };
+
+  const handleContainerTouchEnd = (e: React.TouchEvent) => {
+    if (dragging.current?.moved) { dragging.current = null; return; }
+    dragging.current = null;
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    const pos = clientToPercent(t.clientX, t.clientY);
+    if (!pos) return;
+    placeAndAdvance(active, pos);
+  };
+
+  const placeAndAdvance = (slot: Slot, pos: PortraitPos) => {
     setCfg(prev => {
       const next = structuredClone(prev);
-      if (active.team === "ally") next.allies[active.idx] = pos;
-      else next.enemies[active.idx] = pos;
+      if (slot.team === "ally") next.allies[slot.idx] = pos;
+      else next.enemies[slot.idx] = pos;
       return next;
     });
-
-    // Auto-advance: allies have 4 slots (0-3), enemies have 5 (0-4)
-    const maxIdx = active.team === "ally" ? 3 : 4;
-    if (active.idx < maxIdx) {
-      setActive({ team: active.team, idx: active.idx + 1 });
-    } else if (active.team === "ally") {
+    const maxIdx = slot.team === "ally" ? 3 : 4;
+    if (slot.idx < maxIdx) {
+      setActive({ team: slot.team, idx: slot.idx + 1 });
+    } else if (slot.team === "ally") {
       setActive({ team: "enemy", idx: 0 });
     }
+  };
+
+  // ── Drag a dot ───────────────────────────────────────────────────────────────
+  const onDotPointerDown = (e: React.PointerEvent, slot: Slot) => {
+    e.stopPropagation();
+    e.preventDefault();
+    dragging.current = { slot, moved: false };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setActive(slot);
+  };
+
+  const onDotPointerMove = (e: React.PointerEvent) => {
+    if (!dragging.current) return;
+    dragging.current.moved = true;
+    const pos = clientToPercent(e.clientX, e.clientY);
+    if (!pos) return;
+    const { slot } = dragging.current;
+    setCfg(prev => {
+      const next = structuredClone(prev);
+      if (slot.team === "ally") next.allies[slot.idx] = pos;
+      else next.enemies[slot.idx] = pos;
+      return next;
+    });
+  };
+
+  const onDotPointerUp = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    // keep dragging.current so the parent click handler can check .moved
+    setTimeout(() => { dragging.current = null; }, 50);
   };
 
   const reset = () => setCfg(structuredClone(DEFAULT_PORTRAIT_CONFIG));
 
   const slots: Slot[] = [
-    ...[0,1,2,3].map(i => ({ team: "ally" as Team, idx: i })),   // 4 other allies
+    ...[0,1,2,3].map(i => ({ team: "ally" as Team, idx: i })),
     ...[0,1,2,3,4].map(i => ({ team: "enemy" as Team, idx: i })),
   ];
+
+  const dotSize = (isActive: boolean) => isActive ? Math.max(cfg.sizePct * 1.3, 18) : cfg.sizePct;
 
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
@@ -95,7 +143,7 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) 
             Place Portraits
           </DialogTitle>
           <p className="text-[11px] text-muted-foreground mt-0.5">
-            Select a slot → tap its centre on the screenshot. Auto-advances to next slot.
+            Tap to place · Drag dots to reposition · Slider = circle size
           </p>
         </DialogHeader>
 
@@ -121,27 +169,35 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) 
         </div>
 
         <p className="px-3 pb-1.5 text-[11px] text-amber-400/80 shrink-0">
-          → Tap where <span className="font-bold">{label(active)}</span> appears on the screenshot
+          → Tap/drag <span className="font-bold">{label(active)}</span> to its portrait centre
         </p>
 
-        {/* Zoom controls */}
+        {/* Zoom + size controls */}
         <div className="px-3 pb-2 flex items-center gap-2 shrink-0">
           <button onClick={zoomOut} disabled={zoom <= 1}
             className="w-7 h-7 rounded-lg border border-border/40 flex items-center justify-center text-muted-foreground hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
             <ZoomOut className="w-3 h-3"/>
           </button>
-          <span className="text-[11px] font-mono text-muted-foreground flex-1 text-center">
+          <span className="text-[11px] font-mono text-muted-foreground w-10 text-center">
             {zoom === 1 ? "100%" : `${Math.round(zoom * 100)}%`}
           </span>
           <button onClick={zoomIn} disabled={zoom >= 12}
             className="w-7 h-7 rounded-lg border border-border/40 flex items-center justify-center text-muted-foreground hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
             <ZoomIn className="w-3 h-3"/>
           </button>
+
+          <div className="flex-1 flex items-center gap-1.5 ml-2">
+            <span className="text-[10px] text-muted-foreground whitespace-nowrap">Circle size</span>
+            <input type="range" min={2} max={14} step={0.5}
+              value={cfg.sizePct}
+              onChange={e => setCfg(p => ({ ...p, sizePct: parseFloat(e.target.value) }))}
+              className="flex-1 accent-primary h-1"/>
+            <span className="text-[10px] font-mono text-muted-foreground w-8">{cfg.sizePct.toFixed(1)}%</span>
+          </div>
         </div>
 
-        {/* Scrollable screenshot area — single finger scrolls, pinch zooms */}
+        {/* Scrollable screenshot */}
         <div
-          ref={scrollRef}
           className="mx-3 rounded-lg overflow-auto border border-border/40"
           style={{ maxHeight: "46vh" }}
           onTouchStart={onTouchStart}
@@ -152,47 +208,59 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) 
             ref={imgRef}
             className="relative cursor-crosshair"
             style={{ width: `${zoom * 100}%` }}
-            onClick={handleTap}
-            onTouchEnd={e => { e.preventDefault(); handleTap(e); }}
+            onClick={handleContainerClick}
+            onTouchEnd={handleContainerTouchEnd}
           >
             <img src={screenshot} alt="screenshot" className="w-full h-auto block pointer-events-none" draggable={false}/>
 
-            {/* Ally dots (4 allies) */}
+            {/* Ally dots */}
             {cfg.allies.map((pos, i) => {
-              const isActive = key({ team: "ally", idx: i }) === key(active);
+              const slot: Slot = { team: "ally", idx: i };
+              const isActive = key(slot) === key(active);
+              const sz = dotSize(isActive);
               return (
                 <div key={`a${i}`}
-                  className={cn("absolute rounded-full border-2 flex items-center justify-center font-bold select-none pointer-events-none transition-all",
+                  className={cn("absolute rounded-full border-2 flex items-center justify-center font-bold select-none cursor-grab active:cursor-grabbing transition-colors touch-none",
                     isActive
                       ? "border-sky-300 bg-sky-400/90 text-white shadow-lg shadow-sky-500/50"
-                      : "border-sky-500/70 bg-sky-600/60 text-white")}
+                      : "border-sky-500/80 bg-sky-600/70 text-white")}
                   style={{
                     left: `${pos.x}%`, top: `${pos.y}%`,
-                    width: isActive ? 24 : 14, height: isActive ? 24 : 14,
+                    width: `${sz}%`, aspectRatio: "1",
                     transform: "translate(-50%, -50%)",
-                    fontSize: isActive ? 8 : 0,
-                  }}>
-                  {isActive ? `A${i+1}` : ""}
+                    fontSize: `${sz * 0.35}%`,
+                    zIndex: isActive ? 10 : 5,
+                  }}
+                  onPointerDown={e => onDotPointerDown(e, slot)}
+                  onPointerMove={onDotPointerMove}
+                  onPointerUp={onDotPointerUp}>
+                  A{i+1}
                 </div>
               );
             })}
 
             {/* Enemy dots */}
             {cfg.enemies.map((pos, i) => {
-              const isActive = key({ team: "enemy", idx: i }) === key(active);
+              const slot: Slot = { team: "enemy", idx: i };
+              const isActive = key(slot) === key(active);
+              const sz = dotSize(isActive);
               return (
                 <div key={`e${i}`}
-                  className={cn("absolute rounded-full border-2 flex items-center justify-center text-[8px] font-bold select-none pointer-events-none transition-all",
+                  className={cn("absolute rounded-full border-2 flex items-center justify-center font-bold select-none cursor-grab active:cursor-grabbing transition-colors touch-none",
                     isActive
                       ? "border-red-300 bg-red-400/90 text-white shadow-lg shadow-red-500/50"
-                      : "border-red-500/70 bg-red-600/60 text-white")}
+                      : "border-red-500/80 bg-red-600/70 text-white")}
                   style={{
                     left: `${pos.x}%`, top: `${pos.y}%`,
-                    width: isActive ? 24 : 16, height: isActive ? 24 : 16,
-                    transform: `translate(-50%, -50%)`,
-                    fontSize: isActive ? 8 : 0,
-                  }}>
-                  {isActive ? `E${i+1}` : ""}
+                    width: `${sz}%`, aspectRatio: "1",
+                    transform: "translate(-50%, -50%)",
+                    fontSize: `${sz * 0.35}%`,
+                    zIndex: isActive ? 10 : 5,
+                  }}
+                  onPointerDown={e => onDotPointerDown(e, slot)}
+                  onPointerMove={onDotPointerMove}
+                  onPointerUp={onDotPointerUp}>
+                  E{i+1}
                 </div>
               );
             })}
