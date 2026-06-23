@@ -22,6 +22,7 @@ export const HealthCheckResponse = zod.object({
  */
 export const AnalyzeScreenshotBody = zod.object({
   "imageBase64": zod.string().nullish().describe('Base64 encoded screenshot image'),
+  "minimapBase64": zod.string().nullish().describe('Base64 encoded annotated minimap image showing player positions'),
   "model": zod.string().describe('OpenRouter model ID to use'),
   "context": zod.object({
   "gameTime": zod.string().nullish().describe('Current game time (e.g. \"8:42\")'),

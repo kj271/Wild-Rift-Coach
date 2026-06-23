@@ -71,7 +71,7 @@ router.post("/coach/analyze", async (req, res): Promise<void> => {
     return;
   }
 
-  const { model, imageBase64, context } = parsed.data;
+  const { model, imageBase64, minimapBase64, context } = parsed.data;
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -79,25 +79,37 @@ router.post("/coach/analyze", async (req, res): Promise<void> => {
 
   const userText = buildUserMessage({ imageBase64, context });
 
+  type ContentPart =
+    | { type: "text"; text: string }
+    | { type: "image_url"; image_url: { url: string } };
+
   type MessageParam =
     | { role: "system" | "user" | "assistant"; content: string }
-    | { role: "user"; content: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }> };
+    | { role: "user"; content: ContentPart[] };
 
   const messages: MessageParam[] = [
     { role: "system", content: WILD_RIFT_MACRO_SYSTEM_PROMPT },
   ];
 
-  if (imageBase64) {
-    messages.push({
-      role: "user",
-      content: [
-        { type: "text", text: userText },
-        {
-          type: "image_url",
-          image_url: { url: `data:image/png;base64,${imageBase64}` },
-        },
-      ],
-    });
+  if (imageBase64 || minimapBase64) {
+    const contentParts: ContentPart[] = [{ type: "text", text: userText }];
+    if (imageBase64) {
+      contentParts.push({
+        type: "image_url",
+        image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
+      });
+    }
+    if (minimapBase64) {
+      contentParts.push({
+        type: "text",
+        text: "The following image is the ANNOTATED MINIMAP — yellow pin = ME, blue pins = Allies, red pins = Enemies. Use this for precise position analysis:",
+      });
+      contentParts.push({
+        type: "image_url",
+        image_url: { url: `data:image/jpeg;base64,${minimapBase64}` },
+      });
+    }
+    messages.push({ role: "user", content: contentParts });
   } else {
     messages.push({ role: "user", content: userText });
   }

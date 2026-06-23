@@ -13,6 +13,11 @@ export interface AnalyzeInput {
      * @nullable
      */
   imageBase64?: string | null;
+  /**
+     * Base64 encoded annotated minimap image showing player positions
+     * @nullable
+     */
+  minimapBase64?: string | null;
   /** OpenRouter model ID to use */
   model: string;
   context?: GameContext;

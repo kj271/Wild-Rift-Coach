@@ -255,6 +255,9 @@ components:
         imageBase64:
           type: ["string", "null"]
           description: Base64 encoded screenshot image
+        minimapBase64:
+          type: ["string", "null"]
+          description: Base64 encoded annotated minimap image showing player positions
         model:
           type: string
           description: OpenRouter model ID to use
