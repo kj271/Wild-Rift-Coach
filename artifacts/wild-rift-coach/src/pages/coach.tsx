@@ -1094,8 +1094,10 @@ export default function CoachPage(){
                     <button onClick={()=>{
                         if(i===activeQueueIdx)return;
                         saveCurrentSlot(imageQueue[activeQueueIdx]!);
+                        // First visit to this image → carry forward current pins as starting point
+                        const restore=perImageState.current.get(img)??{pins,benchPins,objPins,alliesDown,enemiesDown,towersDown};
                         setActiveQueueIdx(i);
-                        applySlotState(perImageState.current.get(img));
+                        applySlotState(restore);
                         processImage(img);
                       }}
                       className={cn("w-14 h-14 rounded-lg overflow-hidden border-2 active:scale-95 transition-all block",
