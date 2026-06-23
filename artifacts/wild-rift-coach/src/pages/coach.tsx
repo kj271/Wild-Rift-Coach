@@ -601,6 +601,7 @@ export default function CoachPage(){
     if(ctx.baronStatus)parts.push(`- Baron: ${ctx.baronStatus}`);
     if(ctx.riftHeraldStatus)parts.push(`- Rift Herald: ${ctx.riftHeraldStatus}`);
     if(ctx.additionalNotes)parts.push(`- Additional notes: ${ctx.additionalNotes}`);
+    parts.push("\n⚠️ IMPORTANT: Do NOT name or guess any champion from the minimap image. Only use champion names I have explicitly provided above. Refer to unknown pins only as A1/A2/E1/E2 etc.");
     if(hasImage)parts.push("\nAnalyze the attached minimap and provide macro advice based on the game state above.");
     else if(parts.length>1)parts.push("\nBased on the game state above, what should I do right now?");
     else parts.push("What should I focus on macro-wise right now?");

@@ -30,11 +30,12 @@ MINIMAP READING:
 - If a SCOREBOARD image appears below the minimap, read it for KDA, gold, and the game timer
 - If a PORTRAITS image appears below the minimap, read it for champion death timers — a countdown means that champion is currently dead and respawning
 
-CHAMPION IDENTITY:
-- NEVER guess or infer which champion a pin represents unless the player has explicitly told you (e.g. "My champ: Kassadin", or a named ally/enemy in the context)
-- Do not read champion icons from the minimap image and assume identities — minimap icons are too small and ambiguous to be reliable
-- If no champion is stated for a pin, refer to them only by their label (e.g. "A2", "E3") — do not speculate about who they might be
-- Giving wrong champion identities leads to wrong ability-based advice, so when in doubt, omit champion names entirely`;
+CHAMPION IDENTITY — HARD RULE, NO EXCEPTIONS:
+- DO NOT name or guess any champion unless it is explicitly stated in the game context text I provide
+- DO NOT attempt to read or interpret champion icons from the minimap image — they are too small and you will be wrong
+- DO NOT say things like "the enemy jungler (Malphite)" or "it looks like Yasuo" or assume any role/identity from the minimap visuals
+- If a pin has no champion name in the context, refer to it ONLY as its label: A1, A2, E1, E2, etc.
+- Violating this rule gives wrong advice and destroys trust. Treat unknown champions as anonymous.`;
 
 export function useSystemPrompt() {
   const [prompt, setPromptState] = useState<string>(() => {

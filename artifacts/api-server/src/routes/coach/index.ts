@@ -23,13 +23,22 @@ MINIMAP READING:
 - Yellow pin = the player asking for advice (ME)
 - Blue pins A1–A5 = allied champions
 - Red pins E1–E5 = enemy champions
-- Pin positions are described as "[Lane] X% (category)" where 0% = near blue/allied base, 100% = near red/enemy base
-  - "defending" (<25%) — champion is back near their own base
+- Pin positions are described as "[Lane] X% (zone)" where 0% = near blue/allied base, 100% = near red/enemy base
+  - "own side" (<25%) — champion is in or near their own base area (could be base, rotating, returning after death, etc.)
   - "mid" (25–75%) — contested zone along the lane
   - "pushed" (>75%) — deep in enemy territory
 - Baron Lane = top lane | Dragon Lane = bottom lane | Mid Lane = center
 - Named zones: Blue Base / Blue Jungle = allied side, Red Base / Red Jungle = enemy side
-- If a GAME TIME crop image appears in the bottom-right of the minimap, read it for the current timestamp`;
+- TOWERS on the minimap: blue towers = allied, red towers = enemy. A destroyed tower no longer appears on the minimap at all — its absence means it is gone
+- If a SCOREBOARD image appears below the minimap, read it for KDA, gold, and the game timer
+- If a PORTRAITS image appears below the minimap, read it for champion death timers — a countdown means that champion is currently dead and respawning
+
+CHAMPION IDENTITY — HARD RULE, NO EXCEPTIONS:
+- DO NOT name or guess any champion unless it is explicitly stated in the game context text provided
+- DO NOT attempt to read or interpret champion icons from the minimap image — they are too small and you will be wrong
+- DO NOT say things like "the enemy jungler (Malphite)" or "it looks like Yasuo" or assume any role/identity from minimap visuals
+- If a pin has no champion name in the context, refer to it ONLY as its label: A1, A2, E1, E2, etc.
+- Violating this rule gives wrong advice and destroys trust. Treat unknown champions as anonymous.`;
 
 function buildUserMessage(body: {
   imageBase64?: string | null;
@@ -40,6 +49,7 @@ function buildUserMessage(body: {
     allyChampions?: string | null;
     enemyChampions?: string | null;
     dragonStatus?: string | null;
+    elderDragonStatus?: string | null;
     baronStatus?: string | null;
     riftHeraldStatus?: string | null;
     goldDiff?: string | null;
@@ -58,6 +68,7 @@ function buildUserMessage(body: {
     if (ctx.allyChampions) parts.push(`- Ally champions: ${ctx.allyChampions}`);
     if (ctx.enemyChampions) parts.push(`- Enemy champions: ${ctx.enemyChampions}`);
     if (ctx.dragonStatus) parts.push(`- Dragon: ${ctx.dragonStatus}`);
+    if (ctx.elderDragonStatus) parts.push(`- Elder Dragon: ${ctx.elderDragonStatus}`);
     if (ctx.baronStatus) parts.push(`- Baron: ${ctx.baronStatus}`);
     if (ctx.riftHeraldStatus) parts.push(`- Rift Herald: ${ctx.riftHeraldStatus}`);
     if (ctx.goldDiff) parts.push(`- Gold difference: ${ctx.goldDiff}`);
@@ -65,8 +76,10 @@ function buildUserMessage(body: {
     if (ctx.additionalNotes) parts.push(`- Additional notes: ${ctx.additionalNotes}`);
   }
 
+  parts.push("\n⚠️ REMINDER: Do NOT name or guess any champion from the minimap image. Only use champion names explicitly provided above. Refer to unknown pins only as A1/A2/E1/E2 etc.");
+
   if (body.imageBase64) {
-    parts.push("\nAnalyze the attached screenshot and provide macro advice based on the minimap, game state, and the context above.");
+    parts.push("\nAnalyze the attached minimap and provide macro advice based on the game state above.");
   } else if (parts.length > 0) {
     parts.push("\nBased on the game state above, what should I do right now?");
   } else {
