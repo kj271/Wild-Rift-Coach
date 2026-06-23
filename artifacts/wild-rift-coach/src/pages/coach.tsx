@@ -24,7 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import {
   Target, Settings, AlertCircle, Loader2, Send, Upload,
   MessageSquare, X, Search, UserRound, Users, Swords,
-  ChevronDown, ChevronUp, Crop, Map, Star, RotateCcw, Bug, Timer, Clock, Building2,
+  ChevronDown, ChevronUp, Crop, Map as MapIcon, Star, RotateCcw, Bug, Timer, Clock, Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -71,6 +71,7 @@ type ZonePos = { kind: "zone"; zone: string };
 type PosInfo = LanePos | ZonePos;
 
 interface MapPin { id: string; type: PinType; x: number; y: number; pos: PosInfo; champ: string | null }
+interface ImageSlotState { pins:MapPin[]; benchPins:MapPin[]; objPins:ObjPin[]; alliesDown:number[]; enemiesDown:number[]; towersDown:{ally:number[];enemy:number[]} }
 
 // ─── Session persistence ───────────────────────────────────────────────────────
 const SESSION_KEY = "wildrift_session";
@@ -605,6 +606,7 @@ export default function CoachPage(){
   const[minimapBase64,setMinimapBase64]=useState<string|null>((_sess.minimapBase64 as string|null)??null);
   const[imageQueue,setImageQueue]=useState<string[]>([]);
   const[activeQueueIdx,setActiveQueueIdx]=useState(0);
+  const perImageState=useRef<Map<string,ImageSlotState>>(new Map());
   const fileInputRef=useRef<HTMLInputElement>(null);
 
   // Calibration modals
@@ -720,10 +722,12 @@ export default function CoachPage(){
   },[cropConfig]);
 
   // ── Process uploaded image ──────────────────────────────────────────────────
-  const processImage=useCallback(async(dataUrl:string)=>{
+  const processImage=useCallback(async(dataUrl:string,restore?:ImageSlotState)=>{
     setImageBase64(dataUrl);setMinimapBase64(null);setPlaceMode(null);
     setGameTimeCrop(null);setPortraitStripCrop(null);
-    setAlliesDown([]);setEnemiesDown([]);
+    setPins(restore?.pins??[]);setBenchPins(restore?.benchPins??[]);setObjPins(restore?.objPins??[]);
+    setAlliesDown(restore?.alliesDown??[]);setEnemiesDown(restore?.enemiesDown??[]);
+    setTowersDown(restore?.towersDown??{ally:[],enemy:[]});
     setAdvice("");setChatMessages([]);setActiveConversationId(null);
     await recropMinimap(dataUrl);
     try{
@@ -1056,7 +1060,7 @@ export default function CoachPage(){
                 {minimapBase64&&(
                   <button onClick={()=>setShowZoneEditor(true)}
                     className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-amber-400 border border-border/30 hover:border-amber-400/40 px-2.5 py-1 rounded-full transition-colors">
-                    <Map className="w-3 h-3"/> Edit zones
+                    <MapIcon className="w-3 h-3"/> Edit zones
                   </button>
                 )}
                 {(towersDown.ally.length>0||towersDown.enemy.length>0)&&(
@@ -1079,7 +1083,13 @@ export default function CoachPage(){
               <div className="flex gap-2 px-3 py-2 border-b border-border/30 overflow-x-auto">
                 {imageQueue.map((img,i)=>(
                   <div key={i} className="relative shrink-0">
-                    <button onClick={()=>{setActiveQueueIdx(i);processImage(img);}}
+                    <button onClick={()=>{
+                        if(i===activeQueueIdx)return;
+                        // Save current image's state before switching
+                        perImageState.current.set(imageQueue[activeQueueIdx]!,{pins,benchPins,objPins,alliesDown,enemiesDown,towersDown});
+                        setActiveQueueIdx(i);
+                        processImage(img,perImageState.current.get(img));
+                      }}
                       className={cn("w-14 h-14 rounded-lg overflow-hidden border-2 active:scale-95 transition-all block",
                         i===activeQueueIdx?"border-primary":"border-border/30 opacity-50")}>
                       <img src={img} alt={`Screenshot ${i+1}`} className="w-full h-full object-cover"/>
@@ -1087,8 +1097,13 @@ export default function CoachPage(){
                     <button
                       onClick={()=>{
                         const next=imageQueue.filter((_,j)=>j!==i);
-                        if(next.length===0){setImageQueue([]);setActiveQueueIdx(0);setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setPortraitStripCrop(null);}
-                        else{const newIdx=i>=next.length?next.length-1:i===activeQueueIdx?Math.min(i,next.length-1):activeQueueIdx>i?activeQueueIdx-1:activeQueueIdx;setImageQueue(next);setActiveQueueIdx(newIdx);if(i===activeQueueIdx)processImage(next[newIdx]!);}
+                        // Save state of the image being deleted (preserve in case user re-adds)
+                        // If deleting the active image, save state first then switch
+                        if(i===activeQueueIdx&&next.length>0){
+                          perImageState.current.set(imageQueue[i]!,{pins,benchPins,objPins,alliesDown,enemiesDown,towersDown});
+                        }
+                        if(next.length===0){perImageState.current.clear();setImageQueue([]);setActiveQueueIdx(0);setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setPortraitStripCrop(null);}
+                        else{const newIdx=i>=next.length?next.length-1:i===activeQueueIdx?Math.min(i,next.length-1):activeQueueIdx>i?activeQueueIdx-1:activeQueueIdx;setImageQueue(next);setActiveQueueIdx(newIdx);if(i===activeQueueIdx)processImage(next[newIdx]!,perImageState.current.get(next[newIdx]!));}
                       }}
                       className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-black/90 border border-border/60 flex items-center justify-center text-xs font-bold text-white hover:bg-red-600 active:scale-90 transition-all touch-manipulation">
                       ×
