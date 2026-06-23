@@ -186,17 +186,18 @@ export function TowerCalibrator({ imageDataUrl, config, onSave, onClose }: Props
         )}
       </div>
 
-      {/* Map image — no object-contain; div must match the image exactly so % coords are accurate */}
-      <div className="flex-1 overflow-auto p-3">
+      {/* Map image — constrained by height so it never scrolls on iPad */}
+      <div className="flex-1 min-h-0 overflow-hidden p-2 flex items-start justify-center">
         <div
           ref={imgRef}
-          className={cn("relative w-full", selected && "cursor-crosshair")}
+          className={cn("relative h-full", selected && "cursor-crosshair")}
+          style={{width:"auto"}}
           onClick={handleBgClick}
           onTouchEnd={handleBgTouchEnd}>
           <img
             src={imageDataUrl}
             alt="Minimap"
-            className="w-full h-auto block pointer-events-none select-none"
+            className="h-full w-auto block pointer-events-none select-none"
             draggable={false}
           />
           {(["ally", "enemy"] as const).map(team =>
@@ -211,14 +212,14 @@ export function TowerCalibrator({ imageDataUrl, config, onSave, onClose }: Props
                   style={{ left: `${pos.x}%`, top: `${pos.y}%` }}>
                   <div
                     className={cn(
-                      "w-7 h-7 rounded-sm border-2 flex flex-col items-center justify-center text-[8px] font-bold cursor-grab active:cursor-grabbing select-none transition-transform",
+                      "w-10 h-10 rounded border-2 flex flex-col items-center justify-center text-[11px] font-bold cursor-grab active:cursor-grabbing select-none transition-transform",
                       isActive && "scale-125"
                     )}
                     style={{
-                      background: isActive ? color + "44" : "rgba(5,12,28,0.85)",
+                      background: isActive ? color + "44" : "rgba(5,12,28,0.88)",
                       borderColor: color,
                       color,
-                      boxShadow: isActive ? `0 0 8px ${color}66` : undefined,
+                      boxShadow: isActive ? `0 0 10px ${color}88` : `0 0 4px ${color}44`,
                     }}
                     onPointerDown={e => onTowerPointerDown(e, team, idx)}
                     onPointerMove={onTowerPointerMove}

@@ -689,14 +689,10 @@ export default function CoachPage(){
       setPins(p=>[...p.filter(pp=>pp.type!=="me"),{id:`me-${Date.now()}`,type:"me",x,y,pos,champ:myChamp}]);
     }else if(placeMode==="ally"){
       if(pins.filter(p=>p.type==="ally").length>=4)return;
-      const newId=`ally-${Date.now()}`;
-      setPins(p=>[...p,{id:newId,type:"ally",x,y,pos,champ:null}]);
-      setQuickPickPinId(newId);
+      setPins(p=>[...p,{id:`ally-${Date.now()}`,type:"ally",x,y,pos,champ:null}]);
     }else{
       if(pins.filter(p=>p.type==="enemy").length>=5)return;
-      const newId=`enemy-${Date.now()}`;
-      setPins(p=>[...p,{id:newId,type:"enemy",x,y,pos,champ:null}]);
-      setQuickPickPinId(newId);
+      setPins(p=>[...p,{id:`enemy-${Date.now()}`,type:"enemy",x,y,pos,champ:null}]);
     }
   },[placeMode,myChamp,pins,lanePaths,zones]);
 
@@ -1045,8 +1041,8 @@ export default function CoachPage(){
                         className="absolute -translate-x-1/2 -translate-y-1/2 z-10 rounded-sm border flex items-center justify-center font-bold leading-none active:scale-90 transition-transform"
                         style={{
                           left:`${pos.x}%`,top:`${pos.y}%`,
-                          width:"5%",aspectRatio:"1",
-                          fontSize:"1.8vw",
+                          width:"8%",aspectRatio:"1",
+                          fontSize:"2.8vw",
                           background:down?"rgba(5,12,28,0.92)":"rgba(5,12,28,0.72)",
                           borderColor:down?"rgba(100,100,100,0.5)":color,
                           color:down?"rgba(100,100,100,0.6)":color,
