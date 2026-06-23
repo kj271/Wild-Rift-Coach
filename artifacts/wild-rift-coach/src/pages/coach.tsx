@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Link } from "wouter";
 import { useModelStorage } from "@/hooks/use-model-storage";
-import { useCropConfig, useTimerCropConfig, usePortraitConfig, DEFAULT_PORTRAIT_CONFIG, useLanePaths, useZones, useFavoriteChamps, LanePaths, ZoneData, Point } from "@/hooks/use-map-config";
+import { useCropConfig, useTimerCropConfig, usePortraitConfig, usePortraitStripConfig, DEFAULT_PORTRAIT_CONFIG, useLanePaths, useZones, useFavoriteChamps, LanePaths, ZoneData, Point } from "@/hooks/use-map-config";
 import { CropCalibrator } from "@/components/crop-calibrator";
 import { PortraitPlacer } from "@/components/portrait-placer";
 import { ZoneEditor } from "@/components/zone-editor";
@@ -9,6 +9,7 @@ import { PROMPT_KEY, DEFAULT_SYSTEM_PROMPT } from "@/hooks/use-system-prompt";
 import {
   GameContext,
   useCreateOpenrouterConversation,
+  usePatchOpenrouterConversation,
   useListOpenrouterConversations,
   useGetOpenrouterConversation,
   getGetOpenrouterConversationQueryKey,
@@ -164,22 +165,31 @@ function posLabel(pos:PosInfo):string{
 function loadImg(src:string):Promise<HTMLImageElement>{
   return new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=src;});
 }
-async function renderAnnotatedMinimap(minimapDataUrl:string,pins:MapPin[],gameTimeCropDataUrl?:string|null):Promise<string>{
+async function renderAnnotatedMinimap(
+  minimapDataUrl:string,
+  pins:MapPin[],
+  scoreboardCropDataUrl?:string|null,
+  portraitStripDataUrl?:string|null,
+):Promise<string>{
   const img=await loadImg(minimapDataUrl);
   const W=img.naturalWidth*2,H=img.naturalHeight*2;
+  const pad=10,labelFs=Math.round(W*0.042);
+  const cropW=Math.round(W*0.96);
 
-  // Pre-load timer image so we know its height before creating canvas
-  let timerImg:HTMLImageElement|null=null;
-  if(gameTimeCropDataUrl){try{timerImg=await loadImg(gameTimeCropDataUrl);}catch{}}
+  // Pre-load scoreboard image
+  let scoreImg:HTMLImageElement|null=null;
+  if(scoreboardCropDataUrl){try{scoreImg=await loadImg(scoreboardCropDataUrl);}catch{}}
+  const scoreImgH=scoreImg?Math.round(cropW*(scoreImg.naturalHeight/scoreImg.naturalWidth)):0;
+  const scoreStripH=scoreImg?labelFs+pad*3+scoreImgH:0;
 
-  const timerPad=10,timerFs=Math.round(W*0.042);
-  const timerW=Math.round(W*0.7);
-  const timerImgH=timerImg?Math.round(timerW*(timerImg.naturalHeight/timerImg.naturalWidth)):0;
-  const timerStripH=timerImg?timerFs+timerPad*3+timerImgH:0;
+  // Pre-load portrait strip image
+  let portraitImg:HTMLImageElement|null=null;
+  if(portraitStripDataUrl){try{portraitImg=await loadImg(portraitStripDataUrl);}catch{}}
+  const portraitImgH=portraitImg?Math.round(cropW*(portraitImg.naturalHeight/portraitImg.naturalWidth)):0;
+  const portraitStripH=portraitImg?labelFs+pad*3+portraitImgH:0;
 
-  // Canvas = minimap + optional timer strip below
   const canvas=document.createElement("canvas");
-  canvas.width=W;canvas.height=H+timerStripH;
+  canvas.width=W;canvas.height=H+scoreStripH+portraitStripH;
   const ctx=canvas.getContext("2d")!;
   ctx.drawImage(img,0,0,W,H);
 
@@ -209,17 +219,28 @@ async function renderAnnotatedMinimap(minimapDataUrl:string,pins:MapPin[],gameTi
     }
   }
 
-  // Draw game-time strip BELOW minimap (does not overlap the map)
-  if(timerImg){
-    ctx.fillStyle="#0a111e";
-    ctx.fillRect(0,H,W,timerStripH);
+  // Draw scoreboard strip BELOW minimap
+  let nextY=H;
+  if(scoreImg){
+    ctx.fillStyle="#0a111e";ctx.fillRect(0,nextY,W,scoreStripH);
     ctx.strokeStyle="#1e3a5f";ctx.lineWidth=2;
-    ctx.beginPath();ctx.moveTo(0,H+1);ctx.lineTo(W,H+1);ctx.stroke();
-    ctx.fillStyle="#93c5fd";
-    ctx.font=`bold ${timerFs}px sans-serif`;
+    ctx.beginPath();ctx.moveTo(0,nextY+1);ctx.lineTo(W,nextY+1);ctx.stroke();
+    ctx.fillStyle="#93c5fd";ctx.font=`bold ${labelFs}px sans-serif`;
     ctx.textAlign="left";ctx.textBaseline="top";
-    ctx.fillText("GAME TIME:",timerPad,H+timerPad);
-    ctx.drawImage(timerImg,timerPad,H+timerPad+timerFs+timerPad,timerW,timerImgH);
+    ctx.fillText("SCOREBOARD:",pad,nextY+pad);
+    ctx.drawImage(scoreImg,pad,nextY+pad+labelFs+pad,cropW,scoreImgH);
+    nextY+=scoreStripH;
+  }
+
+  // Draw portrait strip BELOW scoreboard
+  if(portraitImg){
+    ctx.fillStyle="#0a1020";ctx.fillRect(0,nextY,W,portraitStripH);
+    ctx.strokeStyle="#1e3a5f";ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(0,nextY+1);ctx.lineTo(W,nextY+1);ctx.stroke();
+    ctx.fillStyle="#86efac";ctx.font=`bold ${labelFs}px sans-serif`;
+    ctx.textAlign="left";ctx.textBaseline="top";
+    ctx.fillText("PORTRAITS (respawn timers):",pad,nextY+pad);
+    ctx.drawImage(portraitImg,pad,nextY+pad+labelFs+pad,cropW,portraitImgH);
   }
 
   return canvas.toDataURL("image/jpeg",0.92);
@@ -387,6 +408,7 @@ export default function CoachPage(){
   const[model]=useModelStorage();
   const{config:cropConfig,save:saveCrop}=useCropConfig();
   const{config:timerCropConfig,save:saveTimerCrop}=useTimerCropConfig();
+  const{config:portraitStripConfig,save:savePortraitStrip}=usePortraitStripConfig();
   const{config:portraitConfig,save:savePortraitConfig}=usePortraitConfig();
   const{paths:lanePaths,save:saveLanes}=useLanePaths();
   const{zones,save:saveZones}=useZones();
@@ -404,10 +426,12 @@ export default function CoachPage(){
   const[showCropEditor,setShowCropEditor]=useState(false);
   const[showTimerCropEditor,setShowTimerCropEditor]=useState(false);
   const[showPortraitBarEditor,setShowPortraitBarEditor]=useState(false);
+  const[showPortraitStripEditor,setShowPortraitStripEditor]=useState(false);
   const[showZoneEditor,setShowZoneEditor]=useState(false);
 
-  // Game-time crop image (stored separately, lost on reload — too large for localStorage)
+  // Crop images (stored in state only — too large for localStorage)
   const[gameTimeCrop,setGameTimeCrop]=useState<string|null>(null);
+  const[portraitStripCrop,setPortraitStripCrop]=useState<string|null>(null);
 
   // Pins
   const[pins,setPins]=useState<MapPin[]>((_sess.pins as MapPin[])??[]);
@@ -449,6 +473,7 @@ export default function CoachPage(){
     {query:{enabled:!!activeConversationId,queryKey:getGetOpenrouterConversationQueryKey(activeConversationId as number)}}
   );
   const createConversation=useCreateOpenrouterConversation();
+  const patchConversation=usePatchOpenrouterConversation();
 
   // ── Persist session to localStorage on every change ───────────────────────────
   useEffect(()=>{
@@ -461,7 +486,7 @@ export default function CoachPage(){
     setMyRole(null);setMyChamp(null);setDragon(null);setBaron(null);setHerald(null);
     setBaronBuff(null);setElderBuff(null);setAlliesDown([]);setEnemiesDown([]);
     setGameTimeSecs(0);setActiveConversationId(null);setAdvice("");setChatMessages([]);
-    setDebugInfo(null);setDebugMinimapUrl(null);
+    setDebugInfo(null);setDebugMinimapUrl(null);setPortraitStripCrop(null);
   },[]);
 
   // ── Re-crop minimap with current config ──────────────────────────────────────
@@ -474,13 +499,17 @@ export default function CoachPage(){
   // ── Process uploaded image ──────────────────────────────────────────────────
   const processImage=useCallback(async(dataUrl:string)=>{
     setImageBase64(dataUrl);setMinimapBase64(null);setPins([]);setPlaceMode(null);
-    setAlliesDown([]);setEnemiesDown([]);setGameTimeCrop(null);
+    setAlliesDown([]);setEnemiesDown([]);setGameTimeCrop(null);setPortraitStripCrop(null);
     await recropMinimap(dataUrl);
     try{
       const strip=await cropDataUrl(dataUrl,timerCropConfig.x,timerCropConfig.y,timerCropConfig.w,timerCropConfig.h);
       setGameTimeCrop(strip);
     }catch{}
-  },[recropMinimap,timerCropConfig]);
+    try{
+      const ps=await cropDataUrl(dataUrl,portraitStripConfig.x,portraitStripConfig.y,portraitStripConfig.w,portraitStripConfig.h);
+      setPortraitStripCrop(ps);
+    }catch{}
+  },[recropMinimap,timerCropConfig,portraitStripConfig]);
 
   const handleFile=(file:File)=>{
     const reader=new FileReader();
@@ -503,6 +532,16 @@ export default function CoachPage(){
       setGameTimeCrop(strip);
     }catch{}
   },[saveTimerCrop,imageBase64]);
+
+  // ── Save portrait-strip config and immediately re-crop ───────────────────
+  const handleSavePortraitStrip=useCallback(async(cfg:typeof portraitStripConfig)=>{
+    savePortraitStrip(cfg);
+    if(!imageBase64)return;
+    try{
+      const ps=await cropDataUrl(imageBase64,cfg.x,cfg.y,cfg.w,cfg.h);
+      setPortraitStripCrop(ps);
+    }catch{}
+  },[savePortraitStrip,imageBase64]);
 
   // ── Tap on minimap ──────────────────────────────────────────────────────────
   const handleMinimapTap=useCallback((e:React.MouseEvent|React.TouchEvent)=>{
@@ -578,8 +617,8 @@ export default function CoachPage(){
   // Always return annotated minimap when available (with pins + game-time crop if present)
   const getAnnotatedMinimap=useCallback(async():Promise<string|null>=>{
     if(!minimapBase64)return null;
-    return renderAnnotatedMinimap(minimapBase64,pins,gameTimeCrop);
-  },[minimapBase64,pins,gameTimeCrop]);
+    return renderAnnotatedMinimap(minimapBase64,pins,gameTimeCrop,portraitStripCrop);
+  },[minimapBase64,pins,gameTimeCrop,portraitStripCrop]);
 
   // Keep ref in sync so async callbacks always read the latest game time
   useEffect(() => { gameTimeSecsRef.current = gameTimeSecs; }, [gameTimeSecs]);
@@ -618,10 +657,15 @@ export default function CoachPage(){
           try{
             const d=JSON.parse(line.slice(6));
             if(d.content)setAdvice(p=>p+d.content);
-            if(d.done&&!activeConversationId){
+            if(d.done){
               const gts=gameTimeSecsRef.current;
-              const conv=await createConversation.mutateAsync({data:{title:gts>0?`@ ${fmt(gts)}`:`Game ${new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}`,model}});
-              setActiveConversationId(conv.id);
+              const newTitle=gts>0?`@ ${fmt(gts)}`:`Game ${new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}`;
+              if(!activeConversationId){
+                const conv=await createConversation.mutateAsync({data:{title:newTitle,model}});
+                setActiveConversationId(conv.id);
+              } else {
+                await patchConversation.mutateAsync({id:activeConversationId,data:{title:newTitle}});
+              }
               queryClient.invalidateQueries({queryKey:getListOpenrouterConversationsQueryKey()});
             }
           }catch{}
@@ -787,13 +831,19 @@ export default function CoachPage(){
               <button
                 className={cn("bg-black/70 text-xs px-2 py-1.5 rounded-lg flex items-center gap-1 active:scale-95 border",
                   gameTimeCrop?"border-primary/50 text-primary":"border-primary/30 text-primary/60")}
-                onClick={()=>setShowTimerCropEditor(true)} title="Set game-timer crop area">
-                <Clock className="w-3 h-3"/> Timer
+                onClick={()=>setShowTimerCropEditor(true)} title="Crop scoreboard (KDA + score + timer) area">
+                <Clock className="w-3 h-3"/> Score bar
+              </button>
+              <button
+                className={cn("bg-black/70 text-xs px-2 py-1.5 rounded-lg flex items-center gap-1 active:scale-95 border",
+                  portraitStripCrop?"border-emerald-400/60 text-emerald-400":"border-emerald-400/30 text-emerald-400/60")}
+                onClick={()=>setShowPortraitStripEditor(true)} title="Crop portrait area (respawn timers) for AI">
+                <Skull className="w-3 h-3"/> Respawn
               </button>
               <button
                 className="bg-black/70 border border-sky-400/40 text-sky-400 text-xs px-2 py-1.5 rounded-lg flex items-center gap-1 active:scale-95"
-                onClick={()=>setShowPortraitBarEditor(true)} title="Place individual portraits">
-                <Users className="w-3 h-3"/> Portraits
+                onClick={()=>setShowPortraitBarEditor(true)} title="Place individual portrait click zones">
+                <Users className="w-3 h-3"/> Zones
               </button>
               <button className="w-8 h-8 rounded-full bg-black/70 border border-white/20 flex items-center justify-center text-white active:scale-95"
                 onClick={()=>{setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setAlliesDown([]);setEnemiesDown([]);setPins([]);}}>
@@ -1154,9 +1204,18 @@ export default function CoachPage(){
         <CropCalibrator
           screenshot={imageBase64}
           current={timerCropConfig}
-          title="Timer Crop — select the game clock area"
+          title="Score bar — select KDA + score + timer area"
           onSave={handleSaveTimerCrop}
           onClose={()=>setShowTimerCropEditor(false)}
+        />
+      )}
+      {showPortraitStripEditor&&imageBase64&&(
+        <CropCalibrator
+          screenshot={imageBase64}
+          current={portraitStripConfig}
+          title="Portrait strip — select the ally/enemy portrait area"
+          onSave={handleSavePortraitStrip}
+          onClose={()=>setShowPortraitStripEditor(false)}
         />
       )}
       {showPortraitBarEditor&&imageBase64&&(

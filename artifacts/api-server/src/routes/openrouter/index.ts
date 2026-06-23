@@ -76,6 +76,21 @@ router.get("/openrouter/conversations/:id", async (req, res): Promise<void> => {
   });
 });
 
+router.patch("/openrouter/conversations/:id", async (req, res): Promise<void> => {
+  const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const idNum = parseInt(rawId!, 10);
+  if (isNaN(idNum)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const { title } = req.body as { title?: string };
+  if (typeof title !== "string" || !title.trim()) { res.status(400).json({ error: "title required" }); return; }
+  const [updated] = await db
+    .update(conversations)
+    .set({ title: title.trim() })
+    .where(eq(conversations.id, idNum))
+    .returning();
+  if (!updated) { res.status(404).json({ error: "Conversation not found" }); return; }
+  res.json({ id: updated.id, title: updated.title, createdAt: updated.createdAt });
+});
+
 router.delete("/openrouter/conversations/:id", async (req, res): Promise<void> => {
   const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = DeleteOpenrouterConversationParams.safeParse({ id: parseInt(rawId!, 10) });

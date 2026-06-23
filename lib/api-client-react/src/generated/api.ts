@@ -25,6 +25,7 @@ import type {
   ModelInfo,
   OpenrouterConversation,
   OpenrouterConversationInput,
+  OpenrouterConversationPatch,
   OpenrouterConversationWithMessages,
   OpenrouterError,
   OpenrouterMessage,
@@ -493,6 +494,78 @@ export function useGetOpenrouterConversation<TData = Awaited<ReturnType<typeof g
 
 
 
+
+export const getPatchOpenrouterConversationUrl = (id: number,) => {
+
+
+
+
+  return `/api/openrouter/conversations/${id}`
+}
+
+/**
+ * @summary Update a conversation title
+ */
+export const patchOpenrouterConversation = async (id: number,
+    openrouterConversationPatch: OpenrouterConversationPatch, options?: RequestInit): Promise<OpenrouterConversation> => {
+
+  return customFetch<OpenrouterConversation>(getPatchOpenrouterConversationUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      openrouterConversationPatch,)
+  }
+);}
+
+
+
+
+export const getPatchOpenrouterConversationMutationOptions = <TError = ErrorType<OpenrouterError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof patchOpenrouterConversation>>, TError,{id: number;data: BodyType<OpenrouterConversationPatch>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof patchOpenrouterConversation>>, TError,{id: number;data: BodyType<OpenrouterConversationPatch>}, TContext> => {
+
+const mutationKey = ['patchOpenrouterConversation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof patchOpenrouterConversation>>, {id: number;data: BodyType<OpenrouterConversationPatch>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  patchOpenrouterConversation(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PatchOpenrouterConversationMutationResult = NonNullable<Awaited<ReturnType<typeof patchOpenrouterConversation>>>
+    export type PatchOpenrouterConversationMutationBody = BodyType<OpenrouterConversationPatch>
+    export type PatchOpenrouterConversationMutationError = ErrorType<OpenrouterError>
+
+    /**
+ * @summary Update a conversation title
+ */
+export const usePatchOpenrouterConversation = <TError = ErrorType<OpenrouterError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof patchOpenrouterConversation>>, TError,{id: number;data: BodyType<OpenrouterConversationPatch>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof patchOpenrouterConversation>>,
+        TError,
+        {id: number;data: BodyType<OpenrouterConversationPatch>},
+        TContext
+      > => {
+      return useMutation(getPatchOpenrouterConversationMutationOptions(options));
+    }
 
 export const getDeleteOpenrouterConversationUrl = (id: number,) => {
 

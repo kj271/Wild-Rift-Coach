@@ -117,6 +117,35 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OpenrouterError"
+    patch:
+      operationId: patchOpenrouterConversation
+      tags: [openrouter]
+      summary: Update a conversation title
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenrouterConversationPatch"
+      responses:
+        "200":
+          description: Updated conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenrouterConversation"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenrouterError"
     delete:
       operationId: deleteOpenrouterConversation
       tags: [openrouter]
@@ -312,6 +341,12 @@ components:
       required:
         - title
         - model
+
+    OpenrouterConversationPatch:
+      type: object
+      properties:
+        title:
+          type: string
 
     OpenrouterMessageInput:
       type: object

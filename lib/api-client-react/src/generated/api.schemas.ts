@@ -117,6 +117,10 @@ export interface OpenrouterConversationInput {
   model: string;
 }
 
+export interface OpenrouterConversationPatch {
+  title?: string;
+}
+
 export interface OpenrouterMessageInput {
   content: string;
   model: string;

@@ -13,6 +13,7 @@ export * from './modelInfo';
 export * from './modelInfoPricing';
 export * from './openrouterConversation';
 export * from './openrouterConversationInput';
+export * from './openrouterConversationPatch';
 export * from './openrouterConversationWithMessages';
 export * from './openrouterError';
 export * from './openrouterMessage';

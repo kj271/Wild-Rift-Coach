@@ -106,6 +106,16 @@ export function useTimerCropConfig() {
   return { config, save } as const;
 }
 
+// ── Portrait strip crop (ally/enemy portraits area for respawn timers) ────────
+const PORTRAIT_STRIP_KEY = "wildrift_portrait_strip_v1";
+export const DEFAULT_PORTRAIT_STRIP: CropConfig = { x: 0, y: 0, w: 100, h: 14 };
+
+export function usePortraitStripConfig() {
+  const [config, setConfig] = useState<CropConfig>(() => load(PORTRAIT_STRIP_KEY, DEFAULT_PORTRAIT_STRIP));
+  const save = useCallback((c: CropConfig) => { setConfig(c); localStorage.setItem(PORTRAIT_STRIP_KEY, JSON.stringify(c)); }, []);
+  return { config, save } as const;
+}
+
 export function useLanePaths() {
   const [paths, setPaths] = useState<LanePaths>(() => load(LANES_KEY, DEFAULT_LANES));
   const save = useCallback((p: LanePaths) => { setPaths(p); localStorage.setItem(LANES_KEY, JSON.stringify(p)); }, []);

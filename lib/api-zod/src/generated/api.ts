@@ -98,6 +98,24 @@ export const GetOpenrouterConversationResponse = zod.object({
 
 
 /**
+ * @summary Update a conversation title
+ */
+export const PatchOpenrouterConversationParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const PatchOpenrouterConversationBody = zod.object({
+  "title": zod.string().optional()
+})
+
+export const PatchOpenrouterConversationResponse = zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
  * @summary Delete a conversation
  */
 export const DeleteOpenrouterConversationParams = zod.object({
