@@ -30,31 +30,32 @@ import { cn } from "@/lib/utils";
 
 // ─── Champions ────────────────────────────────────────────────────────────────
 const CHAMPIONS = [
-  "Ahri","Akali","Akshan","Alistar","Amumu","Annie","Ashe","Aurelion Sol",
-  "Blitzcrank","Brand","Braum",
+  "Aatrox","Ahri","Akali","Akshan","Alistar","Amumu","Annie","Ashe","Aurelion Sol",
+  "Bard","Blitzcrank","Brand","Braum",
   "Caitlyn","Camille","Cho'Gath","Corki",
   "Darius","Diana","Dr. Mundo","Draven",
   "Ekko","Elise","Evelynn","Ezreal",
-  "Fiora","Fizz",
-  "Galio","Garen","Gragas","Graves",
-  "Heimerdinger",
+  "Fiddlesticks","Fiora","Fizz",
+  "Galio","Garen","Gnar","Gragas","Graves",
+  "Hecarim","Heimerdinger",
   "Irelia",
   "Janna","Jarvan IV","Jax","Jayce","Jhin","Jinx",
   "Kai'Sa","Karma","Kassadin","Katarina","Kayle","Kennen","Kha'Zix","Kog'Maw",
-  "LeBlanc","Lee Sin","Leona","Lucian","Lulu","Lux",
-  "Malphite","Malzahar","Master Yi","Miss Fortune","Morgana",
-  "Nami","Nasus","Nunu",
+  "LeBlanc","Lee Sin","Leona","Lissandra","Lucian","Lulu","Lux",
+  "Malphite","Malzahar","Master Yi","Mel","Miss Fortune","Morgana",
+  "Nami","Nasus","Nilah","Norra","Nunu",
   "Olaf","Orianna",
   "Pantheon",
-  "Rammus","Renekton","Rengar","Riven",
-  "Seraphine","Senna","Sett","Singed","Sona","Soraka",
-  "Teemo","Thresh","Tristana","Tryndamere","Twisted Fate","Twitch",
+  "Quinn",
+  "Rammus","Renekton","Rengar","Riven","Ryze",
+  "Seraphine","Senna","Sett","Singed","Smolder","Sona","Soraka","Swain",
+  "Taliyah","Teemo","Thresh","Tristana","Tryndamere","Twisted Fate","Twitch",
   "Varus","Vayne","Veigar","Vi","Viego","Vladimir",
   "Wukong",
   "Xayah","Xin Zhao",
   "Yasuo","Yone","Yuumi",
   "Zed","Ziggs","Zilean","Zoe","Zyra",
-];
+].sort();
 const ROLES = ["Top","Jungle","Mid","ADC","Support"] as const;
 type Role = typeof ROLES[number];
 type ObjStatus = "up" | "soon" | "down" | null;
