@@ -825,101 +825,8 @@ export default function CoachPage(){
           </div>
         )}
 
-        {/* ── SCREENSHOT ──────────────────────────────────────────────── */}
-        {imageBase64?(
-          <div className="flex flex-col gap-1.5">
-            {/* Collapsible header */}
-            <button onClick={toggleScreenshotCollapsed}
-              className="flex items-center justify-between w-full px-3 py-2 rounded-xl border border-border/40 bg-card/30 text-xs font-display tracking-widest uppercase text-muted-foreground active:scale-[0.99]">
-              <span>Screenshot</span>
-              {screenshotCollapsed?<ChevronDown className="w-4 h-4"/>:<ChevronUp className="w-4 h-4"/>}
-            </button>
-            {/* Image + toolbar — hidden when collapsed */}
-            {!screenshotCollapsed&&(<>
-            <div className="relative w-full rounded-xl overflow-hidden border border-border/40">
-              <img src={imageBase64} alt="Game screenshot" className="w-full h-auto block" draggable={false}/>
-              <button
-                className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/70 border border-white/30 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/90 active:scale-95"
-                title="Remove screenshot"
-                onClick={()=>{setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setPortraitStripCrop(null);setAlliesDown([]);setEnemiesDown([]);setPins([]);}}>
-                <X className="w-3.5 h-3.5"/>
-              </button>
-
-              {/* ── Individual portrait tap targets (who's dead) ── */}
-              {portraitConfig.allies.map((pos,i)=>{
-                const n=i+1,dead=alliesDown.includes(n);
-                const sz=`${portraitConfig.sizePct??5.5}%`;
-                return(
-                  <button key={`a${n}`}
-                    onClick={()=>setAlliesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
-                    title={dead?`A${n} dead — tap to revive`:`A${n} alive — tap to mark dead`}
-                    className="absolute rounded-full flex items-center justify-center font-bold leading-none select-none"
-                    style={{
-                      left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",
-                      width:sz,aspectRatio:"1",
-                      background: dead ? "rgba(2,6,23,0.85)" : "transparent",
-                      border: dead ? "2px solid rgba(56,189,248,0.6)" : "none",
-                      color: dead ? "#7dd3fc" : "transparent",
-                      fontSize:"9px",
-                    }}>
-                    {dead?`A${n}`:""}
-                  </button>
-                );
-              })}
-              {portraitConfig.enemies.map((pos,i)=>{
-                const n=i+1,dead=enemiesDown.includes(n);
-                const sz=`${portraitConfig.sizePct??5.5}%`;
-                return(
-                  <button key={`e${n}`}
-                    onClick={()=>setEnemiesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
-                    title={dead?`E${n} dead — tap to revive`:`E${n} alive — tap to mark dead`}
-                    className="absolute rounded-full flex items-center justify-center font-bold leading-none select-none"
-                    style={{
-                      left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",
-                      width:sz,aspectRatio:"1",
-                      background: dead ? "rgba(2,6,23,0.85)" : "transparent",
-                      border: dead ? "2px solid rgba(239,68,68,0.7)" : "none",
-                      color: dead ? "#fca5a5" : "transparent",
-                      fontSize:"9px",
-                    }}>
-                    {dead?`E${n}`:""}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Toolbar row — below the image, never blocks it */}
-            <div className="flex flex-wrap gap-1.5 items-center">
-              <button className="border border-white/20 text-white text-xs px-2 py-1 rounded-lg flex items-center gap-1 active:scale-95 hover:bg-white/10"
-                onClick={()=>fileInputRef.current?.click()}>
-                <Upload className="w-3 h-3"/> Replace
-              </button>
-              <button
-                className="border border-amber-400/40 text-amber-400 text-xs px-2 py-1 rounded-lg flex items-center gap-1 active:scale-95 hover:bg-amber-400/10"
-                onClick={()=>setShowCropEditor(true)} title="Set minimap crop area">
-                <Crop className="w-3 h-3"/> Map
-              </button>
-              <button
-                className={cn("text-xs px-2 py-1 rounded-lg flex items-center gap-1 active:scale-95 border hover:bg-white/5",
-                  gameTimeCrop?"border-primary/50 text-primary":"border-primary/30 text-primary/60")}
-                onClick={()=>setShowTimerCropEditor(true)} title="Crop scoreboard (KDA + score + timer) area">
-                <Clock className="w-3 h-3"/> Score bar
-              </button>
-              <button
-                className={cn("text-xs px-2 py-1 rounded-lg flex items-center gap-1 active:scale-95 border hover:bg-white/5",
-                  portraitStripCrop?"border-emerald-400/60 text-emerald-400":"border-emerald-400/30 text-emerald-400/60")}
-                onClick={()=>setShowPortraitStripEditor(true)} title="Crop portrait area (respawn timers) for AI">
-                <Timer className="w-3 h-3"/> Respawn
-              </button>
-              <button
-                className="border border-sky-400/40 text-sky-400 text-xs px-2 py-1 rounded-lg flex items-center gap-1 active:scale-95 hover:bg-sky-400/10"
-                onClick={()=>setShowPortraitBarEditor(true)} title="Place individual portrait click zones">
-                <Users className="w-3 h-3"/> Zones
-              </button>
-            </div>
-            </>)}
-          </div>
-        ):(
+        {/* ── UPLOAD DROP ZONE (only shown when no screenshot yet) ─── */}
+        {!imageBase64&&(
           <div className="w-full h-28 rounded-xl border-2 border-dashed border-border/40 hover:border-primary/30 transition-colors cursor-pointer flex flex-col items-center justify-center gap-2 text-muted-foreground"
             onClick={()=>fileInputRef.current?.click()}
             onDragOver={e=>e.preventDefault()}
@@ -992,6 +899,15 @@ export default function CoachPage(){
                   placeMode?"cursor-crosshair":"cursor-default")}
                 onClick={handleMinimapTap}
                 onTouchStart={handleMinimapTap}>
+                {/* X button — top-right corner — clears image and triggers new upload */}
+                {minimapBase64&&(
+                  <button
+                    className="absolute top-2 right-2 z-20 w-7 h-7 rounded-full bg-black/70 border border-white/30 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/90 active:scale-95"
+                    title="Clear image & upload new screenshot"
+                    onClick={e=>{e.stopPropagation();setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setPortraitStripCrop(null);setAlliesDown([]);setEnemiesDown([]);setPins([]);setTimeout(()=>fileInputRef.current?.click(),50);}}>
+                    <X className="w-3.5 h-3.5"/>
+                  </button>
+                )}
                 {minimapBase64?(
                   <img src={minimapBase64} alt="Minimap" className="w-full h-auto block pointer-events-none select-none" draggable={false}/>
                 ):(
@@ -1040,62 +956,129 @@ export default function CoachPage(){
             </div>
           </div>
 
-          {/* ── SCORE BAR + PORTRAIT STRIP + DEAD TRACKER ── */}
-
-          <div className="bg-card/40 border border-border/40 rounded-xl overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-border/30">
-              <span className="font-display text-xs tracking-widest uppercase text-muted-foreground">Who's Dead</span>
-            </div>
-            <div className="p-3 space-y-3">
-              {/* Score bar crop */}
+          {/* ── SCORE BAR + PORTRAIT STRIP WITH TAP ZONES ─────────── */}
+          {(gameTimeCrop||portraitStripCrop)&&(
+            <div className="space-y-2">
               {gameTimeCrop&&(
-                <div className="rounded-lg overflow-hidden border border-border/20">
+                <div className="rounded-xl overflow-hidden border border-border/30">
                   <img src={gameTimeCrop} alt="Score bar" className="w-full h-auto block"/>
                 </div>
               )}
-              {/* Portrait strip crop */}
+              {/* Portrait strip with calibrated tap zones overlaid */}
               {portraitStripCrop&&(
-                <div className="rounded-lg overflow-hidden border border-border/20">
-                  <img src={portraitStripCrop} alt="Portrait strip" className="w-full h-auto block"/>
-                </div>
-              )}
-              {/* Ally dead toggles */}
-              <div>
-                <span className="text-[10px] uppercase tracking-widest text-sky-400/70 font-display mb-1.5 block">Allies</span>
-                <div className="flex gap-2">
-                  {[1,2,3,4,5].map(n=>{
-                    const dead=alliesDown.includes(n);
+                <div className="relative rounded-xl overflow-hidden border border-border/30">
+                  <img src={portraitStripCrop} alt="Portrait strip" className="w-full h-auto block pointer-events-none select-none"/>
+                  {/* Ally tap zones — translate full-image % coords to strip-relative % */}
+                  {portraitConfig.allies.map((pos,i)=>{
+                    const n=i+1,dead=alliesDown.includes(n);
+                    const sx=((pos.x-portraitStripConfig.x)/portraitStripConfig.w)*100;
+                    const sy=((pos.y-portraitStripConfig.y)/portraitStripConfig.h)*100;
+                    const sz=((portraitConfig.sizePct??5.5)/portraitStripConfig.w)*100;
+                    if(sx<-5||sx>105||sy<-5||sy>105)return null;
                     return(
-                      <button key={n} onClick={()=>setAlliesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
-                        className={cn("flex-1 py-2 rounded-lg border text-xs font-bold font-display transition-all active:scale-90",
-                          dead
-                            ?"bg-sky-900/60 border-sky-400/60 text-sky-300"
-                            :"bg-black/30 border-border/30 text-muted-foreground/50 hover:border-sky-400/30")}>
+                      <button key={`ps-a${n}`}
+                        onClick={()=>setAlliesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
+                        className="absolute rounded-full flex items-center justify-center font-bold leading-none select-none"
+                        style={{left:`${sx}%`,top:`${sy}%`,transform:"translate(-50%,-50%)",width:`${sz}%`,aspectRatio:"1",
+                          background:dead?"rgba(2,6,23,0.88)":"rgba(56,189,248,0.12)",
+                          border:dead?"2px solid rgba(56,189,248,0.7)":"2px solid rgba(56,189,248,0.35)",
+                          color:dead?"#7dd3fc":"rgba(56,189,248,0.6)",fontSize:"9px"}}>
                         {dead?`A${n} ✕`:`A${n}`}
                       </button>
                     );
                   })}
-                </div>
-              </div>
-              {/* Enemy dead toggles */}
-              <div>
-                <span className="text-[10px] uppercase tracking-widest text-red-400/70 font-display mb-1.5 block">Enemies</span>
-                <div className="flex gap-2">
-                  {[1,2,3,4,5].map(n=>{
-                    const dead=enemiesDown.includes(n);
+                  {/* Enemy tap zones */}
+                  {portraitConfig.enemies.map((pos,i)=>{
+                    const n=i+1,dead=enemiesDown.includes(n);
+                    const sx=((pos.x-portraitStripConfig.x)/portraitStripConfig.w)*100;
+                    const sy=((pos.y-portraitStripConfig.y)/portraitStripConfig.h)*100;
+                    const sz=((portraitConfig.sizePct??5.5)/portraitStripConfig.w)*100;
+                    if(sx<-5||sx>105||sy<-5||sy>105)return null;
                     return(
-                      <button key={n} onClick={()=>setEnemiesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
-                        className={cn("flex-1 py-2 rounded-lg border text-xs font-bold font-display transition-all active:scale-90",
-                          dead
-                            ?"bg-red-900/60 border-red-400/60 text-red-300"
-                            :"bg-black/30 border-border/30 text-muted-foreground/50 hover:border-red-400/30")}>
+                      <button key={`ps-e${n}`}
+                        onClick={()=>setEnemiesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
+                        className="absolute rounded-full flex items-center justify-center font-bold leading-none select-none"
+                        style={{left:`${sx}%`,top:`${sy}%`,transform:"translate(-50%,-50%)",width:`${sz}%`,aspectRatio:"1",
+                          background:dead?"rgba(2,6,23,0.88)":"rgba(239,68,68,0.12)",
+                          border:dead?"2px solid rgba(239,68,68,0.7)":"2px solid rgba(239,68,68,0.35)",
+                          color:dead?"#fca5a5":"rgba(239,68,68,0.6)",fontSize:"9px"}}>
                         {dead?`E${n} ✕`:`E${n}`}
                       </button>
                     );
                   })}
                 </div>
-              </div>
+              )}
             </div>
+          )}
+
+          {/* ── FULL SCREENSHOT (collapsible, below minimap) ───────── */}
+          <div className="flex flex-col gap-1.5">
+            <button onClick={toggleScreenshotCollapsed}
+              className="flex items-center justify-between w-full px-3 py-2 rounded-xl border border-border/40 bg-card/30 text-xs font-display tracking-widest uppercase text-muted-foreground active:scale-[0.99]">
+              <span>{screenshotCollapsed?"Show full screenshot":"Hide full screenshot"}</span>
+              {screenshotCollapsed?<ChevronDown className="w-4 h-4"/>:<ChevronUp className="w-4 h-4"/>}
+            </button>
+            {!screenshotCollapsed&&(<>
+              <div className="relative w-full rounded-xl overflow-hidden border border-border/40">
+                <img src={imageBase64!} alt="Game screenshot" className="w-full h-auto block" draggable={false}/>
+                {/* Portrait tap zones on full screenshot */}
+                {portraitConfig.allies.map((pos,i)=>{
+                  const n=i+1,dead=alliesDown.includes(n);
+                  const sz=`${portraitConfig.sizePct??5.5}%`;
+                  return(
+                    <button key={`fa${n}`}
+                      onClick={()=>setAlliesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
+                      className="absolute rounded-full flex items-center justify-center font-bold leading-none select-none"
+                      style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",width:sz,aspectRatio:"1",
+                        background:dead?"rgba(2,6,23,0.85)":"transparent",
+                        border:dead?"2px solid rgba(56,189,248,0.6)":"none",
+                        color:dead?"#7dd3fc":"transparent",fontSize:"9px"}}>
+                      {dead?`A${n}`:""}
+                    </button>
+                  );
+                })}
+                {portraitConfig.enemies.map((pos,i)=>{
+                  const n=i+1,dead=enemiesDown.includes(n);
+                  const sz=`${portraitConfig.sizePct??5.5}%`;
+                  return(
+                    <button key={`fe${n}`}
+                      onClick={()=>setEnemiesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
+                      className="absolute rounded-full flex items-center justify-center font-bold leading-none select-none"
+                      style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",width:sz,aspectRatio:"1",
+                        background:dead?"rgba(2,6,23,0.85)":"transparent",
+                        border:dead?"2px solid rgba(239,68,68,0.7)":"none",
+                        color:dead?"#fca5a5":"transparent",fontSize:"9px"}}>
+                      {dead?`E${n}`:""}
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Toolbar */}
+              <div className="flex flex-wrap gap-1.5 items-center">
+                <button className="border border-white/20 text-white text-xs px-2 py-1 rounded-lg flex items-center gap-1 active:scale-95 hover:bg-white/10"
+                  onClick={()=>fileInputRef.current?.click()}>
+                  <Upload className="w-3 h-3"/> Replace
+                </button>
+                <button className="border border-amber-400/40 text-amber-400 text-xs px-2 py-1 rounded-lg flex items-center gap-1 active:scale-95 hover:bg-amber-400/10"
+                  onClick={()=>setShowCropEditor(true)}>
+                  <Crop className="w-3 h-3"/> Map
+                </button>
+                <button className={cn("text-xs px-2 py-1 rounded-lg flex items-center gap-1 active:scale-95 border hover:bg-white/5",
+                  gameTimeCrop?"border-border/60 text-foreground/70":"border-border/30 text-muted-foreground/60")}
+                  onClick={()=>setShowTimerCropEditor(true)}>
+                  <Clock className="w-3 h-3"/> Score bar
+                </button>
+                <button className={cn("text-xs px-2 py-1 rounded-lg flex items-center gap-1 active:scale-95 border hover:bg-white/5",
+                  portraitStripCrop?"border-emerald-400/60 text-emerald-400":"border-emerald-400/30 text-emerald-400/60")}
+                  onClick={()=>setShowPortraitStripEditor(true)}>
+                  <Timer className="w-3 h-3"/> Respawn
+                </button>
+                <button className="border border-sky-400/40 text-sky-400 text-xs px-2 py-1 rounded-lg flex items-center gap-1 active:scale-95 hover:bg-sky-400/10"
+                  onClick={()=>setShowPortraitBarEditor(true)}>
+                  <Users className="w-3 h-3"/> Zones
+                </button>
+              </div>
+            </>)}
           </div>
         </>)}
 
@@ -1259,17 +1242,6 @@ export default function CoachPage(){
             <MessageSquare className="w-4 h-4 text-primary"/>
             <span className="font-display text-xs tracking-widest uppercase text-muted-foreground">Ask Follow-up</span>
           </div>
-          {conversations&&conversations.length>0&&(
-            <div className="flex gap-2 px-3 py-2 overflow-x-auto border-b border-border/20">
-              {conversations.map(c=>(
-                <button key={c.id} onClick={()=>{setActiveConversationId(c.id);setChatMessages([]);}}
-                  className={cn("shrink-0 text-xs px-3 py-1.5 rounded-full border transition-all",
-                    activeConversationId===c.id?"bg-primary/20 border-primary text-primary":"bg-black/30 border-border/40 text-muted-foreground")}>
-                  {c.title}
-                </button>
-              ))}
-            </div>
-          )}
           {(chatMessages.length>0||(conversationData?.messages?.length??0)>0)&&(
             <div className="max-h-80 overflow-y-auto p-3 space-y-3">
               {(conversationData?.messages??[])

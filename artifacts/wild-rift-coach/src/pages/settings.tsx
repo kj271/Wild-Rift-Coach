@@ -164,8 +164,8 @@ export default function SettingsPage() {
                     className={cn(
                       "flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-all active:scale-95",
                       model === m.id
-                        ? "bg-primary/20 border-primary text-primary"
-                        : "bg-black/30 border-amber-400/30 text-amber-400/80 hover:border-amber-400/60 hover:text-amber-400"
+                        ? "bg-slate-700 border-slate-400 text-white"
+                        : "bg-black/30 border-border/40 text-muted-foreground hover:border-slate-400/60 hover:text-slate-300"
                     )}
                   >
                     <Star className={cn("w-3 h-3", model === m.id ? "fill-primary text-primary" : "fill-amber-400/60")} />
@@ -207,7 +207,7 @@ export default function SettingsPage() {
                       <div className="sticky top-0 z-10 bg-card/95 backdrop-blur border-b border-border/40">
                         <CommandInput placeholder="Search models..." className="border-none focus:ring-0" />
                       </div>
-                      <CommandList className="max-h-[min(380px,55vh)] overflow-y-auto overscroll-contain">
+                      <CommandList className="max-h-[min(380px,55vh)] overflow-y-scroll overscroll-contain" style={{WebkitOverflowScrolling:'touch'} as React.CSSProperties}>
                         <CommandEmpty>No model found.</CommandEmpty>
                         {favList.length > 0 && (
                           <CommandGroup heading="⭐ Favourites">
