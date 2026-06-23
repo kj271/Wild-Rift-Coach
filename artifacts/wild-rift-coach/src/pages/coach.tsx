@@ -203,6 +203,7 @@ async function renderAnnotatedMinimap(
   portraitStripDataUrl?:string|null,
   alliesDown?:number[],
   enemiesDown?:number[],
+  objPins?:ObjPin[],
 ):Promise<string>{
   const img=await loadImg(minimapDataUrl);
   const W=img.naturalWidth*2,H=img.naturalHeight*2;
