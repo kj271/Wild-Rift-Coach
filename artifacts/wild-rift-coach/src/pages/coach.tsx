@@ -720,9 +720,9 @@ export default function CoachPage(){
                   onClick={()=>setAlliesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
                   title={dead?`A${n} dead — tap to revive`:`A${n} alive — tap to mark dead`}
                   className={cn("absolute flex items-center justify-center rounded text-[9px] font-bold leading-none select-none transition-all",
-                    dead?"bg-slate-800/85 border border-slate-600/80 text-slate-500":"bg-sky-500/25 border border-sky-400/60 text-sky-300 hover:bg-sky-400/40")}
-                  style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",minWidth:28,minHeight:20,width:"8%",height:"3%"}}>
-                  {dead?<Skull className="w-2.5 h-2.5"/>:`A${n}`}
+                    dead?"bg-slate-900/90 border border-slate-700 text-slate-600 line-through":"bg-sky-500/25 border border-sky-400/60 text-sky-300 hover:bg-sky-400/40")}
+                  style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",minWidth:26,minHeight:18,width:"8%",height:"3%"}}>
+                  A{n}
                 </button>
               );
             })}
@@ -733,10 +733,9 @@ export default function CoachPage(){
                   onClick={()=>setEnemiesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
                   title={dead?`E${n} dead — tap to revive`:`E${n} alive — tap to mark dead`}
                   className={cn("absolute flex items-center justify-center rounded text-[9px] font-bold leading-none select-none transition-all",
-                    dead?"bg-slate-800/85 border border-slate-600/80 text-slate-500":"bg-red-500/25 border border-red-400/60 text-red-300 hover:bg-red-400/40"
-                  )}
-                  style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",minWidth:28,minHeight:20,width:"8%",height:"3%"}}>
-                  {dead?<Skull className="w-2.5 h-2.5"/>:`E${n}`}
+                    dead?"bg-slate-900/90 border border-slate-700 text-slate-600 line-through":"bg-red-500/25 border border-red-400/60 text-red-300 hover:bg-red-400/40")}
+                  style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",minWidth:26,minHeight:18,width:"8%",height:"3%"}}>
+                  E{n}
                 </button>
               );
             })}
@@ -1012,7 +1011,9 @@ export default function CoachPage(){
             </button>
             {showDebug&&(
               <div className="border-t border-border/30 p-3 space-y-3">
-                <p className="text-[10px] text-muted-foreground/60">Everything sent to the AI on the last Advise Me call. This is the complete picture — nothing is hidden.</p>
+                <p className="text-[10px] text-muted-foreground/60">
+                  Preview of what gets sent on each Advise Me call. The actual API request includes the real minimap image as base64 — it's replaced with a human-readable label here so the panel stays readable. The minimap image preview is shown below the JSON.
+                </p>
                 <pre className="text-[10px] text-slate-400 whitespace-pre-wrap overflow-auto max-h-48 bg-black/30 rounded-lg p-3">
                   {JSON.stringify(debugPayload,null,2)}
                 </pre>
