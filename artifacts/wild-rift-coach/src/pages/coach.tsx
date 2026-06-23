@@ -1,6 +1,9 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Link } from "wouter";
 import { useModelStorage } from "@/hooks/use-model-storage";
+import { useCropConfig, useLanePaths, LanePaths, Point } from "@/hooks/use-map-config";
+import { CropCalibrator } from "@/components/crop-calibrator";
+import { ZoneEditor } from "@/components/zone-editor";
 import {
   GameContext,
   useCreateOpenrouterConversation,
@@ -17,11 +20,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import {
   Target, Settings, AlertCircle, Loader2, Send, Upload,
   MessageSquare, X, Search, UserRound, Users, Swords,
-  ChevronDown, ChevronUp, Sparkles,
+  ChevronDown, ChevronUp, Sparkles, Crop, Map,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Champions ────────────────────────────────────────────────────────────────
 const CHAMPIONS = [
   "Ahri","Akali","Akshan","Alistar","Amumu","Annie","Ashe","Aurelion Sol",
   "Blitzcrank","Brand","Braum","Camille","Corki","Darius","Diana","Dr. Mundo",
@@ -40,35 +43,24 @@ type ObjStatus = "up" | "soon" | "down" | null;
 type PinType = "me" | "ally" | "enemy";
 type PlaceMode = PinType | null;
 
+// ─── Position types ────────────────────────────────────────────────────────────
 type LanePos = { kind: "lane"; lane: string; progress: number; category: string };
 type ZonePos = { kind: "zone"; zone: string };
 type PosInfo = LanePos | ZonePos;
 
 interface MapPin { id: string; type: PinType; x: number; y: number; pos: PosInfo; champ: string | null }
 
-// ─── Wild Rift minimap geometry ───────────────────────────────────────────────
-// Coordinate system: % of cropped minimap image
-// Blue base = bottom-left, Red base = top-right
-
-const BARON_PATH  = [{x:7,y:72},{x:7,y:48},{x:22,y:26},{x:44,y:8},{x:62,y:7}];
-const MID_PATH    = [{x:20,y:80},{x:35,y:65},{x:50,y:50},{x:65,y:35},{x:80,y:20}];
-const DRAGON_PATH = [{x:22,y:92},{x:40,y:83},{x:56,y:78},{x:73,y:70},{x:86,y:60}];
-
-const LANES = [
-  { name: "Baron Lane",  path: BARON_PATH  },
-  { name: "Mid Lane",    path: MID_PATH    },
-  { name: "Dragon Lane", path: DRAGON_PATH },
-];
-
+// ─── Static simple zones (always the same) ────────────────────────────────────
 const SIMPLE_ZONES = [
-  { id: "blue_base",   label: "Blue Base",    cx: 6,  cy: 90 },
-  { id: "red_base",    label: "Red Base",     cx: 93, cy: 8  },
-  { id: "baron_pit",   label: "Baron Pit",    cx: 36, cy: 21 },
-  { id: "dragon_pit",  label: "Dragon Pit",   cx: 60, cy: 80 },
-  { id: "jungle_blue", label: "Blue Jungle",  cx: 14, cy: 52 },
-  { id: "jungle_red",  label: "Red Jungle",   cx: 84, cy: 48 },
+  { label: "Blue Base",    cx: 6,  cy: 90 },
+  { label: "Red Base",     cx: 93, cy: 8  },
+  { label: "Baron Pit",    cx: 36, cy: 21 },
+  { label: "Dragon Pit",   cx: 60, cy: 80 },
+  { label: "Blue Jungle",  cx: 14, cy: 52 },
+  { label: "Red Jungle",   cx: 84, cy: 48 },
 ];
 
+// ─── Geometry helpers ─────────────────────────────────────────────────────────
 function segmentProject(px:number,py:number,ax:number,ay:number,bx:number,by:number){
   const dx=bx-ax,dy=by-ay,lenSq=dx*dx+dy*dy;
   if(lenSq===0)return{dist:Math.hypot(px-ax,py-ay),t:0};
@@ -76,7 +68,7 @@ function segmentProject(px:number,py:number,ax:number,ay:number,bx:number,by:num
   return{dist:Math.hypot(px-(ax+t*dx),py-(ay+t*dy)),t};
 }
 
-function polylineProject(px:number,py:number,path:{x:number;y:number}[]):{dist:number;progress:number}{
+function polylineProject(px:number,py:number,path:Point[]):{dist:number;progress:number}{
   const segs:number[]=[];let totalLen=0;
   for(let i=0;i<path.length-1;i++){
     const l=Math.hypot(path[i+1].x-path[i].x,path[i+1].y-path[i].y);
@@ -99,20 +91,22 @@ function laneCategory(p:number):string{
   return"Deep Push";
 }
 
-function classifyPos(x:number,y:number):PosInfo{
-  // Check each lane
+function classifyPos(x:number,y:number,lanePaths:LanePaths):PosInfo{
+  const lanes=[
+    {name:"Baron Lane", path:lanePaths.baron},
+    {name:"Mid Lane",   path:lanePaths.mid},
+    {name:"Dragon Lane",path:lanePaths.dragon},
+  ];
   let bestLane:{name:string;dist:number;progress:number}|null=null;
-  for(const l of LANES){
+  for(const l of lanes){
     const{dist,progress}=polylineProject(x,y,l.path);
     if(!bestLane||dist<bestLane.dist)bestLane={name:l.name,dist,progress};
   }
-  // Check simple zones
   let bestZone:{label:string;dist:number}|null=null;
   for(const z of SIMPLE_ZONES){
     const dist=Math.hypot(x-z.cx,y-z.cy);
     if(!bestZone||dist<bestZone.dist)bestZone={label:z.label,dist};
   }
-  // Lane wins if it's close enough AND closer than the zone
   const LANE_THRESH=14;
   if(bestLane&&bestLane.dist<LANE_THRESH&&(!bestZone||bestLane.dist<bestZone.dist)){
     return{kind:"lane",lane:bestLane.name,progress:Math.round(bestLane.progress),category:laneCategory(bestLane.progress)};
@@ -126,80 +120,53 @@ function posLabel(pos:PosInfo):string{
 }
 
 // ─── Render annotated minimap onto canvas → base64 ───────────────────────────
-async function renderAnnotatedMinimap(
-  minimapDataUrl:string,
-  pins:MapPin[]
-):Promise<string>{
+async function renderAnnotatedMinimap(minimapDataUrl:string,pins:MapPin[]):Promise<string>{
   return new Promise(resolve=>{
     const img=new Image();
     img.onload=()=>{
       const canvas=document.createElement("canvas");
-      canvas.width=img.naturalWidth*2;
-      canvas.height=img.naturalHeight*2;
+      canvas.width=img.naturalWidth*2;canvas.height=img.naturalHeight*2;
       const ctx=canvas.getContext("2d")!;
       ctx.drawImage(img,0,0,canvas.width,canvas.height);
-
       const W=canvas.width,H=canvas.height;
-      const r=Math.round(W*0.05); // pin radius = 5% of width
-
-      const allyIdx:{[id:string]:number}={};
-      const enemyIdx:{[id:string]:number}={};
-      let ai=1,ei=1;
-      for(const p of pins){
-        if(p.type==="ally"){allyIdx[p.id]=ai++;} 
-        if(p.type==="enemy"){enemyIdx[p.id]=ei++;}
-      }
-
+      const r=Math.round(W*0.05);
+      const allyPins=pins.filter(p=>p.type==="ally");
+      const enemyPins=pins.filter(p=>p.type==="enemy");
       for(const pin of pins){
-        const px=pin.x/100*W;
-        const py=pin.y/100*H;
+        const px=pin.x/100*W,py=pin.y/100*H;
         const color=pin.type==="me"?"#FBBF24":pin.type==="ally"?"#38BDF8":"#EF4444";
         const outline=pin.type==="me"?"#92400E":pin.type==="ally"?"#0C4A6E":"#7F1D1D";
-        const label=pin.type==="me"?"ME":pin.type==="ally"?`A${allyIdx[pin.id]}`:`E${enemyIdx[pin.id]}`;
-
-        // Drop shadow
+        const label=pin.type==="me"?"ME":pin.type==="ally"?`A${allyPins.indexOf(pin)+1}`:`E${enemyPins.indexOf(pin)+1}`;
         ctx.shadowColor="rgba(0,0,0,0.8)";ctx.shadowBlur=8;
-        // Fill
         ctx.beginPath();ctx.arc(px,py,r,0,Math.PI*2);
-        ctx.fillStyle=color+"DD";ctx.fill();
-        ctx.shadowBlur=0;
-        // Border
+        ctx.fillStyle=color+"DD";ctx.fill();ctx.shadowBlur=0;
         ctx.strokeStyle=outline;ctx.lineWidth=Math.max(2,r*0.18);ctx.stroke();
-
-        // Label
         ctx.fillStyle="#000";
         ctx.font=`bold ${Math.round(r*1.1)}px sans-serif`;
         ctx.textAlign="center";ctx.textBaseline="middle";
         ctx.fillText(label,px,py);
-
-        // Champion name tag
         if(pin.champ){
           const tagW=ctx.measureText(pin.champ).width+8;
           ctx.fillStyle="rgba(0,0,0,0.75)";
-          ctx.beginPath();
-          ctx.roundRect(px-tagW/2,py+r+2,tagW,Math.round(r*0.85),3);
-          ctx.fill();
-          ctx.fillStyle="#fff";
-          ctx.font=`${Math.round(r*0.72)}px sans-serif`;
+          ctx.beginPath();ctx.roundRect(px-tagW/2,py+r+2,tagW,Math.round(r*0.85),3);ctx.fill();
+          ctx.fillStyle="#fff";ctx.font=`${Math.round(r*0.72)}px sans-serif`;
           ctx.fillText(pin.champ,px,py+r+2+Math.round(r*0.42));
         }
       }
-
       resolve(canvas.toDataURL("image/jpeg",0.92));
     };
     img.src=minimapDataUrl;
   });
 }
 
-// ─── Canvas helpers ───────────────────────────────────────────────────────────
+// ─── Crop helper ──────────────────────────────────────────────────────────────
 async function cropDataUrl(dataUrl:string,xPct:number,yPct:number,wPct:number,hPct:number):Promise<string>{
   return new Promise(resolve=>{
     const img=new Image();
     img.onload=()=>{
       const W=img.naturalWidth,H=img.naturalHeight;
       const canvas=document.createElement("canvas");
-      canvas.width=Math.round(W*wPct/100);
-      canvas.height=Math.round(H*hPct/100);
+      canvas.width=Math.round(W*wPct/100);canvas.height=Math.round(H*hPct/100);
       canvas.getContext("2d")!.drawImage(img,
         Math.round(W*xPct/100),Math.round(H*yPct/100),canvas.width,canvas.height,
         0,0,canvas.width,canvas.height);
@@ -209,9 +176,8 @@ async function cropDataUrl(dataUrl:string,xPct:number,yPct:number,wPct:number,hP
   });
 }
 
-function timeToSecs(t:string):number{
-  const[m,s]=t.split(":").map(Number);return(m??0)*60+(s??0);
-}
+function fmt(s:number){return`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;}
+function timeToSecs(t:string){const[m,s]=t.split(":").map(Number);return(m??0)*60+(s??0);}
 
 // ─── ChampionPicker ───────────────────────────────────────────────────────────
 function ChampionPicker({open,title,selected,max,onClose,onSelect}:{
@@ -235,7 +201,7 @@ function ChampionPicker({open,title,selected,max,onClose,onSelect}:{
         <div className="p-3 border-b border-border/30 shrink-0">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"/>
-            <Input autoFocus placeholder="Search..." className="pl-9 h-9 bg-black/40 text-sm"
+            <Input autoFocus placeholder="Search…" className="pl-9 h-9 bg-black/40 text-sm"
               value={search} onChange={e=>setSearch(e.target.value)}/>
           </div>
         </div>
@@ -276,12 +242,12 @@ function ChampionPicker({open,title,selected,max,onClose,onSelect}:{
   );
 }
 
-// ─── 3-state objective control ────────────────────────────────────────────────
+// ─── ObjControl ───────────────────────────────────────────────────────────────
 function ObjControl({label,value,onChange}:{label:string;value:ObjStatus;onChange:(v:ObjStatus)=>void}){
   const states=[
-    {v:"up"  as const,label:"UP",  a:"bg-emerald-500/25 text-emerald-400 border-emerald-500", i:"text-muted-foreground hover:border-emerald-500/40"},
-    {v:"soon"as const,label:"SOON",a:"bg-amber-500/25  text-amber-400  border-amber-500",     i:"text-muted-foreground hover:border-amber-500/40"},
-    {v:"down"as const,label:"DOWN",a:"bg-red-500/25    text-red-400    border-red-500",        i:"text-muted-foreground hover:border-red-400/40"},
+    {v:"up"  as const,label:"UP",  a:"bg-emerald-500/25 text-emerald-400 border-emerald-500",i:"text-muted-foreground hover:border-emerald-500/40"},
+    {v:"soon"as const,label:"SOON",a:"bg-amber-500/25  text-amber-400  border-amber-500",    i:"text-muted-foreground hover:border-amber-500/40"},
+    {v:"down"as const,label:"DOWN",a:"bg-red-500/25    text-red-400    border-red-500",       i:"text-muted-foreground hover:border-red-400/40"},
   ];
   return(
     <div className="flex flex-col gap-1.5">
@@ -299,19 +265,24 @@ function ObjControl({label,value,onChange}:{label:string;value:ObjStatus;onChang
   );
 }
 
-// ─── Chat message type ────────────────────────────────────────────────────────
 interface StreamingMsg{role:"user"|"assistant";content:string;streaming?:boolean}
 
 // ═════════════════════════════════════════════════════════════════════════════
 export default function CoachPage(){
   const queryClient=useQueryClient();
   const[model]=useModelStorage();
+  const{config:cropConfig,save:saveCrop}=useCropConfig();
+  const{paths:lanePaths,save:saveLanes}=useLanePaths();
 
   // Screenshot
   const[imageBase64,setImageBase64]=useState<string|null>(null);
   const[minimapBase64,setMinimapBase64]=useState<string|null>(null);
   const[extracting,setExtracting]=useState(false);
   const fileInputRef=useRef<HTMLInputElement>(null);
+
+  // Calibration modals
+  const[showCropEditor,setShowCropEditor]=useState(false);
+  const[showZoneEditor,setShowZoneEditor]=useState(false);
 
   // Pins
   const[pins,setPins]=useState<MapPin[]>([]);
@@ -345,17 +316,18 @@ export default function CoachPage(){
     {query:{enabled:!!activeConversationId,queryKey:getGetOpenrouterConversationQueryKey(activeConversationId as number)}}
   );
   const createConversation=useCreateOpenrouterConversation();
-  const fmt=(s:number)=>`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
+
+  // ── Re-crop minimap with current config ──────────────────────────────────────
+  const recropMinimap=useCallback(async(dataUrl:string,cfg=cropConfig)=>{
+    const m=await cropDataUrl(dataUrl,cfg.x,cfg.y,cfg.w,cfg.h);
+    setMinimapBase64(m);
+    return m;
+  },[cropConfig]);
 
   // ── Process uploaded image ──────────────────────────────────────────────────
   const processImage=useCallback(async(dataUrl:string)=>{
     setImageBase64(dataUrl);setMinimapBase64(null);setPins([]);setPlaceMode(null);
-
-    // Crop minimap: top-left 22% width × 36% height (extra margin so nothing cuts off)
-    const minimap=await cropDataUrl(dataUrl,0,0,22,36);
-    setMinimapBase64(minimap);
-
-    // Extract game time from top-center strip
+    await recropMinimap(dataUrl);
     setExtracting(true);
     try{
       const strip=await cropDataUrl(dataUrl,28,0,44,13);
@@ -369,7 +341,7 @@ export default function CoachPage(){
         if(d.gameTime){const s=timeToSecs(d.gameTime);if(s>0&&s<=1800)setGameTimeSecs(s);}
       }
     }catch{}finally{setExtracting(false);}
-  },[]);
+  },[recropMinimap]);
 
   const handleFile=(file:File)=>{
     const reader=new FileReader();
@@ -377,21 +349,24 @@ export default function CoachPage(){
     reader.readAsDataURL(file);
   };
 
+  // ── Save crop config and immediately re-crop if we have a screenshot ────────
+  const handleSaveCrop=useCallback(async(cfg:typeof cropConfig)=>{
+    saveCrop(cfg);
+    if(imageBase64)await recropMinimap(imageBase64,cfg);
+  },[saveCrop,imageBase64,recropMinimap]);
+
   // ── Tap on minimap ──────────────────────────────────────────────────────────
   const handleMinimapTap=useCallback((e:React.MouseEvent|React.TouchEvent)=>{
     if(!placeMode||!minimapDivRef.current)return;
     const target=e.target as HTMLElement;
-    if(target.closest("[data-pin]"))return; // tapping an existing pin removes it
-
+    if(target.closest("[data-pin]"))return;
     const rect=minimapDivRef.current.getBoundingClientRect();
     let cx:number,cy:number;
     if("touches" in e){cx=e.touches[0]!.clientX;cy=e.touches[0]!.clientY;}
     else{cx=(e as React.MouseEvent).clientX;cy=(e as React.MouseEvent).clientY;}
-
     const x=Math.max(0,Math.min(100,(cx-rect.left)/rect.width*100));
     const y=Math.max(0,Math.min(100,(cy-rect.top)/rect.height*100));
-    const pos=classifyPos(x,y);
-
+    const pos=classifyPos(x,y,lanePaths);
     if(placeMode==="me"){
       setPins(p=>[...p.filter(pp=>pp.type!=="me"),{id:`me-${Date.now()}`,type:"me",x,y,pos,champ:myChamp}]);
     }else if(placeMode==="ally"){
@@ -401,11 +376,11 @@ export default function CoachPage(){
       if(pins.filter(p=>p.type==="enemy").length>=5)return;
       setPins(p=>[...p,{id:`enemy-${Date.now()}`,type:"enemy",x,y,pos,champ:null}]);
     }
-  },[placeMode,myChamp,pins]);
+  },[placeMode,myChamp,pins,lanePaths]);
 
   const removePin=(id:string)=>setPins(p=>p.filter(pp=>pp.id!==id));
 
-  // ── Build context for AI ────────────────────────────────────────────────────
+  // ── Build context ────────────────────────────────────────────────────────────
   const buildContext=useCallback(():GameContext=>{
     const myPin=pins.find(p=>p.type==="me");
     const allyPins=pins.filter(p=>p.type==="ally");
@@ -414,21 +389,20 @@ export default function CoachPage(){
       gameTime:gameTimeSecs>0?fmt(gameTimeSecs):null,
       myRole:myRole??null,
       myLocation:myPin?posLabel(myPin.pos):null,
-      allyChampions:allyPins.length?allyPins.map(p=>{const l=posLabel(p.pos);return p.champ?`${p.champ} at ${l}`:l;}).join(", "):null,
-      enemyChampions:enemyPins.length?enemyPins.map(p=>{const l=posLabel(p.pos);return p.champ?`${p.champ} at ${l}`:l;}).join(", "):null,
+      allyChampions:allyPins.length?allyPins.map((p,i)=>{const l=posLabel(p.pos);return p.champ?`${p.champ}(A${i+1}) at ${l}`:`Ally ${i+1} at ${l}`;}).join(", "):null,
+      enemyChampions:enemyPins.length?enemyPins.map((p,i)=>{const l=posLabel(p.pos);return p.champ?`${p.champ}(E${i+1}) at ${l}`:`Enemy ${i+1} at ${l}`;}).join(", "):null,
       dragonStatus:dragon??null,baronStatus:baron??null,riftHeraldStatus:herald??null,
       goldDiff:null,score:null,
       additionalNotes:myChamp?`I am playing ${myChamp}`:null,
     };
   },[pins,gameTimeSecs,myRole,myChamp,dragon,baron,herald]);
 
-  // ── Get annotated minimap for AI ────────────────────────────────────────────
   const getAnnotatedMinimap=useCallback(async():Promise<string|null>=>{
     if(!minimapBase64||pins.length===0)return null;
     return renderAnnotatedMinimap(minimapBase64,pins);
   },[minimapBase64,pins]);
 
-  // ── Advise ──────────────────────────────────────────────────────────────────
+  // ── Advise ────────────────────────────────────────────────────────────────────
   const getAdvice=async()=>{
     if(!model)return;
     setIsAdvising(true);setAdvice("");
@@ -467,7 +441,7 @@ export default function CoachPage(){
     finally{setIsAdvising(false);}
   };
 
-  // ── Chat ────────────────────────────────────────────────────────────────────
+  // ── Chat ──────────────────────────────────────────────────────────────────────
   const sendChat=async(e:React.FormEvent)=>{
     e.preventDefault();
     if(!chatInput.trim()||!model)return;
@@ -519,16 +493,13 @@ export default function CoachPage(){
 
   const PLACE_CFG={
     me:   {active:"bg-amber-400/20 border-amber-400 text-amber-400",idle:"border-border/40 text-muted-foreground hover:border-amber-400/40",dot:"bg-amber-400",hint:"Tap anywhere on the minimap to drop YOUR pin — tap pin to remove"},
-    ally: {active:"bg-sky-400/20   border-sky-400   text-sky-400",  idle:"border-border/40 text-muted-foreground hover:border-sky-400/40",  dot:"bg-sky-400",  hint:`Tap to place ally pins (${allyPins.length}/4) — tap existing to remove`},
-    enemy:{active:"bg-red-500/20   border-red-500   text-red-400",  idle:"border-border/40 text-muted-foreground hover:border-red-400/40",  dot:"bg-red-500",  hint:`Tap to place enemy pins (${enemyPins.length}/5) — tap existing to remove`},
+    ally: {active:"bg-sky-400/20   border-sky-400   text-sky-400",  idle:"border-border/40 text-muted-foreground hover:border-sky-400/40",  dot:"bg-sky-400",  hint:`Tap to place ally pins (${allyPins.length}/4) — tap pin to remove`},
+    enemy:{active:"bg-red-500/20   border-red-500   text-red-400",  idle:"border-border/40 text-muted-foreground hover:border-red-400/40",  dot:"bg-red-500",  hint:`Tap to place enemy pins (${enemyPins.length}/5) — tap pin to remove`},
   };
 
-  const PIN_COLOR={me:"#FBBF24",ally:"#38BDF8",enemy:"#EF4444"};
-  const PIN_BORDER={me:"border-amber-400",ally:"border-sky-400",enemy:"border-red-500"};
   const PIN_BG={me:"bg-amber-400",ally:"bg-sky-400",enemy:"bg-red-500"};
+  const PIN_BORDER={me:"border-amber-400",ally:"border-sky-400",enemy:"border-red-500"};
   const PIN_TEXT={me:"text-black",ally:"text-black",enemy:"text-white"};
-
-  let ai=1,ei=1;
   const pinLabel=(pin:MapPin)=>pin.type==="me"?"ME":pin.type==="ally"?`A${allyPins.indexOf(pin)+1}`:`E${enemyPins.indexOf(pin)+1}`;
 
   return(
@@ -547,7 +518,7 @@ export default function CoachPage(){
       <main className="flex-1 max-w-2xl mx-auto w-full px-4 py-4 space-y-4 pb-8">
 
         {!model&&(
-          <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-3 flex gap-3 items-start">
+          <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-3 flex gap-3 items-start">
             <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5"/>
             <div className="text-sm">
               <span className="font-semibold text-destructive">No AI model. </span>
@@ -556,7 +527,7 @@ export default function CoachPage(){
           </div>
         )}
 
-        {/* ── SCREENSHOT ─────────────────────────────────────────────────── */}
+        {/* ── SCREENSHOT ──────────────────────────────────────────────── */}
         {imageBase64?(
           <div className="relative w-full rounded-xl overflow-hidden border border-border/40">
             <img src={imageBase64} alt="Game screenshot" className="w-full h-auto block" draggable={false}/>
@@ -564,6 +535,13 @@ export default function CoachPage(){
               <button className="bg-black/70 border border-white/20 text-white text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 active:scale-95"
                 onClick={()=>fileInputRef.current?.click()}>
                 <Upload className="w-3 h-3"/> Replace
+              </button>
+              <button
+                className="bg-black/70 border border-amber-400/40 text-amber-400 text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 active:scale-95"
+                onClick={()=>setShowCropEditor(true)}
+                title="Set minimap crop area"
+              >
+                <Crop className="w-3 h-3"/> Crop
               </button>
               <button className="w-8 h-8 rounded-full bg-black/70 border border-white/20 flex items-center justify-center text-white active:scale-95"
                 onClick={()=>{setImageBase64(null);setMinimapBase64(null);setPins([]);}}>
@@ -584,20 +562,28 @@ export default function CoachPage(){
         <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
           onChange={e=>{const f=e.target.files?.[0];if(f)handleFile(f);}}/>
 
-        {/* ── MINIMAP TAP PANEL ──────────────────────────────────────────── */}
+        {/* ── MINIMAP TAP PANEL ──────────────────────────────────────── */}
         {imageBase64&&(
           <div className="bg-card/40 border border-border/40 rounded-xl overflow-hidden">
             <div className="px-4 py-2.5 border-b border-border/30 flex items-center justify-between">
               <span className="font-display text-xs tracking-widest uppercase text-muted-foreground flex items-center gap-2">
-                Minimap — tap to mark positions
-                {extracting&&<span className="text-primary/70 flex items-center gap-1"><Sparkles className="w-3 h-3 animate-pulse"/>reading time…</span>}
+                Minimap
+                {extracting&&<span className="text-primary/70 flex items-center gap-1 text-[10px]"><Sparkles className="w-3 h-3 animate-pulse"/>reading time…</span>}
               </span>
-              {pins.length>0&&(
-                <button onClick={()=>setPins([])}
-                  className="text-[10px] text-muted-foreground hover:text-white border border-border/30 px-2 py-1 rounded-full">
-                  Clear all
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {minimapBase64&&(
+                  <button onClick={()=>setShowZoneEditor(true)}
+                    className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-amber-400 border border-border/30 hover:border-amber-400/40 px-2.5 py-1 rounded-full transition-colors">
+                    <Map className="w-3 h-3"/> Edit lanes
+                  </button>
+                )}
+                {pins.length>0&&(
+                  <button onClick={()=>setPins([])}
+                    className="text-[10px] text-muted-foreground hover:text-white border border-border/30 px-2 py-1 rounded-full">
+                    Clear all
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="p-3 space-y-3">
@@ -608,8 +594,7 @@ export default function CoachPage(){
                   const active=placeMode===type;
                   const count=type==="me"?(myPin?1:0):type==="ally"?allyPins.length:enemyPins.length;
                   return(
-                    <button key={type}
-                      onClick={()=>setPlaceMode(p=>p===type?null:type)}
+                    <button key={type} onClick={()=>setPlaceMode(p=>p===type?null:type)}
                       className={cn("flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg border text-xs font-bold transition-all active:scale-95 font-display bg-black/30",
                         active?cfg.active:`bg-black/30 ${cfg.idle}`)}>
                       {type==="me"&&<UserRound className="w-3.5 h-3.5"/>}
@@ -632,14 +617,12 @@ export default function CoachPage(){
                 </p>
               )}
 
-              {/* ── The minimap with free-tap ──────────────────────────── */}
-              <div
-                ref={minimapDivRef}
+              {/* Minimap with free-tap */}
+              <div ref={minimapDivRef}
                 className={cn("relative w-full rounded-lg overflow-hidden border border-border/30",
                   placeMode?"cursor-crosshair":"cursor-default")}
                 onClick={handleMinimapTap}
-                onTouchStart={handleMinimapTap}
-              >
+                onTouchStart={handleMinimapTap}>
                 {minimapBase64?(
                   <img src={minimapBase64} alt="Minimap" className="w-full h-auto block pointer-events-none select-none" draggable={false}/>
                 ):(
@@ -647,29 +630,22 @@ export default function CoachPage(){
                     <Loader2 className="w-5 h-5 animate-spin text-muted-foreground/40"/>
                   </div>
                 )}
-
-                {/* Pins rendered as positioned divs */}
-                {pins.map(pin=>{
-                  const label=pinLabel(pin);
-                  return(
-                    <div key={pin.id} data-pin="true"
-                      className="absolute -translate-x-1/2 -translate-y-1/2 z-10"
-                      style={{left:`${pin.x}%`,top:`${pin.y}%`}}
-                      onClick={e=>{e.stopPropagation();removePin(pin.id);}}>
-                      <div className={cn(
-                        "w-8 h-8 rounded-full border-2 flex items-center justify-center",
-                        "font-display font-bold text-[11px] cursor-pointer",
-                        "shadow-lg active:scale-90 transition-transform",
-                        PIN_BG[pin.type],PIN_BORDER[pin.type],PIN_TEXT[pin.type]
-                      )}>
-                        {label}
-                      </div>
+                {pins.map(pin=>(
+                  <div key={pin.id} data-pin="true"
+                    className="absolute -translate-x-1/2 -translate-y-1/2 z-10"
+                    style={{left:`${pin.x}%`,top:`${pin.y}%`}}
+                    onClick={e=>{e.stopPropagation();removePin(pin.id);}}>
+                    <div className={cn(
+                      "w-8 h-8 rounded-full border-2 flex items-center justify-center",
+                      "font-display font-bold text-[11px] cursor-pointer shadow-lg active:scale-90 transition-transform",
+                      PIN_BG[pin.type],PIN_BORDER[pin.type],PIN_TEXT[pin.type])}>
+                      {pinLabel(pin)}
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
 
-              {/* Position summary tags */}
+              {/* Position tags */}
               {pins.length>0&&(
                 <div className="flex gap-1.5 flex-wrap">
                   {myPin&&(
@@ -696,7 +672,7 @@ export default function CoachPage(){
           </div>
         )}
 
-        {/* ── CONTEXT PANEL ──────────────────────────────────────────────── */}
+        {/* ── CONTEXT PANEL ──────────────────────────────────────────── */}
         <div className="bg-card/40 border border-border/40 rounded-xl overflow-hidden">
           <button className="w-full flex items-center justify-between px-4 py-3 text-xs font-display tracking-widest uppercase text-muted-foreground"
             onClick={()=>setContextOpen(o=>!o)}>
@@ -706,10 +682,8 @@ export default function CoachPage(){
             </span>
             {contextOpen?<ChevronUp className="w-4 h-4"/>:<ChevronDown className="w-4 h-4"/>}
           </button>
-
           {contextOpen&&(
             <div className="border-t border-border/30 px-4 pb-5 space-y-5">
-
               {/* Game time */}
               <div className="pt-4">
                 <div className="flex justify-between mb-2 items-center">
@@ -726,7 +700,6 @@ export default function CoachPage(){
                   <span>0:00</span><span>10:00</span><span>20:00</span><span>30:00</span>
                 </div>
               </div>
-
               {/* Role */}
               <div>
                 <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground">My Role</span>
@@ -740,8 +713,7 @@ export default function CoachPage(){
                   ))}
                 </div>
               </div>
-
-              {/* My champion */}
+              {/* Champion */}
               <div>
                 <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground">My Champion <span className="text-muted-foreground/40">(optional)</span></span>
                 <button onClick={()=>setChampPickOpen(true)}
@@ -750,7 +722,6 @@ export default function CoachPage(){
                   {myChamp??"+ Select champion (optional)"}
                 </button>
               </div>
-
               {/* Objectives */}
               <div>
                 <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground">Objectives</span>
@@ -760,12 +731,11 @@ export default function CoachPage(){
                   <ObjControl label="Herald" value={herald} onChange={setHerald}/>
                 </div>
               </div>
-
             </div>
           )}
         </div>
 
-        {/* ── ADVISE ME ──────────────────────────────────────────────────── */}
+        {/* ── ADVISE ME ──────────────────────────────────────────────── */}
         <button onClick={getAdvice} disabled={!canAdvise}
           className={cn("w-full h-16 rounded-xl font-display text-xl font-bold tracking-widest uppercase transition-all relative overflow-hidden",
             canAdvise?"bg-primary text-primary-foreground shadow-[0_0_30px_rgba(0,160,210,0.35)] hover:shadow-[0_0_45px_rgba(0,160,210,0.5)] active:scale-[0.98]"
@@ -773,10 +743,9 @@ export default function CoachPage(){
           {isAdvising
             ?<span className="flex items-center justify-center gap-3"><Loader2 className="w-5 h-5 animate-spin"/>Analyzing…</span>
             :<span className="flex items-center justify-center gap-3"><Target className="w-5 h-5"/>Advise Me</span>}
-          {canAdvise&&!isAdvising&&<span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full animate-[shimmer_2.5s_infinite]"/>}
         </button>
 
-        {/* ── ADVICE OUTPUT ──────────────────────────────────────────────── */}
+        {/* ── ADVICE OUTPUT ──────────────────────────────────────────── */}
         {(advice||isAdvising)&&(
           <div className="bg-card/60 border border-primary/30 rounded-xl overflow-hidden">
             <div className="px-4 py-2.5 bg-primary/5 border-b border-primary/20 flex items-center gap-2">
@@ -791,7 +760,7 @@ export default function CoachPage(){
           </div>
         )}
 
-        {/* ── CHAT ───────────────────────────────────────────────────────── */}
+        {/* ── CHAT ───────────────────────────────────────────────────── */}
         <div className="bg-card/40 border border-border/40 rounded-xl overflow-hidden">
           <div className="px-4 py-2.5 border-b border-border/30 flex items-center gap-2">
             <MessageSquare className="w-4 h-4 text-primary"/>
@@ -849,6 +818,24 @@ export default function CoachPage(){
         </div>
 
       </main>
+
+      {/* ── Calibration modals ─────────────────────────────────────────── */}
+      {showCropEditor&&imageBase64&&(
+        <CropCalibrator
+          screenshot={imageBase64}
+          current={cropConfig}
+          onSave={handleSaveCrop}
+          onClose={()=>setShowCropEditor(false)}
+        />
+      )}
+      {showZoneEditor&&minimapBase64&&(
+        <ZoneEditor
+          minimap={minimapBase64}
+          current={lanePaths}
+          onSave={saveLanes}
+          onClose={()=>setShowZoneEditor(false)}
+        />
+      )}
 
       <ChampionPicker
         open={champPickOpen} title="Your Champion"
