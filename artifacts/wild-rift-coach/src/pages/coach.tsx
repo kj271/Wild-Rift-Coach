@@ -15,11 +15,11 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  Target, Settings, AlertCircle, Loader2, Send, Upload, MessageSquare, X, Search, ChevronDown, ChevronUp
+  Target, Settings, AlertCircle, Loader2, Send, Upload, MessageSquare, X, Search, ChevronDown, ChevronUp, UserRound, Users, Swords,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// ── Wild Rift champion roster ────────────────────────────────────────────────
+// ─── Champion list ────────────────────────────────────────────────────────────
 const CHAMPIONS = [
   "Ahri","Akali","Akshan","Alistar","Amumu","Annie","Ashe","Aurelion Sol",
   "Blitzcrank","Brand","Braum","Camille","Corki","Darius","Diana","Dr. Mundo",
@@ -35,65 +35,77 @@ const CHAMPIONS = [
 
 const ROLES = ["Top","Jungle","Mid","ADC","Support"] as const;
 type Role = typeof ROLES[number];
-
-const LOCATIONS = [
-  "Top Lane","Mid Lane","Bot Lane","Dragon Pit","Baron Pit",
-  "Jungle","River","Base","Turret",
-] as const;
-type Location = typeof LOCATIONS[number];
-
 type ObjStatus = "up" | "down";
 
-interface ChampionPickerProps {
-  open: boolean;
-  title: string;
-  selected: string[];
-  max: number;
-  onClose: () => void;
-  onSelect: (champs: string[]) => void;
+// ─── Map zones (Wild Rift schematic) ─────────────────────────────────────────
+// Layout mirrors the WR minimap: top-left = top lane, bottom-right = bot lane
+const MAP_ZONES = [
+  { id: "base_blue",   label: "Blue Base",   col: 1, row: 1 },
+  { id: "top_lane",    label: "Top Lane",    col: 2, row: 1 },
+  { id: "baron_lane",  label: "Baron Lane",  col: 3, row: 1 },
+  { id: "blue_jungle", label: "Blue Jungle", col: 1, row: 2 },
+  { id: "mid_lane",    label: "Mid Lane",    col: 2, row: 2 },
+  { id: "red_jungle",  label: "Red Jungle",  col: 3, row: 2 },
+  { id: "dragon_lane", label: "Dragon Lane", col: 1, row: 3 },
+  { id: "bot_lane",    label: "Bot Lane",    col: 2, row: 3 },
+  { id: "base_red",    label: "Red Base",    col: 3, row: 3 },
+  { id: "baron_pit",   label: "Baron Pit",   col: 2, row: 1, special: true },
+  { id: "dragon_pit",  label: "Dragon Pit",  col: 2, row: 3, special: true },
+] as const;
+type ZoneId = typeof MAP_ZONES[number]["id"];
+
+// Simplified 3×3 grid zones for the tap map
+const GRID_ZONES: { id: ZoneId; label: string; col: number; row: number }[] = [
+  { id: "base_blue",   label: "Blue\nBase",   col: 0, row: 0 },
+  { id: "top_lane",    label: "Top\nLane",    col: 1, row: 0 },
+  { id: "baron_pit",   label: "Baron\nPit",   col: 2, row: 0 },
+  { id: "blue_jungle", label: "Blue\nJungle", col: 0, row: 1 },
+  { id: "mid_lane",    label: "Mid\nLane",    col: 1, row: 1 },
+  { id: "red_jungle",  label: "Red\nJungle",  col: 2, row: 1 },
+  { id: "dragon_pit",  label: "Dragon\nPit",  col: 0, row: 2 },
+  { id: "bot_lane",    label: "Bot\nLane",    col: 1, row: 2 },
+  { id: "base_red",    label: "Red\nBase",    col: 2, row: 2 },
+];
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface PlayerMark {
+  zone: ZoneId;
+  champ: string | null; // optional
 }
 
-function ChampionPicker({ open, title, selected, max, onClose, onSelect }: ChampionPickerProps) {
+type PlacementMode = "me" | "ally" | "enemy" | null;
+
+// ─── Champion picker ──────────────────────────────────────────────────────────
+function ChampionPicker({
+  open, title, selected, max, onClose, onSelect,
+}: {
+  open: boolean; title: string; selected: string[]; max: number;
+  onClose: () => void; onSelect: (c: string[]) => void;
+}) {
   const [search, setSearch] = useState("");
   const filtered = CHAMPIONS.filter(c => c.toLowerCase().includes(search.toLowerCase()));
-
   const toggle = (c: string) => {
-    if (selected.includes(c)) {
-      onSelect(selected.filter(s => s !== c));
-    } else if (selected.length < max) {
-      onSelect([...selected, c]);
-    }
+    if (selected.includes(c)) onSelect(selected.filter(s => s !== c));
+    else if (selected.length < max) onSelect([...selected, c]);
   };
-
   return (
     <Dialog open={open} onOpenChange={o => { if (!o) onClose(); }}>
       <DialogContent className="max-w-sm w-full bg-[#0b1120] border-border p-0 gap-0 max-h-[80vh] flex flex-col">
         <DialogHeader className="p-4 border-b border-border/50 shrink-0">
           <DialogTitle className="text-sm font-display tracking-wider text-primary uppercase">
-            {title}
-            {max > 1 && <span className="text-muted-foreground font-normal ml-2">({selected.length}/{max})</span>}
+            {title} {max > 1 && <span className="text-muted-foreground font-normal">({selected.length}/{max})</span>}
           </DialogTitle>
         </DialogHeader>
         <div className="p-3 border-b border-border/30 shrink-0">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              autoFocus
-              placeholder="Search champion..."
-              className="pl-9 h-9 bg-black/40 border-border/50 text-sm"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+            <Input autoFocus placeholder="Search champion..." className="pl-9 h-9 bg-black/40 text-sm" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
         </div>
         {selected.length > 0 && (
           <div className="px-3 pt-2 pb-1 flex flex-wrap gap-1.5 shrink-0">
             {selected.map(c => (
-              <button
-                key={c}
-                onClick={() => toggle(c)}
-                className="text-xs px-2.5 py-1 rounded-full bg-primary/20 text-primary border border-primary/40 flex items-center gap-1.5 active:scale-95 transition-transform"
-              >
+              <button key={c} onClick={() => toggle(c)} className="text-xs px-2.5 py-1 rounded-full bg-primary/20 text-primary border border-primary/40 flex items-center gap-1.5">
                 {c} <X className="w-3 h-3" />
               </button>
             ))}
@@ -105,87 +117,93 @@ function ChampionPicker({ open, title, selected, max, onClose, onSelect }: Champ
               const sel = selected.includes(c);
               const full = !sel && selected.length >= max;
               return (
-                <button
-                  key={c}
-                  onClick={() => toggle(c)}
-                  disabled={full}
-                  className={cn(
-                    "rounded-md px-2 py-2.5 text-xs font-medium text-center transition-all active:scale-95",
-                    sel
-                      ? "bg-primary/25 text-primary border border-primary/50 shadow-[0_0_8px_rgba(var(--primary),0.2)]"
-                      : full
-                        ? "bg-black/20 text-muted-foreground/40 border border-border/20 cursor-not-allowed"
-                        : "bg-black/30 text-slate-300 border border-border/30 hover:border-primary/30 hover:text-primary hover:bg-primary/10"
-                  )}
-                >
+                <button key={c} onClick={() => toggle(c)} disabled={full}
+                  className={cn("rounded-md px-2 py-2.5 text-xs font-medium text-center transition-all active:scale-95",
+                    sel ? "bg-primary/25 text-primary border border-primary/50"
+                        : full ? "opacity-30 bg-black/20 border border-border/20 cursor-not-allowed"
+                               : "bg-black/30 text-slate-300 border border-border/30 hover:border-primary/30 hover:text-primary hover:bg-primary/10"
+                  )}>
                   {c}
                 </button>
               );
             })}
           </div>
-          {filtered.length === 0 && (
-            <p className="text-center text-muted-foreground text-xs py-8">No champions found</p>
-          )}
         </div>
         <div className="p-3 border-t border-border/30 shrink-0">
-          <Button className="w-full h-10 font-display tracking-wider" onClick={onClose}>
-            Done
-          </Button>
+          <Button className="w-full h-10 font-display tracking-wider" onClick={onClose}>Done</Button>
         </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-// ── Slot button for champion slots ───────────────────────────────────────────
-function ChampSlot({ champ, onClick, accent = false }: { champ: string | null; onClick: () => void; accent?: boolean }) {
+// ─── Minimap tap grid ─────────────────────────────────────────────────────────
+function MinimapGrid({
+  mode,
+  myZone,
+  allies,
+  enemies,
+  onTap,
+}: {
+  mode: PlacementMode;
+  myZone: ZoneId | null;
+  allies: PlayerMark[];
+  enemies: PlayerMark[];
+  onTap: (zone: ZoneId) => void;
+}) {
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "flex flex-col items-center justify-center rounded-lg border transition-all active:scale-95 py-2 px-1 text-center min-w-0",
-        champ
-          ? accent
-            ? "bg-accent/10 border-accent/40 text-accent"
-            : "bg-primary/10 border-primary/30 text-primary"
-          : "bg-black/30 border-border/30 text-muted-foreground hover:border-primary/30"
-      )}
-    >
-      {champ ? (
-        <span className="text-[10px] leading-tight font-semibold break-words w-full">{champ}</span>
-      ) : (
-        <span className="text-[10px] text-muted-foreground/50">+ Pick</span>
-      )}
-    </button>
+    <div className="grid gap-1" style={{ gridTemplateColumns: "repeat(3, 1fr)", gridTemplateRows: "repeat(3, 1fr)", aspectRatio: "1" }}>
+      {GRID_ZONES.map(z => {
+        const isMe = myZone === z.id;
+        const allyCount = allies.filter(a => a.zone === z.id).length;
+        const enemyCount = enemies.filter(e => e.zone === z.id).length;
+        const isMid = z.id === "mid_lane";
+
+        return (
+          <button
+            key={z.id}
+            onClick={() => onTap(z.id)}
+            className={cn(
+              "relative flex flex-col items-center justify-center rounded-md border text-[10px] transition-all active:scale-95 font-display tracking-wide leading-tight",
+              isMid ? "bg-slate-800/60" : "bg-slate-900/60",
+              mode && "hover:border-primary/60 hover:bg-primary/5",
+              isMe ? "border-accent ring-1 ring-accent/40" : "border-border/30",
+            )}
+            style={{ gridColumn: z.col + 1, gridRow: z.row + 1 }}
+          >
+            <span className={cn("text-center whitespace-pre-line", isMe ? "text-accent font-bold" : "text-muted-foreground/70")}>
+              {z.label}
+            </span>
+            {/* Markers */}
+            <div className="flex gap-0.5 mt-1 flex-wrap justify-center">
+              {isMe && <span className="w-3 h-3 rounded-full bg-accent border border-accent/60 text-[8px] flex items-center justify-center text-black font-bold">ME</span>}
+              {Array.from({ length: allyCount }).map((_, i) => (
+                <span key={`a${i}`} className="w-2.5 h-2.5 rounded-full bg-primary/80 border border-primary/40" />
+              ))}
+              {Array.from({ length: enemyCount }).map((_, i) => (
+                <span key={`e${i}`} className="w-2.5 h-2.5 rounded-full bg-red-500/80 border border-red-400/40" />
+              ))}
+            </div>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
-// ── Objective toggle ─────────────────────────────────────────────────────────
-function ObjToggle({
-  label, value, onChange, color = "primary"
-}: { label: string; value: ObjStatus | null; onChange: (v: ObjStatus | null) => void; color?: "primary" | "accent" | "red" }) {
-  const colors = {
-    primary: { on: "bg-primary/20 border-primary text-primary", off: "bg-black/30 border-border/40 text-muted-foreground hover:border-primary/40" },
-    accent:  { on: "bg-accent/20 border-accent text-accent", off: "bg-black/30 border-border/40 text-muted-foreground hover:border-accent/40" },
-    red:     { on: "bg-red-500/20 border-red-500 text-red-400", off: "bg-black/30 border-border/40 text-muted-foreground hover:border-red-400/40" },
-  }[color];
-
+// ─── Objective toggle ─────────────────────────────────────────────────────────
+function ObjToggle({ label, value, onChange }: { label: string; value: ObjStatus | null; onChange: (v: ObjStatus | null) => void }) {
   const tap = (v: ObjStatus) => onChange(value === v ? null : v);
-
   return (
     <div className="flex flex-col gap-1">
       <span className="text-[10px] font-display uppercase tracking-wider text-muted-foreground/70 text-center">{label}</span>
       <div className="flex gap-1">
-        <button
-          onClick={() => tap("up")}
-          className={cn("flex-1 text-xs font-bold py-1.5 rounded border transition-all active:scale-95", value === "up" ? colors.on : colors.off)}
-        >
+        <button onClick={() => tap("up")} className={cn("flex-1 text-xs font-bold py-2 rounded border transition-all active:scale-95",
+          value === "up" ? "bg-primary/20 border-primary text-primary" : "bg-black/30 border-border/40 text-muted-foreground hover:border-primary/30")}>
           UP
         </button>
-        <button
-          onClick={() => tap("down")}
-          className={cn("flex-1 text-xs font-bold py-1.5 rounded border transition-all active:scale-95", value === "down" ? "bg-red-500/20 border-red-500 text-red-400" : colors.off)}
-        >
+        <button onClick={() => tap("down")} className={cn("flex-1 text-xs font-bold py-2 rounded border transition-all active:scale-95",
+          value === "down" ? "bg-red-500/20 border-red-500 text-red-400" : "bg-black/30 border-border/40 text-muted-foreground hover:border-red-400/30")}>
           DOWN
         </button>
       </div>
@@ -193,38 +211,43 @@ function ObjToggle({
   );
 }
 
-// ── Inline streaming chat line ────────────────────────────────────────────────
+// ─── Streaming chat message type ──────────────────────────────────────────────
 interface StreamingMsg { role: "user" | "assistant"; content: string; streaming?: boolean }
 
+// ═════════════════════════════════════════════════════════════════════════════
 export default function CoachPage() {
   const queryClient = useQueryClient();
   const [model] = useModelStorage();
 
-  // ── Screenshot ──────────────────────────────────────────────────────────────
+  // Screenshot
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Context state ───────────────────────────────────────────────────────────
+  // Context
   const [gameTimeSecs, setGameTimeSecs] = useState(0);
   const [myRole, setMyRole] = useState<Role | null>(null);
-  const [location, setLocation] = useState<Location | null>(null);
+  const [myZone, setMyZone] = useState<ZoneId | null>(null);
   const [myChamp, setMyChamp] = useState<string | null>(null);
-  const [allies, setAllies] = useState<string[]>([]);
-  const [enemies, setEnemies] = useState<string[]>([]);
+  const [allies, setAllies] = useState<PlayerMark[]>([]);
+  const [enemies, setEnemies] = useState<PlayerMark[]>([]);
   const [dragon, setDragon] = useState<ObjStatus | null>(null);
   const [baron, setBaron] = useState<ObjStatus | null>(null);
   const [herald, setHerald] = useState<ObjStatus | null>(null);
 
-  // ── Champion picker state ───────────────────────────────────────────────────
-  type PickerTarget = "myChamp" | "allies" | "enemies" | null;
-  const [picker, setPicker] = useState<PickerTarget>(null);
+  // Placement mode on map
+  const [placementMode, setPlacementMode] = useState<PlacementMode>(null);
 
-  // ── Advice ──────────────────────────────────────────────────────────────────
-  const [advice, setAdvice] = useState("");
-  const [isAdvising, setIsAdvising] = useState(false);
+  // Champion picker
+  const [champPickTarget, setChampPickTarget] = useState<"myChamp" | number | null>(null); // number = ally index
+
+  // Section visibility
   const [contextOpen, setContextOpen] = useState(true);
 
-  // ── Chat ─────────────────────────────────────────────────────────────────────
+  // Advice
+  const [advice, setAdvice] = useState("");
+  const [isAdvising, setIsAdvising] = useState(false);
+
+  // Chat
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
   const [chatMessages, setChatMessages] = useState<StreamingMsg[]>([]);
   const [chatInput, setChatInput] = useState("");
@@ -238,48 +261,79 @@ export default function CoachPage() {
   );
   const createConversation = useCreateOpenrouterConversation();
 
-  // ── Format time ─────────────────────────────────────────────────────────────
-  const formatTime = (secs: number) => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+  const formatTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
-  // ── Build context for API ───────────────────────────────────────────────────
-  const buildContext = useCallback((): GameContext => ({
-    gameTime: gameTimeSecs > 0 ? formatTime(gameTimeSecs) : null,
-    myRole: myRole ?? null,
-    myLocation: location ?? null,
-    allyChampions: allies.length ? allies.join(", ") : null,
-    enemyChampions: enemies.length ? enemies.join(", ") : null,
-    dragonStatus: dragon ?? null,
-    baronStatus: baron ?? null,
-    riftHeraldStatus: herald ?? null,
-    goldDiff: null,
-    score: null,
-    additionalNotes: myChamp ? `I am playing ${myChamp}` : null,
-  }), [gameTimeSecs, myRole, location, allies, enemies, dragon, baron, herald, myChamp]);
+  // Handle map tap
+  const handleMapTap = (zone: ZoneId) => {
+    if (!placementMode) return;
+    if (placementMode === "me") {
+      setMyZone(prev => prev === zone ? null : zone);
+    } else if (placementMode === "ally") {
+      const existing = allies.findIndex(a => a.zone === zone);
+      if (existing >= 0) {
+        setAllies(p => p.filter((_, i) => i !== existing));
+      } else if (allies.length < 4) {
+        setAllies(p => [...p, { zone, champ: null }]);
+      }
+    } else if (placementMode === "enemy") {
+      const existing = enemies.findIndex(e => e.zone === zone);
+      if (existing >= 0) {
+        setEnemies(p => p.filter((_, i) => i !== existing));
+      } else if (enemies.length < 5) {
+        setEnemies(p => [...p, { zone, champ: null }]);
+      }
+    }
+  };
 
-  // ── File upload ─────────────────────────────────────────────────────────────
+  // Build context
+  const buildContext = useCallback((): GameContext => {
+    const allyZoneNames = allies.map(a => {
+      const zone = GRID_ZONES.find(z => z.id === a.zone);
+      const name = zone?.label.replace("\n", " ") ?? a.zone;
+      return a.champ ? `${a.champ} (${name})` : name;
+    });
+    const enemyZoneNames = enemies.map(e => {
+      const zone = GRID_ZONES.find(z => z.id === e.zone);
+      const name = zone?.label.replace("\n", " ") ?? e.zone;
+      return e.champ ? `${e.champ} (${name})` : name;
+    });
+    const myZoneName = myZone ? (GRID_ZONES.find(z => z.id === myZone)?.label.replace("\n", " ") ?? myZone) : null;
+
+    return {
+      gameTime: gameTimeSecs > 0 ? formatTime(gameTimeSecs) : null,
+      myRole: myRole ?? null,
+      myLocation: myZoneName,
+      allyChampions: allyZoneNames.length ? allyZoneNames.join(", ") : null,
+      enemyChampions: enemyZoneNames.length ? enemyZoneNames.join(", ") : null,
+      dragonStatus: dragon ?? null,
+      baronStatus: baron ?? null,
+      riftHeraldStatus: herald ?? null,
+      goldDiff: null,
+      score: null,
+      additionalNotes: myChamp ? `I am playing ${myChamp}` : null,
+    };
+  }, [gameTimeSecs, myRole, myZone, myChamp, allies, enemies, dragon, baron, herald]);
+
+  // File upload
   const handleFile = (file: File) => {
     const reader = new FileReader();
-    reader.onload = e => {
-      const result = e.target?.result as string;
-      if (result) setImageBase64(result);
-    };
+    reader.onload = e => { const r = e.target?.result as string; if (r) setImageBase64(r); };
     reader.readAsDataURL(file);
   };
 
-  // ── Get advice ──────────────────────────────────────────────────────────────
+  // Advise
   const getAdvice = async () => {
     if (!model) return;
     setIsAdvising(true);
     setAdvice("");
     try {
       const BASE = import.meta.env.BASE_URL;
-      const base64Data = imageBase64?.split(",")[1] ?? null;
       const res = await fetch(`${BASE}api/coach/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model, imageBase64: base64Data, context: buildContext() }),
+        body: JSON.stringify({ model, imageBase64: imageBase64?.split(",")[1] ?? null, context: buildContext() }),
       });
-      if (!res.ok) throw new Error("API error");
+      if (!res.ok) throw new Error();
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buf = "";
@@ -303,17 +357,16 @@ export default function CoachPage() {
         }
       }
     } catch {
-      setAdvice("Error getting advice. Check your model in Settings and try again.");
+      setAdvice("Error — check your model in Settings and try again.");
     } finally {
       setIsAdvising(false);
     }
   };
 
-  // ── Send chat ────────────────────────────────────────────────────────────────
+  // Chat
   const sendChat = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim() || !model) return;
-
     let convId = activeConversationId;
     if (!convId) {
       const conv = await createConversation.mutateAsync({ data: { title: `Game ${formatTime(gameTimeSecs)}`, model } });
@@ -321,12 +374,10 @@ export default function CoachPage() {
       setActiveConversationId(conv.id);
       queryClient.invalidateQueries({ queryKey: getListOpenrouterConversationsQueryKey() });
     }
-
     const msg = chatInput.trim();
     setChatInput("");
     setIsChatting(true);
     setChatMessages(p => [...p, { role: "user", content: msg }, { role: "assistant", content: "", streaming: true }]);
-
     try {
       const BASE = import.meta.env.BASE_URL;
       const res = await fetch(`${BASE}api/openrouter/conversations/${convId}/messages`, {
@@ -334,7 +385,7 @@ export default function CoachPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: msg, model, context: buildContext() }),
       });
-      if (!res.ok) throw new Error("API error");
+      if (!res.ok) throw new Error();
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buf = "";
@@ -349,12 +400,7 @@ export default function CoachPage() {
           try {
             const d = JSON.parse(line.slice(6));
             if (d.content) {
-              setChatMessages(p => {
-                const next = [...p];
-                const last = next[next.length - 1];
-                if (last && last.streaming) last.content += d.content;
-                return next;
-              });
+              setChatMessages(p => { const n = [...p]; const l = n[n.length - 1]; if (l?.streaming) l.content += d.content; return n; });
               chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
             }
             if (d.done) {
@@ -371,17 +417,21 @@ export default function CoachPage() {
     }
   };
 
-  const hasContext = myChamp || allies.length || enemies.length || myRole || location || dragon || baron || herald || gameTimeSecs > 0;
+  const hasContext = !!myChamp || !!myZone || allies.length > 0 || enemies.length > 0 || !!myRole || !!dragon || !!baron || !!herald || gameTimeSecs > 0;
   const canAdvise = !!model && !isAdvising && (!!imageBase64 || hasContext);
+
+  const modeLabel = {
+    me: { label: "Tap map → set YOUR position", color: "text-accent border-accent/40 bg-accent/10" },
+    ally: { label: `Tap map → place ally (${allies.length}/4)`, color: "text-primary border-primary/40 bg-primary/10" },
+    enemy: { label: `Tap map → place enemy (${enemies.length}/5)`, color: "text-red-400 border-red-400/40 bg-red-500/10" },
+  };
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       {/* Header */}
       <header className="sticky top-0 z-20 bg-background/90 backdrop-blur border-b border-border/40">
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
-          <h1 className="font-display text-lg font-bold tracking-tight">
-            MACRO<span className="text-primary">COACH</span>
-          </h1>
+          <h1 className="font-display text-lg font-bold tracking-tight">MACRO<span className="text-primary">COACH</span></h1>
           <Link href="/settings">
             <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-white">
               <Settings className="w-5 h-5" />
@@ -390,198 +440,191 @@ export default function CoachPage() {
         </div>
       </header>
 
-      <main className="flex-1 max-w-2xl mx-auto w-full px-4 py-4 space-y-4">
+      <main className="flex-1 max-w-2xl mx-auto w-full px-4 py-4 space-y-4 pb-8">
 
         {/* No model warning */}
         {!model && (
           <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-3 flex items-start gap-3">
             <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
             <div className="text-sm">
-              <span className="font-semibold text-destructive">No AI model selected.</span>
-              <Link href="/settings">
-                <span className="ml-2 underline text-destructive/80 cursor-pointer">Go to Settings</span>
-              </Link>
+              <span className="font-semibold text-destructive">No AI model selected. </span>
+              <Link href="/settings"><span className="underline text-destructive/80 cursor-pointer">Go to Settings</span></Link>
             </div>
           </div>
         )}
 
-        {/* Screenshot upload */}
-        <div
-          className={cn(
-            "relative rounded-lg border-2 border-dashed transition-colors cursor-pointer overflow-hidden",
-            imageBase64 ? "border-primary/40 h-36" : "border-border/40 hover:border-primary/30 h-24 flex items-center justify-center"
-          )}
-          onClick={() => fileInputRef.current?.click()}
-          onDragOver={e => e.preventDefault()}
-          onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
-        >
-          {imageBase64 ? (
-            <>
-              <img src={imageBase64} alt="Screenshot" className="absolute inset-0 w-full h-full object-cover opacity-50" />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="bg-black/60 rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs text-white border border-white/20">
-                  <Upload className="w-3 h-3" /> Tap to change screenshot
-                </div>
-              </div>
+        {/* ── Screenshot — full size ─────────────────────────────────────────── */}
+        {imageBase64 ? (
+          <div className="relative w-full rounded-xl overflow-hidden border border-border/40">
+            <img
+              src={imageBase64}
+              alt="Game screenshot"
+              className="w-full h-auto block"
+              style={{ maxHeight: "70vh", objectFit: "contain", background: "#000" }}
+            />
+            <div className="absolute top-2 right-2 flex gap-2">
               <button
-                className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/70 border border-white/20 flex items-center justify-center text-white hover:bg-red-500/30"
-                onClick={e => { e.stopPropagation(); setImageBase64(null); }}
+                className="bg-black/70 border border-white/20 text-white text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 active:scale-95"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Upload className="w-3 h-3" /> Replace
+              </button>
+              <button
+                className="w-8 h-8 rounded-full bg-black/70 border border-white/20 flex items-center justify-center text-white active:scale-95"
+                onClick={() => setImageBase64(null)}
               >
                 <X className="w-3.5 h-3.5" />
               </button>
-            </>
-          ) : (
-            <div className="flex flex-col items-center gap-1 text-muted-foreground">
-              <Upload className="w-5 h-5" />
-              <span className="text-xs">Tap to upload screenshot (optional)</span>
             </div>
-          )}
-          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
-        </div>
+          </div>
+        ) : (
+          <div
+            className="w-full h-24 rounded-xl border-2 border-dashed border-border/40 hover:border-primary/30 transition-colors cursor-pointer flex items-center justify-center gap-3 text-muted-foreground"
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={e => e.preventDefault()}
+            onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
+          >
+            <Upload className="w-4 h-4" />
+            <span className="text-sm">Tap to upload screenshot (optional)</span>
+          </div>
+        )}
+        <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
 
-        {/* Context panel */}
+        {/* ── Context ───────────────────────────────────────────────────────── */}
         <div className="bg-card/40 border border-border/40 rounded-xl overflow-hidden">
           <button
-            className="w-full flex items-center justify-between px-4 py-3 text-sm font-display tracking-wider uppercase text-muted-foreground"
+            className="w-full flex items-center justify-between px-4 py-3 text-xs font-display tracking-widest uppercase text-muted-foreground"
             onClick={() => setContextOpen(o => !o)}
           >
             <span className="flex items-center gap-2">
               Game Context
-              {hasContext && <span className="w-2 h-2 rounded-full bg-primary inline-block" />}
+              {hasContext && <span className="w-2 h-2 rounded-full bg-primary" />}
             </span>
             {contextOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
 
           {contextOpen && (
-            <div className="px-4 pb-4 space-y-5 border-t border-border/30">
+            <div className="border-t border-border/30 px-4 pb-5 space-y-5">
 
-              {/* Game time slider */}
+              {/* Game time */}
               <div className="pt-4">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wider font-display">Game Time</span>
-                  <span className="font-display text-primary text-base font-bold">{formatTime(gameTimeSecs)}</span>
+                <div className="flex justify-between mb-2">
+                  <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground">Game Time</span>
+                  <span className="font-display text-primary font-bold text-base">{formatTime(gameTimeSecs)}</span>
                 </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={1800}
-                  step={30}
-                  value={gameTimeSecs}
+                <input type="range" min={0} max={1800} step={30} value={gameTimeSecs}
                   onChange={e => setGameTimeSecs(Number(e.target.value))}
-                  className="w-full accent-primary h-2 rounded-full cursor-pointer"
-                />
-                <div className="flex justify-between text-[10px] text-muted-foreground/50 mt-1">
+                  className="w-full accent-primary h-2 rounded-full cursor-pointer" />
+                <div className="flex justify-between text-[10px] text-muted-foreground/40 mt-1">
                   <span>0:00</span><span>10:00</span><span>20:00</span><span>30:00</span>
-                </div>
-              </div>
-
-              {/* My champion */}
-              <div>
-                <span className="text-xs text-muted-foreground uppercase tracking-wider font-display">My Champion</span>
-                <div className="mt-2">
-                  <button
-                    onClick={() => setPicker("myChamp")}
-                    className={cn(
-                      "w-full py-2.5 rounded-lg border text-sm font-medium transition-all active:scale-[0.98]",
-                      myChamp
-                        ? "bg-accent/15 border-accent/50 text-accent"
-                        : "bg-black/30 border-border/40 text-muted-foreground hover:border-accent/40"
-                    )}
-                  >
-                    {myChamp ?? "+ Select your champion"}
-                    {myChamp && <span className="ml-2 text-xs opacity-60">(tap to change)</span>}
-                  </button>
                 </div>
               </div>
 
               {/* Role */}
               <div>
-                <span className="text-xs text-muted-foreground uppercase tracking-wider font-display">Role</span>
-                <div className="flex gap-2 mt-2 flex-wrap">
+                <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground">My Role</span>
+                <div className="flex gap-2 mt-2">
                   {ROLES.map(r => (
-                    <button
-                      key={r}
-                      onClick={() => setMyRole(myRole === r ? null : r)}
-                      className={cn(
-                        "flex-1 min-w-0 py-2 rounded-lg text-xs font-bold border transition-all active:scale-95 font-display tracking-wide",
-                        myRole === r
-                          ? "bg-primary/20 border-primary text-primary shadow-[0_0_10px_rgba(var(--primary),0.2)]"
-                          : "bg-black/30 border-border/40 text-muted-foreground hover:border-primary/30"
-                      )}
-                    >
+                    <button key={r} onClick={() => setMyRole(myRole === r ? null : r)}
+                      className={cn("flex-1 py-2 rounded-lg text-[11px] font-bold border transition-all active:scale-95 font-display tracking-wide",
+                        myRole === r ? "bg-primary/20 border-primary text-primary shadow-[0_0_10px_rgba(0,160,210,0.2)]"
+                                     : "bg-black/30 border-border/40 text-muted-foreground hover:border-primary/30")}>
                       {r}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Location */}
+              {/* My champion */}
               <div>
-                <span className="text-xs text-muted-foreground uppercase tracking-wider font-display">My Location</span>
-                <div className="flex gap-2 mt-2 flex-wrap">
-                  {LOCATIONS.map(loc => (
-                    <button
-                      key={loc}
-                      onClick={() => setLocation(location === loc ? null : loc)}
-                      className={cn(
-                        "px-3 py-1.5 rounded-full text-xs font-medium border transition-all active:scale-95",
-                        location === loc
-                          ? "bg-primary/20 border-primary text-primary"
-                          : "bg-black/30 border-border/40 text-muted-foreground hover:border-primary/30 hover:text-slate-300"
-                      )}
-                    >
-                      {loc}
+                <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground">My Champion <span className="text-muted-foreground/40">(optional)</span></span>
+                <button onClick={() => setChampPickTarget("myChamp")}
+                  className={cn("w-full mt-2 py-2.5 rounded-lg border text-sm font-medium transition-all active:scale-[0.98]",
+                    myChamp ? "bg-accent/15 border-accent/50 text-accent"
+                            : "bg-black/30 border-border/40 text-muted-foreground hover:border-accent/40")}>
+                  {myChamp ?? "+ Select your champion (optional)"}
+                  {myChamp && <span className="ml-2 text-xs opacity-60">(tap to change)</span>}
+                </button>
+              </div>
+
+              {/* ── Map tap section ─────────────────────────────────────────── */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground">Positions on Map</span>
+                  {placementMode && (
+                    <button onClick={() => setPlacementMode(null)} className="text-[10px] text-muted-foreground hover:text-white border border-border/30 px-2 py-1 rounded">
+                      Done
                     </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Allies */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wider font-display">Allies <span className="text-primary">{allies.length}/4</span></span>
-                  {allies.length > 0 && (
-                    <button className="text-[10px] text-muted-foreground hover:text-white" onClick={() => setAllies([])}>Clear</button>
                   )}
                 </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {[0, 1, 2, 3].map(i => (
-                    <ChampSlot
-                      key={i}
-                      champ={allies[i] ?? null}
-                      onClick={() => setPicker("allies")}
-                    />
-                  ))}
-                </div>
-              </div>
 
-              {/* Enemies */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wider font-display">Enemies <span className="text-red-400">{enemies.length}/5</span></span>
-                  {enemies.length > 0 && (
-                    <button className="text-[10px] text-muted-foreground hover:text-white" onClick={() => setEnemies([])}>Clear</button>
-                  )}
+                {/* Mode buttons */}
+                <div className="flex gap-2 mb-3">
+                  <button
+                    onClick={() => setPlacementMode(p => p === "me" ? null : "me")}
+                    className={cn("flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border text-xs font-bold transition-all active:scale-95",
+                      placementMode === "me" ? "bg-accent/20 border-accent text-accent" : "bg-black/30 border-border/40 text-muted-foreground hover:border-accent/40")}>
+                    <UserRound className="w-3.5 h-3.5" /> Me {myZone && "✓"}
+                  </button>
+                  <button
+                    onClick={() => setPlacementMode(p => p === "ally" ? null : "ally")}
+                    className={cn("flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border text-xs font-bold transition-all active:scale-95",
+                      placementMode === "ally" ? "bg-primary/20 border-primary text-primary" : "bg-black/30 border-border/40 text-muted-foreground hover:border-primary/30")}>
+                    <Users className="w-3.5 h-3.5" /> Allies {allies.length > 0 && `(${allies.length})`}
+                  </button>
+                  <button
+                    onClick={() => setPlacementMode(p => p === "enemy" ? null : "enemy")}
+                    className={cn("flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border text-xs font-bold transition-all active:scale-95",
+                      placementMode === "enemy" ? "bg-red-500/20 border-red-500 text-red-400" : "bg-black/30 border-border/40 text-muted-foreground hover:border-red-400/30")}>
+                    <Swords className="w-3.5 h-3.5" /> Enemies {enemies.length > 0 && `(${enemies.length})`}
+                  </button>
                 </div>
-                <div className="grid grid-cols-5 gap-2">
-                  {[0, 1, 2, 3, 4].map(i => (
-                    <ChampSlot
-                      key={i}
-                      champ={enemies[i] ?? null}
-                      onClick={() => setPicker("enemies")}
-                      accent
-                    />
-                  ))}
-                </div>
+
+                {/* Instruction banner */}
+                {placementMode && (
+                  <div className={cn("text-xs px-3 py-2 rounded-lg border mb-3 font-display tracking-wide", modeLabel[placementMode].color)}>
+                    {modeLabel[placementMode].label}
+                  </div>
+                )}
+
+                {/* Mini-map grid */}
+                <MinimapGrid
+                  mode={placementMode}
+                  myZone={myZone}
+                  allies={allies}
+                  enemies={enemies}
+                  onTap={handleMapTap}
+                />
+
+                {/* Clear buttons */}
+                {(myZone || allies.length > 0 || enemies.length > 0) && (
+                  <div className="flex gap-2 mt-2 flex-wrap">
+                    {myZone && (
+                      <button onClick={() => setMyZone(null)} className="text-[10px] text-muted-foreground hover:text-white border border-border/30 px-2 py-1 rounded-full">
+                        Clear my pos
+                      </button>
+                    )}
+                    {allies.length > 0 && (
+                      <button onClick={() => setAllies([])} className="text-[10px] text-muted-foreground hover:text-white border border-border/30 px-2 py-1 rounded-full">
+                        Clear allies
+                      </button>
+                    )}
+                    {enemies.length > 0 && (
+                      <button onClick={() => setEnemies([])} className="text-[10px] text-muted-foreground hover:text-white border border-border/30 px-2 py-1 rounded-full">
+                        Clear enemies
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Objectives */}
               <div>
-                <span className="text-xs text-muted-foreground uppercase tracking-wider font-display">Objectives</span>
+                <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground">Objectives</span>
                 <div className="grid grid-cols-3 gap-3 mt-2">
-                  <ObjToggle label="Dragon" value={dragon} onChange={setDragon} color="accent" />
-                  <ObjToggle label="Baron" value={baron} onChange={setBaron} color="primary" />
-                  <ObjToggle label="Herald" value={herald} onChange={setHerald} color="red" />
+                  <ObjToggle label="Dragon" value={dragon} onChange={setDragon} />
+                  <ObjToggle label="Baron" value={baron} onChange={setBaron} />
+                  <ObjToggle label="Herald" value={herald} onChange={setHerald} />
                 </div>
               </div>
 
@@ -589,7 +632,7 @@ export default function CoachPage() {
           )}
         </div>
 
-        {/* ADVISE ME */}
+        {/* ── ADVISE ME ─────────────────────────────────────────────────────── */}
         <button
           onClick={getAdvice}
           disabled={!canAdvise}
@@ -597,24 +640,20 @@ export default function CoachPage() {
             "w-full h-16 rounded-xl font-display text-xl font-bold tracking-widest uppercase transition-all relative overflow-hidden",
             canAdvise
               ? "bg-primary text-primary-foreground shadow-[0_0_30px_rgba(0,160,210,0.35)] hover:shadow-[0_0_45px_rgba(0,160,210,0.5)] active:scale-[0.98]"
-              : "bg-muted text-muted-foreground cursor-not-allowed"
+              : "bg-muted text-muted-foreground cursor-not-allowed opacity-60"
           )}
         >
           {isAdvising ? (
-            <span className="flex items-center justify-center gap-3">
-              <Loader2 className="w-5 h-5 animate-spin" /> Analyzing...
-            </span>
+            <span className="flex items-center justify-center gap-3"><Loader2 className="w-5 h-5 animate-spin" /> Analyzing...</span>
           ) : (
-            <span className="flex items-center justify-center gap-3">
-              <Target className="w-5 h-5" /> Advise Me
-            </span>
+            <span className="flex items-center justify-center gap-3"><Target className="w-5 h-5" /> Advise Me</span>
           )}
           {canAdvise && !isAdvising && (
             <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full animate-[shimmer_2.5s_infinite]" />
           )}
         </button>
 
-        {/* Advice output */}
+        {/* ── Advice output ─────────────────────────────────────────────────── */}
         {(advice || isAdvising) && (
           <div className="bg-card/60 border border-primary/30 rounded-xl overflow-hidden">
             <div className="px-4 py-2.5 bg-primary/5 border-b border-primary/20 flex items-center gap-2">
@@ -635,69 +674,47 @@ export default function CoachPage() {
           </div>
         )}
 
-        {/* Chat */}
+        {/* ── Chat ──────────────────────────────────────────────────────────── */}
         <div className="bg-card/40 border border-border/40 rounded-xl overflow-hidden">
           <div className="px-4 py-2.5 border-b border-border/30 flex items-center gap-2">
             <MessageSquare className="w-4 h-4 text-primary" />
             <span className="font-display text-xs tracking-widest uppercase text-muted-foreground">Ask Follow-up</span>
           </div>
 
-          {/* Past sessions */}
           {conversations && conversations.length > 0 && (
             <div className="flex gap-2 px-3 py-2 overflow-x-auto border-b border-border/20">
               {conversations.map(c => (
-                <button
-                  key={c.id}
-                  onClick={() => {
-                    setActiveConversationId(c.id);
-                    setChatMessages([]);
-                  }}
-                  className={cn(
-                    "shrink-0 text-xs px-3 py-1.5 rounded-full border transition-all",
-                    activeConversationId === c.id
-                      ? "bg-primary/20 border-primary text-primary"
-                      : "bg-black/30 border-border/40 text-muted-foreground"
-                  )}
-                >
+                <button key={c.id}
+                  onClick={() => { setActiveConversationId(c.id); setChatMessages([]); }}
+                  className={cn("shrink-0 text-xs px-3 py-1.5 rounded-full border transition-all",
+                    activeConversationId === c.id ? "bg-primary/20 border-primary text-primary" : "bg-black/30 border-border/40 text-muted-foreground")}>
                   {c.title}
                 </button>
               ))}
             </div>
           )}
 
-          {/* Messages */}
           {(chatMessages.length > 0 || (conversationData?.messages?.length ?? 0) > 0) && (
             <div className="max-h-80 overflow-y-auto p-3 space-y-3">
-              {(conversationData?.messages ?? [])
-                .filter(m => !chatMessages.some(cm => cm.content === m.content && cm.role === m.role))
-                .map(m => (
-                  <div key={m.id} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
-                    <div className={cn(
-                      "max-w-[85%] px-3 py-2 rounded-lg text-sm",
-                      m.role === "user"
-                        ? "bg-primary text-primary-foreground rounded-tr-none"
-                        : "bg-muted text-foreground border border-border rounded-tl-none"
-                    )}>
-                      {m.content}
-                    </div>
+              {(conversationData?.messages ?? []).filter(m => !chatMessages.some(cm => cm.content === m.content && cm.role === m.role)).map(m => (
+                <div key={m.id} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
+                  <div className={cn("max-w-[85%] px-3 py-2 rounded-lg text-sm",
+                    m.role === "user" ? "bg-primary text-primary-foreground rounded-tr-none" : "bg-muted border border-border rounded-tl-none")}>
+                    {m.content}
                   </div>
-                ))}
+                </div>
+              ))}
               {chatMessages.map((m, i) => (
                 <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
-                  <div className={cn(
-                    "max-w-[85%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap",
-                    m.role === "user"
-                      ? "bg-primary text-primary-foreground rounded-tr-none"
-                      : "bg-muted text-foreground border border-border rounded-tl-none"
-                  )}>
-                    {m.content}
-                    {m.streaming && m.content === "" && (
-                      <span className="inline-flex gap-1 ml-1">
+                  <div className={cn("max-w-[85%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap",
+                    m.role === "user" ? "bg-primary text-primary-foreground rounded-tr-none" : "bg-muted border border-border rounded-tl-none")}>
+                    {m.content || (m.streaming && (
+                      <span className="inline-flex gap-1">
                         <span className="w-1.5 h-1.5 bg-current rounded-full animate-bounce [animation-delay:0ms]" />
                         <span className="w-1.5 h-1.5 bg-current rounded-full animate-bounce [animation-delay:150ms]" />
                         <span className="w-1.5 h-1.5 bg-current rounded-full animate-bounce [animation-delay:300ms]" />
                       </span>
-                    )}
+                    ))}
                   </div>
                 </div>
               ))}
@@ -707,13 +724,8 @@ export default function CoachPage() {
 
           <div className="p-3 border-t border-border/20">
             <form onSubmit={sendChat} className="flex gap-2">
-              <Input
-                placeholder="Ask anything about the situation..."
-                className="bg-black/40 border-border/50 text-sm h-10"
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                disabled={isChatting}
-              />
+              <Input placeholder="Ask anything about the situation..." className="bg-black/40 border-border/50 text-sm h-10"
+                value={chatInput} onChange={e => setChatInput(e.target.value)} disabled={isChatting} />
               <Button type="submit" size="icon" className="h-10 w-10 shrink-0" disabled={!chatInput.trim() || isChatting || !model}>
                 {isChatting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               </Button>
@@ -721,34 +733,21 @@ export default function CoachPage() {
           </div>
         </div>
 
-        {/* Spacer for mobile bottom */}
-        <div className="h-4" />
       </main>
 
-      {/* Champion pickers */}
+      {/* Champion picker */}
       <ChampionPicker
-        open={picker === "myChamp"}
-        title="Your Champion"
-        selected={myChamp ? [myChamp] : []}
+        open={champPickTarget !== null}
+        title={champPickTarget === "myChamp" ? "Your Champion" : "Champion Name"}
+        selected={champPickTarget === "myChamp" ? (myChamp ? [myChamp] : []) : []}
         max={1}
-        onClose={() => setPicker(null)}
-        onSelect={s => { setMyChamp(s[0] ?? null); if (s.length === 1) setPicker(null); }}
-      />
-      <ChampionPicker
-        open={picker === "allies"}
-        title="Ally Champions"
-        selected={allies}
-        max={4}
-        onClose={() => setPicker(null)}
-        onSelect={setAllies}
-      />
-      <ChampionPicker
-        open={picker === "enemies"}
-        title="Enemy Champions"
-        selected={enemies}
-        max={5}
-        onClose={() => setPicker(null)}
-        onSelect={setEnemies}
+        onClose={() => setChampPickTarget(null)}
+        onSelect={s => {
+          if (champPickTarget === "myChamp") {
+            setMyChamp(s[0] ?? null);
+            if (s.length === 1) setChampPickTarget(null);
+          }
+        }}
       />
     </div>
   );
