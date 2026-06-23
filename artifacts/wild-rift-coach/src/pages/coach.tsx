@@ -1273,16 +1273,24 @@ export default function CoachPage(){
               <div ref={benchRef}
                 className="w-14 shrink-0 flex flex-col items-center rounded-lg border-2 border-dashed border-border/30 bg-black/20 overflow-hidden">
                 <span className="text-[8px] uppercase tracking-widest text-muted-foreground/40 font-display py-2 text-center leading-tight">Off<br/>map</span>
-                <div className="flex-1 w-full flex flex-col items-center gap-1.5 px-1 pb-2 overflow-y-auto">
+                <div className="flex-1 w-full flex flex-col items-center gap-2 px-1 pb-2 overflow-y-auto">
                   {benchPins.map(p=>{
-                    const color=p.type==="ally"?"#38BDF8":p.type==="enemy"?"#EF4444":"#FBBF24";
-                    const label=p.champ?p.champ.split(" ")[0]??"?":(p.type==="ally"?"Ally":"Enemy");
+                    const allyIdx=benchPins.filter(b=>b.type==="ally").indexOf(p);
+                    const enemyIdx=benchPins.filter(b=>b.type==="enemy").indexOf(p);
+                    const benchLabel=p.type==="me"?"ME":p.type==="ally"?`A${allyIdx+1}`:`E${enemyIdx+1}`;
                     return(
-                      <button key={p.id} title={`Tap to put ${label} back on map`}
+                      <button key={p.id} title={`Tap to put back on map`}
                         onClick={()=>{setPins(prev=>[...prev,{...p,x:50,y:50}]);setBenchPins(b=>b.filter(bp=>bp.id!==p.id));}}
-                        className="w-full rounded-md border px-0.5 py-1.5 text-[8px] font-bold text-center active:scale-95 transition-all touch-manipulation leading-tight"
-                        style={{background:"rgba(5,12,28,0.85)",borderColor:color,color}}>
-                        {label}
+                        className="flex flex-col items-center gap-0.5 active:scale-90 transition-transform touch-manipulation">
+                        <div className={cn(
+                          "w-8 h-8 rounded-full border-2 flex items-center justify-center",
+                          "font-display font-bold text-[11px] shadow-lg",
+                          PIN_BG[p.type],PIN_BORDER[p.type],PIN_TEXT[p.type])}>
+                          {benchLabel}
+                        </div>
+                        {p.champ&&(
+                          <span className="text-[7px] font-medium text-white/70 whitespace-nowrap max-w-[52px] truncate text-center leading-tight">{p.champ.split(" ")[0]}</span>
+                        )}
                       </button>
                     );
                   })}
