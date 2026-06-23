@@ -723,6 +723,7 @@ export default function CoachPage(){
   const processImage=useCallback(async(dataUrl:string)=>{
     setImageBase64(dataUrl);setMinimapBase64(null);setPlaceMode(null);
     setGameTimeCrop(null);setPortraitStripCrop(null);
+    setAlliesDown([]);setEnemiesDown([]);
     setAdvice("");setChatMessages([]);setActiveConversationId(null);
     await recropMinimap(dataUrl);
     try{
