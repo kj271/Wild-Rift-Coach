@@ -449,7 +449,7 @@ function QuickObjPicker({pin,pos,onUpdate,onRemove,onClose}:{
         style={{left,top,width:PW}}>
         <div className="flex items-center justify-between px-3 pt-2.5 pb-2 border-b border-border/30 shrink-0">
           <span className="text-[11px] font-display font-bold uppercase tracking-wider text-muted-foreground">Objective</span>
-          <button onClick={onRemove} className="text-[9px] text-red-400 border border-red-500/30 px-1.5 py-0.5 rounded active:scale-95">del</button>
+          <button onClick={onRemove} className="text-sm font-bold text-red-400 border border-red-500/50 px-3 py-1.5 rounded-lg active:scale-95 min-w-[44px] min-h-[36px]">Del</button>
         </div>
         <div className="px-2.5 pt-2 pb-1">
           <span className="text-[9px] uppercase tracking-widest text-muted-foreground/60">Type</span>
@@ -515,7 +515,7 @@ function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,favorites,onT
           {pin.champ&&<span className="text-[9px] text-muted-foreground flex-1 truncate">{pin.champ}</span>}
           {!pin.champ&&<span className="flex-1"/>}
           {pin.champ&&<button onClick={()=>onAssign(null)} className="text-[8px] text-muted-foreground border border-border/30 px-1 py-0.5 rounded active:scale-95 shrink-0">✕</button>}
-          <button onClick={onRemove} className="text-[8px] text-red-400 border border-red-500/30 px-1 py-0.5 rounded active:scale-95 shrink-0">del</button>
+          <button onClick={onRemove} className="text-sm font-bold text-red-400 border border-red-500/50 px-3 py-1.5 rounded-lg active:scale-95 shrink-0 min-w-[44px] min-h-[36px]">Del</button>
         </div>
         {/* Search */}
         <div className="px-2 py-1.5 shrink-0">
