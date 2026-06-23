@@ -150,9 +150,9 @@ function classifyPos(x:number,y:number,lanePaths:LanePaths,zones:ZoneData[]):Pos
   }
   // 2. Lanes
   const lanes=[
-    {name:"Baron Lane", path:lanePaths.baron},
+    {name:"Top Lane", path:lanePaths.baron},
     {name:"Mid Lane",   path:lanePaths.mid},
-    {name:"Dragon Lane",path:lanePaths.dragon},
+    {name:"Bottom Lane",path:lanePaths.dragon},
   ];
   let bestLane:{name:string;dist:number;progress:number}|null=null;
   for(const l of lanes){

@@ -24,10 +24,11 @@ MINIMAP READING:
   - "own side" (<25%) — champion is in or near their own base area (could be base, rotating, returning after death, etc.)
   - "mid" (25–75%) — contested zone along the lane
   - "pushed" (>75%) — deep in enemy territory
-- Baron Lane = top lane | Dragon Lane = bottom lane | Mid Lane = center
+- Top Lane = the lane where Baron spawns | Bottom Lane = the lane where Dragon spawns | Mid Lane = center
+- IMPORTANT: Wild Rift flips the map each match. Baron pit may appear on the top OR bottom of the minimap image depending on which side the player is on. Likewise Dragon pit may appear on the top or bottom. Always use the lane labels in the game context (Top Lane / Bottom Lane / Mid Lane) rather than assuming Baron is at the top or Dragon is at the bottom of the image
 - Named zones: Blue Base / Blue Jungle = allied side, Red Base / Red Jungle = enemy side
 - TOWERS on the minimap: blue towers = allied, red towers = enemy. A tower that has been destroyed no longer appears on the minimap at all — its absence means it is gone
-- Tower notation when provided in context: T1 = outer tower (furthest from base, first to fall), T2 = inner tower, T3 = inhibitor tower (closest to base). "Baron T1 destroyed" means the outer Baron Lane tower is gone; "Mid T3 destroyed" means the inhibitor tower on Mid is gone — this dramatically opens up map pressure toward the Nexus
+- Tower notation when provided in context: T1 = outer tower (furthest from base, first to fall), T2 = inner tower, T3 = inhibitor tower (closest to base). "Top Lane T1 destroyed" means the outer Top Lane tower is gone; "Mid T3 destroyed" means the inhibitor tower on Mid is gone — this dramatically opens up map pressure toward the Nexus
 - If a SCOREBOARD image appears below the minimap, read it for KDA, gold, and the game timer
 - If a PORTRAITS image appears below the minimap, read it for champion death timers — a countdown means that champion is currently dead and respawning
 
