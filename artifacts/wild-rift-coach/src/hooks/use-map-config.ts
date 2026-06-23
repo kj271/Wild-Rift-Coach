@@ -5,10 +5,11 @@ export interface Point { x: number; y: number }
 export interface LanePaths { baron: Point[]; mid: Point[]; dragon: Point[] }
 export interface ZoneData { id: string; label: string; points: Point[] }
 
-const CROP_KEY      = "wildrift_crop_config";
-const LANES_KEY     = "wildrift_lane_paths";
-const ZONES_KEY     = "wildrift_zones";
-const FAVORITES_KEY = "wildrift_favorites";
+const CROP_KEY       = "wildrift_crop_config";
+const TIMER_CROP_KEY = "wildrift_timer_crop";
+const LANES_KEY      = "wildrift_lane_paths";
+const ZONES_KEY      = "wildrift_zones";
+const FAVORITES_KEY  = "wildrift_favorites";
 
 export const DEFAULT_CROP: CropConfig = { x: 0, y: 0, w: 22, h: 36 };
 
@@ -55,11 +56,19 @@ function migrateZones(raw: unknown[]): ZoneData[] {
   });
 }
 
+export const DEFAULT_TIMER_CROP: CropConfig = { x: 28, y: 0, w: 44, h: 13 };
+
 export function useCropConfig() {
   const [config, setConfig] = useState<CropConfig>(() => load(CROP_KEY, DEFAULT_CROP));
   const save = useCallback((c: CropConfig) => { setConfig(c); localStorage.setItem(CROP_KEY, JSON.stringify(c)); }, []);
   const reset = useCallback(() => save(DEFAULT_CROP), [save]);
   return { config, save, reset } as const;
+}
+
+export function useTimerCropConfig() {
+  const [config, setConfig] = useState<CropConfig>(() => load(TIMER_CROP_KEY, DEFAULT_TIMER_CROP));
+  const save = useCallback((c: CropConfig) => { setConfig(c); localStorage.setItem(TIMER_CROP_KEY, JSON.stringify(c)); }, []);
+  return { config, save } as const;
 }
 
 export function useLanePaths() {
@@ -92,4 +101,4 @@ export function useFavoriteChamps() {
   return { favorites, toggle } as const;
 }
 
-export const ALL_CONFIG_KEYS = [CROP_KEY, LANES_KEY, ZONES_KEY, FAVORITES_KEY] as const;
+export const ALL_CONFIG_KEYS = [CROP_KEY, TIMER_CROP_KEY, LANES_KEY, ZONES_KEY, FAVORITES_KEY] as const;

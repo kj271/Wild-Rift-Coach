@@ -7,7 +7,7 @@ const router: IRouter = Router();
 
 const WILD_RIFT_MACRO_SYSTEM_PROMPT = `You are an expert Wild Rift macro coach. You analyze game states and provide concise, actionable macro advice.
 
-When given a screenshot or game context, provide:
+When given a minimap or game context, provide:
 1. The single most important macro action to take RIGHT NOW (1-2 sentences max)
 2. Why (brief reasoning)
 3. Secondary objectives to keep in mind (if any)
@@ -17,7 +17,19 @@ Be direct and decisive. Players need fast, clear guidance. Avoid vague advice li
 Format your response in clear sections:
 **What to do:** [immediate action]
 **Why:** [brief reasoning]
-**Watch for:** [secondary considerations, optional]`;
+**Watch for:** [secondary considerations, optional]
+
+MINIMAP READING:
+- Yellow pin = the player asking for advice (ME)
+- Blue pins A1–A5 = allied champions
+- Red pins E1–E5 = enemy champions
+- Pin positions are described as "[Lane] X% (category)" where 0% = near blue/allied base, 100% = near red/enemy base
+  - "defending" (<25%) — champion is back near their own base
+  - "mid" (25–75%) — contested zone along the lane
+  - "pushed" (>75%) — deep in enemy territory
+- Baron Lane = top lane | Dragon Lane = bottom lane | Mid Lane = center
+- Named zones: Blue Base / Blue Jungle = allied side, Red Base / Red Jungle = enemy side
+- If a GAME TIME crop image appears in the bottom-right of the minimap, read it for the current timestamp`;
 
 function buildUserMessage(body: {
   imageBase64?: string | null;
@@ -102,7 +114,7 @@ router.post("/coach/analyze", async (req, res): Promise<void> => {
     if (minimapBase64) {
       contentParts.push({
         type: "text",
-        text: "The following image is the ANNOTATED MINIMAP — yellow pin = ME, blue pins = Allies, red pins = Enemies. Use this for precise position analysis:",
+        text: "Annotated minimap below — yellow=ME, blue A1-A5=Allies, red E1-E5=Enemies. Lane % = distance from allied base (0%) to enemy base (100%). If a GAME TIME crop appears bottom-right, use it for the timestamp:",
       });
       contentParts.push({
         type: "image_url",
