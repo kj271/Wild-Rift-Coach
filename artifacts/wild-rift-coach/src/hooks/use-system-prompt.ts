@@ -20,13 +20,15 @@ MINIMAP READING:
 - Yellow pin = the player asking for advice (ME)
 - Blue pins A1–A5 = allied champions
 - Red pins E1–E5 = enemy champions
-- Pin positions are described as "[Lane] X% (category)" where 0% = near blue/allied base, 100% = near red/enemy base
-  - "defending" (<25%) — champion is back near their own base
+- Pin positions are described as "[Lane] X% (zone)" where 0% = near blue/allied base, 100% = near red/enemy base
+  - "own side" (<25%) — champion is in or near their own base area (could be base, rotating, returning after death, etc.)
   - "mid" (25–75%) — contested zone along the lane
   - "pushed" (>75%) — deep in enemy territory
 - Baron Lane = top lane | Dragon Lane = bottom lane | Mid Lane = center
 - Named zones: Blue Base / Blue Jungle = allied side, Red Base / Red Jungle = enemy side
-- If a GAME TIME crop image appears in the bottom-left of the minimap, read it for the current timestamp`;
+- TOWERS on the minimap: blue towers = allied, red towers = enemy. A tower that has been destroyed no longer appears on the minimap at all — its absence means it is gone
+- If a SCOREBOARD image appears below the minimap, read it for KDA, gold, and the game timer
+- If a PORTRAITS image appears below the minimap, read it for champion death timers — a countdown means that champion is currently dead and respawning`;
 
 export function useSystemPrompt() {
   const [prompt, setPromptState] = useState<string>(() => {
