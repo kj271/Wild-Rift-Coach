@@ -716,7 +716,7 @@ export default function CoachPage(){
 
   // ── Process uploaded image ──────────────────────────────────────────────────
   const processImage=useCallback(async(dataUrl:string)=>{
-    setImageBase64(dataUrl);setMinimapBase64(null);setPins(p=>p.filter(pp=>pp.type!=="me"));setPlaceMode(null);
+    setImageBase64(dataUrl);setMinimapBase64(null);setPlaceMode(null);
     setGameTimeCrop(null);setPortraitStripCrop(null);
     setAdvice("");setChatMessages([]);setActiveConversationId(null);
     await recropMinimap(dataUrl);
