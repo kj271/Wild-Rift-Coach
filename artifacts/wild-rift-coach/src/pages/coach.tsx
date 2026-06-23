@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import {
   Target, Settings, AlertCircle, Loader2, Send, Upload,
   MessageSquare, X, Search, UserRound, Users, Swords,
-  ChevronDown, ChevronUp, Sparkles, Crop, Map, Star, RotateCcw, Bug, Skull, RefreshCw,
+  ChevronDown, ChevronUp, Sparkles, Crop, Map, Star, RotateCcw, Bug, Skull,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -53,23 +53,30 @@ interface MapPin { id: string; type: PinType; x: number; y: number; pos: PosInfo
 
 // ─── Session persistence ───────────────────────────────────────────────────────
 const SESSION_KEY = "wildrift_session";
+const SESSION_IMG_KEY = "wildrift_session_img";
+
 let _cachedSession: Record<string, unknown> | null = null;
 function loadSession(): Record<string, unknown> {
   if (_cachedSession !== null) return _cachedSession;
-  try { const s = localStorage.getItem(SESSION_KEY); _cachedSession = s ? JSON.parse(s) : {}; }
-  catch { _cachedSession = {}; }
+  try {
+    const ctx = localStorage.getItem(SESSION_KEY);
+    const img = localStorage.getItem(SESSION_IMG_KEY);
+    const ctxData = ctx ? JSON.parse(ctx) as Record<string, unknown> : {};
+    const imgData = img ? JSON.parse(img) as Record<string, unknown> : {};
+    _cachedSession = { ...ctxData, ...imgData };
+  } catch { _cachedSession = {}; }
   return _cachedSession!;
 }
 function saveSession(data: Record<string, unknown>) {
-  try { localStorage.setItem(SESSION_KEY, JSON.stringify(data)); }
-  catch {
-    try { localStorage.setItem(SESSION_KEY, JSON.stringify({ ...data, imageBase64: null, minimapBase64: null })); }
-    catch {}
-  }
+  // Split images (large) from context (small) so context always saves even if images exceed quota
+  const { imageBase64, minimapBase64, ...ctx } = data;
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(ctx)); } catch {}
+  try { localStorage.setItem(SESSION_IMG_KEY, JSON.stringify({ imageBase64, minimapBase64 })); } catch {}
 }
 function clearSessionStorage() {
   _cachedSession = null;
   try { localStorage.removeItem(SESSION_KEY); } catch {}
+  try { localStorage.removeItem(SESSION_IMG_KEY); } catch {}
 }
 
 // ─── Geometry helpers ─────────────────────────────────────────────────────────
@@ -383,7 +390,6 @@ export default function CoachPage(){
   const[elderBuff,setElderBuff]=useState<BuffHolder>((_sess.elderBuff as BuffHolder)??null);
   const[alliesDown,setAlliesDown]=useState<number[]>((_sess.alliesDown as number[])??[]);
   const[enemiesDown,setEnemiesDown]=useState<number[]>((_sess.enemiesDown as number[])??[]);
-  const[detectingDeaths,setDetectingDeaths]=useState(false);
   const[contextOpen,setContextOpen]=useState(true);
   const[champPickOpen,setChampPickOpen]=useState(false);
 
@@ -428,25 +434,6 @@ export default function CoachPage(){
     return m;
   },[cropConfig]);
 
-  // ── Detect dead champions from portrait bar ────────────────────────────────
-  const extractDeaths=useCallback(async(dataUrl:string)=>{
-    setDetectingDeaths(true);
-    try{
-      // Champion portraits are in the top portion: ~13% from left, full width ~28%, top ~15% height
-      const portrait=await cropDataUrl(dataUrl,13,0,28,15);
-      const BASE=import.meta.env.BASE_URL;
-      const res=await fetch(`${BASE}api/coach/extract-deaths`,{
-        method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({imageBase64:portrait.split(",")[1]}),
-      });
-      if(res.ok){
-        const d=await res.json() as{alliesDown?:number[];enemiesDown?:number[]};
-        setAlliesDown(d.alliesDown??[]);
-        setEnemiesDown(d.enemiesDown??[]);
-      }
-    }catch{}finally{setDetectingDeaths(false);}
-  },[]);
-
   // ── Process uploaded image ──────────────────────────────────────────────────
   const processImage=useCallback(async(dataUrl:string)=>{
     setImageBase64(dataUrl);setMinimapBase64(null);setPins([]);setPlaceMode(null);
@@ -456,20 +443,16 @@ export default function CoachPage(){
     try{
       const strip=await cropDataUrl(dataUrl,28,0,44,13);
       const BASE=import.meta.env.BASE_URL;
-      // Run metadata + death detection in parallel
-      const[metaRes]=await Promise.all([
-        fetch(`${BASE}api/coach/extract-metadata`,{
-          method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({imageBase64:strip.split(",")[1]}),
-        }),
-        extractDeaths(dataUrl),
-      ]);
+      const metaRes=await fetch(`${BASE}api/coach/extract-metadata`,{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({imageBase64:strip.split(",")[1],model:model||undefined}),
+      });
       if(metaRes.ok){
         const d=await metaRes.json() as{gameTime?:string|null};
         if(d.gameTime){const s=timeToSecs(d.gameTime);if(s>0&&s<=1800)setGameTimeSecs(s);}
       }
     }catch{}finally{setExtracting(false);}
-  },[recropMinimap,extractDeaths]);
+  },[recropMinimap,model]);
 
   const handleFile=(file:File)=>{
     const reader=new FileReader();
@@ -875,8 +858,8 @@ export default function CoachPage(){
                   <div className="flex flex-wrap gap-1.5 mt-2">
                     {favorites.map(c=>(
                       <button key={c} onClick={()=>setMyChamp(myChamp===c?null:c)}
-                        className={cn("text-xs px-2.5 py-1.5 rounded-full border transition-all active:scale-95",
-                          myChamp===c?"bg-amber-400/25 border-amber-400 text-amber-300":"bg-black/30 border-amber-400/25 text-amber-300/70 hover:border-amber-400/50")}>
+                        className={cn("text-sm font-semibold px-4 py-2.5 rounded-xl border transition-all active:scale-95 font-display",
+                          myChamp===c?"bg-primary/25 border-primary text-primary":"bg-black/30 border-border/50 text-foreground/80 hover:border-primary/50 hover:text-primary")}>
                         ★ {c}
                       </button>
                     ))}
@@ -884,7 +867,7 @@ export default function CoachPage(){
                 )}
                 <button onClick={()=>setChampPickOpen(true)}
                   className={cn("w-full mt-2 py-2.5 rounded-lg border text-sm font-medium transition-all active:scale-[0.98]",
-                    myChamp?"bg-amber-400/15 border-amber-400/50 text-amber-400":"bg-black/30 border-border/40 text-muted-foreground hover:border-amber-400/40")}>
+                    myChamp?"bg-primary/15 border-primary/50 text-primary":"bg-black/30 border-border/40 text-muted-foreground hover:border-primary/40")}>
                   {myChamp??`${favorites.length>0?"Other champion…":"+ Select champion (optional)"}`}
                 </button>
               </div>
@@ -901,11 +884,6 @@ export default function CoachPage(){
                         </span>
                       )}
                     </span>
-                    <button onClick={()=>extractDeaths(imageBase64)} disabled={detectingDeaths}
-                      className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary border border-border/30 hover:border-primary/40 px-2 py-1 rounded-full transition-colors disabled:opacity-40">
-                      <RefreshCw className={cn("w-2.5 h-2.5",detectingDeaths&&"animate-spin")}/>
-                      {detectingDeaths?"Scanning…":"Re-scan"}
-                    </button>
                   </div>
                   {/* Ally row */}
                   <div className="space-y-1.5">
@@ -939,11 +917,6 @@ export default function CoachPage(){
                       })}
                     </div>
                   </div>
-                  {detectingDeaths&&(
-                    <p className="text-[10px] text-primary/60 mt-1.5 flex items-center gap-1">
-                      <Sparkles className="w-2.5 h-2.5 animate-pulse"/>Scanning portrait bar for grey icons…
-                    </p>
-                  )}
                 </div>
               )}
               {/* Objectives */}

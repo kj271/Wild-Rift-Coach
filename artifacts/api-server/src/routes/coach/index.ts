@@ -139,15 +139,17 @@ router.post("/coach/analyze", async (req, res): Promise<void> => {
 });
 
 router.post("/coach/extract-metadata", async (req, res): Promise<void> => {
-  const { imageBase64 } = req.body as { imageBase64?: string };
+  const { imageBase64, model: reqModel } = req.body as { imageBase64?: string; model?: string };
   if (!imageBase64) {
     res.status(400).json({ error: "imageBase64 required" });
     return;
   }
 
+  const visionModel = reqModel || "google/gemini-2.5-flash";
+
   try {
     const response = await openrouter.chat.completions.create({
-      model: "google/gemini-2.0-flash-001",
+      model: visionModel,
       max_tokens: 64,
       messages: [
         {
