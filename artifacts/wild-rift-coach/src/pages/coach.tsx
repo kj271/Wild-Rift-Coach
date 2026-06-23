@@ -1301,22 +1301,34 @@ export default function CoachPage(){
                           if(!pinDragActive.current||pinDragActive.current.id!==p.id)return;
                           pinDragMoved.current=true;
                           const br=benchRef.current!.getBoundingClientRect();
-                          if(e.clientX<br.left){
-                            // moved into minimap area — convert to map pin
-                            const mr=minimapDivRef.current!.getBoundingClientRect();
-                            const mx=Math.min(100,Math.max(0,((e.clientX-mr.left)/mr.width)*100));
-                            const my=Math.min(100,Math.max(0,((e.clientY-mr.top)/mr.height)*100));
-                            setBenchPins(b=>b.filter(bp=>bp.id!==p.id));
-                            setPins(prev=>[...prev,{...p,x:mx,y:my}]);
-                            pinDragActive.current=null;
-                          }else{
-                            // still in bench zone — update bench coords
+                          // Track freely — allow negative x so pin visually travels into minimap
+                          const bx=((e.clientX-br.left)/br.width)*100;
+                          const by=Math.min(95,Math.max(5,((e.clientY-br.top)/br.height)*100));
+                          setBenchPins(b=>b.map(bp=>bp.id===p.id?{...bp,x:bx,y:by}:bp));
+                        }}
+                        onPointerUp={e=>{
+                          e.stopPropagation();
+                          if(pinDragMoved.current&&benchRef.current&&minimapDivRef.current){
+                            const br=benchRef.current.getBoundingClientRect();
+                            if(e.clientX<br.left){
+                              // Released in minimap — convert to map pin
+                              const mr=minimapDivRef.current.getBoundingClientRect();
+                              const mx=Math.min(99,Math.max(1,((e.clientX-mr.left)/mr.width)*100));
+                              const my=Math.min(99,Math.max(1,((e.clientY-mr.top)/mr.height)*100));
+                              setBenchPins(b=>b.filter(bp=>bp.id!==p.id));
+                              setPins(prev=>[...prev,{...p,x:mx,y:my,pos:classifyPos(mx,my,lanePaths,zones)}]);
+                              pinDragMoved.current=false;
+                              pinDragActive.current=null;
+                              return;
+                            }
+                            // Clamp back into bench zone
                             const bx=Math.min(90,Math.max(10,((e.clientX-br.left)/br.width)*100));
                             const by=Math.min(95,Math.max(5,((e.clientY-br.top)/br.height)*100));
                             setBenchPins(b=>b.map(bp=>bp.id===p.id?{...bp,x:bx,y:by}:bp));
                           }
+                          pinDragMoved.current=false;
+                          pinDragActive.current=null;
                         }}
-                        onPointerUp={e=>{e.stopPropagation();pinDragActive.current=null;}}
                         onClick={e=>{
                           e.stopPropagation();
                           if(pinDragMoved.current){pinDragMoved.current=false;return;}
