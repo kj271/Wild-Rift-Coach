@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import {
   Target, Settings, AlertCircle, Loader2, Send, Upload,
   MessageSquare, X, Search, UserRound, Users, Swords,
-  ChevronDown, ChevronUp, Sparkles, Crop, Map, Star, Trash2,
+  ChevronDown, ChevronUp, Sparkles, Crop, Map, Star, RotateCcw, Bug,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +40,7 @@ const CHAMPIONS = [
 const ROLES = ["Top","Jungle","Mid","ADC","Support"] as const;
 type Role = typeof ROLES[number];
 type ObjStatus = "up" | "soon" | "down" | null;
+type BuffHolder = "us" | "them" | null;
 type PinType = "me" | "ally" | "enemy";
 type PlaceMode = PinType | null;
 
@@ -323,6 +324,27 @@ function ObjControl({label,value,onChange}:{label:string;value:ObjStatus;onChang
 
 interface StreamingMsg{role:"user"|"assistant";content:string;streaming?:boolean}
 
+function BuffControl({label,value,onChange}:{label:string;value:BuffHolder;onChange:(v:BuffHolder)=>void}){
+  const opts=[
+    {v:"us"as const,label:"US",a:"bg-emerald-500/25 text-emerald-400 border-emerald-500/60",i:"text-muted-foreground hover:text-emerald-400"},
+    {v:"them"as const,label:"THEM",a:"bg-red-500/25 text-red-400 border-red-500/60",i:"text-muted-foreground hover:text-red-400"},
+  ] as const;
+  return(
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[10px] font-display uppercase tracking-widest text-muted-foreground/70 text-center">{label}</span>
+      <div className="flex rounded-lg overflow-hidden border border-border/30 divide-x divide-border/30">
+        {opts.map(s=>(
+          <button key={s.v} onClick={()=>onChange(value===s.v?null:s.v)}
+            className={cn("flex-1 text-[11px] font-bold py-2.5 transition-all active:scale-95",
+              value===s.v?s.a:`bg-black/40 ${s.i}`)}>
+            {s.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 export default function CoachPage(){
   const queryClient=useQueryClient();
@@ -357,12 +379,16 @@ export default function CoachPage(){
   const[dragon,setDragon]=useState<ObjStatus>((_sess.dragon as ObjStatus)??null);
   const[baron,setBaron]=useState<ObjStatus>((_sess.baron as ObjStatus)??null);
   const[herald,setHerald]=useState<ObjStatus>((_sess.herald as ObjStatus)??null);
+  const[baronBuff,setBaronBuff]=useState<BuffHolder>((_sess.baronBuff as BuffHolder)??null);
+  const[elderBuff,setElderBuff]=useState<BuffHolder>((_sess.elderBuff as BuffHolder)??null);
   const[contextOpen,setContextOpen]=useState(true);
   const[champPickOpen,setChampPickOpen]=useState(false);
 
   // Advice
   const[advice,setAdvice]=useState((_sess.advice as string)??'');
   const[isAdvising,setIsAdvising]=useState(false);
+  const[debugPayload,setDebugPayload]=useState<Record<string,unknown>|null>(null);
+  const[showDebug,setShowDebug]=useState(false);
 
   // Chat
   const[activeConversationId,setActiveConversationId]=useState<number|null>((_sess.activeConversationId as number|null)??null);
@@ -380,14 +406,16 @@ export default function CoachPage(){
 
   // ── Persist session to localStorage on every change ───────────────────────────
   useEffect(()=>{
-    saveSession({imageBase64,minimapBase64,pins,myRole,myChamp,dragon,baron,herald,gameTimeSecs,activeConversationId,advice});
-  },[imageBase64,minimapBase64,pins,myRole,myChamp,dragon,baron,herald,gameTimeSecs,activeConversationId,advice]);
+    saveSession({imageBase64,minimapBase64,pins,myRole,myChamp,dragon,baron,herald,baronBuff,elderBuff,gameTimeSecs,activeConversationId,advice});
+  },[imageBase64,minimapBase64,pins,myRole,myChamp,dragon,baron,herald,baronBuff,elderBuff,gameTimeSecs,activeConversationId,advice]);
 
   const handleClearSession=useCallback(()=>{
     clearSessionStorage();
     setImageBase64(null);setMinimapBase64(null);setPins([]);setPlaceMode(null);
     setMyRole(null);setMyChamp(null);setDragon(null);setBaron(null);setHerald(null);
+    setBaronBuff(null);setElderBuff(null);
     setGameTimeSecs(0);setActiveConversationId(null);setAdvice("");setChatMessages([]);
+    setDebugPayload(null);
   },[]);
 
   // ── Re-crop minimap with current config ──────────────────────────────────────
@@ -466,9 +494,17 @@ export default function CoachPage(){
       enemyChampions:enemyPins.length?enemyPins.map((p,i)=>{const l=posLabel(p.pos);return p.champ?`${p.champ}(E${i+1}) at ${l}`:`Enemy ${i+1} at ${l}`;}).join(", "):null,
       dragonStatus:dragon??null,baronStatus:baron??null,riftHeraldStatus:herald??null,
       goldDiff:null,score:null,
-      additionalNotes:myChamp?`I am playing ${myChamp}`:null,
+      additionalNotes:(()=>{
+        const parts:string[]=[];
+        if(myChamp)parts.push(`I am playing ${myChamp}`);
+        if(baronBuff==="us")parts.push("We have Baron Buff");
+        else if(baronBuff==="them")parts.push("Enemy has Baron Buff");
+        if(elderBuff==="us")parts.push("We have Elder Dragon Buff");
+        else if(elderBuff==="them")parts.push("Enemy has Elder Dragon Buff");
+        return parts.length?parts.join(". "):null;
+      })(),
     };
-  },[pins,gameTimeSecs,myRole,myChamp,dragon,baron,herald]);
+  },[pins,gameTimeSecs,myRole,myChamp,dragon,baron,herald,baronBuff,elderBuff]);
 
   const getAnnotatedMinimap=useCallback(async():Promise<string|null>=>{
     if(!minimapBase64||pins.length===0)return null;
@@ -481,6 +517,15 @@ export default function CoachPage(){
     setIsAdvising(true);setAdvice("");
     try{
       const annotated=await getAnnotatedMinimap();
+      const ctx=buildContext();
+      const payload={
+        model,
+        imageBase64:imageBase64?"[screenshot — base64 omitted for brevity]":null,
+        minimapBase64:annotated?"[annotated minimap — base64 omitted for brevity]":null,
+        context:ctx,
+        _chatNote:"Follow-up chat messages send ONLY text context. No images are resent — saving tokens.",
+      };
+      setDebugPayload(payload);
       const BASE=import.meta.env.BASE_URL;
       const res=await fetch(`${BASE}api/coach/analyze`,{
         method:"POST",headers:{"Content-Type":"application/json"},
@@ -488,7 +533,7 @@ export default function CoachPage(){
           model,
           imageBase64:imageBase64?.split(",")[1]??null,
           minimapBase64:annotated?.split(",")[1]??null,
-          context:buildContext(),
+          context:ctx,
         }),
       });
       if(!res.ok)throw new Error();
@@ -561,8 +606,9 @@ export default function CoachPage(){
   const myPin=pins.find(p=>p.type==="me");
   const allyPins=pins.filter(p=>p.type==="ally");
   const enemyPins=pins.filter(p=>p.type==="enemy");
-  const hasContext=pins.length>0||!!myChamp||!!myRole||!!dragon||!!baron||!!herald||gameTimeSecs>0;
+  const hasContext=pins.length>0||!!myChamp||!!myRole||!!dragon||!!baron||!!herald||!!baronBuff||!!elderBuff||gameTimeSecs>0;
   const canAdvise=!!model&&!isAdvising&&(!!imageBase64||hasContext);
+  const hasBuffs=baronBuff!==null||elderBuff!==null;
 
   const PLACE_CFG={
     me:   {active:"bg-amber-400/20 border-amber-400 text-amber-400",idle:"border-border/40 text-muted-foreground hover:border-amber-400/40",dot:"bg-amber-400",hint:"Tap anywhere on the minimap to drop YOUR pin — tap pin to remove"},
@@ -584,7 +630,7 @@ export default function CoachPage(){
             <button onClick={handleClearSession}
               title="Clear session (start fresh)"
               className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-colors">
-              <Trash2 className="w-4 h-4"/>
+              <RotateCcw className="w-4 h-4"/>
             </button>
             <Link href="/settings">
               <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-white">
@@ -654,7 +700,7 @@ export default function CoachPage(){
                 {minimapBase64&&(
                   <button onClick={()=>setShowZoneEditor(true)}
                     className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-amber-400 border border-border/30 hover:border-amber-400/40 px-2.5 py-1 rounded-full transition-colors">
-                    <Map className="w-3 h-3"/> Edit lanes
+                    <Map className="w-3 h-3"/> Edit zones
                   </button>
                 )}
                 {pins.length>0&&(
@@ -822,6 +868,20 @@ export default function CoachPage(){
                   <ObjControl label="Herald" value={herald} onChange={setHerald}/>
                 </div>
               </div>
+              {/* Buffs */}
+              <div>
+                <button className="w-full flex items-center justify-between text-[10px] uppercase tracking-widest font-display text-muted-foreground mb-2"
+                  onClick={()=>setContextOpen(o=>o)}>
+                  <span className="flex items-center gap-2">
+                    Active Buffs <span className="text-muted-foreground/50 normal-case tracking-normal font-normal">(who has it?)</span>
+                    {hasBuffs&&<span className="w-2 h-2 rounded-full bg-emerald-400"/>}
+                  </span>
+                </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <BuffControl label="Baron Buff" value={baronBuff} onChange={setBaronBuff}/>
+                  <BuffControl label="Elder Buff" value={elderBuff} onChange={setElderBuff}/>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -848,6 +908,25 @@ export default function CoachPage(){
                 ?<div className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">{advice}</div>
                 :<div className="space-y-3"><Skeleton className="h-4 w-3/4 bg-primary/10"/><Skeleton className="h-4 w-full bg-primary/10"/><Skeleton className="h-4 w-5/6 bg-primary/10"/></div>}
             </div>
+          </div>
+        )}
+
+        {/* ── DEBUG PANEL ────────────────────────────────────────────── */}
+        {debugPayload&&(
+          <div className="bg-card/40 border border-border/40 rounded-xl overflow-hidden">
+            <button className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-display tracking-widest uppercase text-muted-foreground hover:text-slate-300 transition-colors"
+              onClick={()=>setShowDebug(d=>!d)}>
+              <span className="flex items-center gap-2"><Bug className="w-3 h-3"/> AI Input Debug</span>
+              {showDebug?<ChevronUp className="w-3 h-3"/>:<ChevronDown className="w-3 h-3"/>}
+            </button>
+            {showDebug&&(
+              <div className="border-t border-border/30 p-3">
+                <p className="text-[10px] text-muted-foreground/60 mb-2">Everything sent to the AI on the last Advise Me call. Chat follow-ups send only text — no images are resent.</p>
+                <pre className="text-[10px] text-slate-400 whitespace-pre-wrap overflow-auto max-h-72 bg-black/30 rounded-lg p-3">
+                  {JSON.stringify(debugPayload,null,2)}
+                </pre>
+              </div>
+            )}
           </div>
         )}
 

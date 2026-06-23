@@ -32,6 +32,29 @@ function load<T>(key: string, fallback: T): T {
   catch { return fallback; }
 }
 
+function migrateZones(raw: unknown[]): ZoneData[] {
+  return raw.map((z) => {
+    const zone = z as Record<string, unknown>;
+    if (zone.points && Array.isArray(zone.points) && zone.points.length >= 3) {
+      return zone as unknown as ZoneData;
+    }
+    // Old circle format {cx, cy, r} → convert to square polygon
+    const cx = (zone.cx as number) ?? 50;
+    const cy = (zone.cy as number) ?? 50;
+    const r  = (zone.r  as number) ?? 12;
+    return {
+      id:     (zone.id    as string) ?? `zone_${Math.random().toString(36).slice(2)}`,
+      label:  (zone.label as string) ?? "Zone",
+      points: [
+        { x: cx - r, y: cy - r },
+        { x: cx + r, y: cy - r },
+        { x: cx + r, y: cy + r },
+        { x: cx - r, y: cy + r },
+      ],
+    } satisfies ZoneData;
+  });
+}
+
 export function useCropConfig() {
   const [config, setConfig] = useState<CropConfig>(() => load(CROP_KEY, DEFAULT_CROP));
   const save = useCallback((c: CropConfig) => { setConfig(c); localStorage.setItem(CROP_KEY, JSON.stringify(c)); }, []);
@@ -47,7 +70,11 @@ export function useLanePaths() {
 }
 
 export function useZones() {
-  const [zones, setZones] = useState<ZoneData[]>(() => load(ZONES_KEY, DEFAULT_ZONES));
+  const [zones, setZones] = useState<ZoneData[]>(() => {
+    const raw = load<unknown[]>(ZONES_KEY, DEFAULT_ZONES as unknown[]);
+    if (!Array.isArray(raw) || raw.length === 0) return DEFAULT_ZONES;
+    return migrateZones(raw);
+  });
   const save = useCallback((z: ZoneData[]) => { setZones(z); localStorage.setItem(ZONES_KEY, JSON.stringify(z)); }, []);
   const reset = useCallback(() => save(DEFAULT_ZONES), [save]);
   return { zones, save, reset } as const;
@@ -64,3 +91,5 @@ export function useFavoriteChamps() {
   }, []);
   return { favorites, toggle } as const;
 }
+
+export const ALL_CONFIG_KEYS = [CROP_KEY, LANES_KEY, ZONES_KEY, FAVORITES_KEY] as const;
