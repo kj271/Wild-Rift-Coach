@@ -745,7 +745,7 @@ export default function CoachPage(){
                       ? "bg-slate-900/85 border-2 border-sky-700/60 text-sky-400 text-[9px]"
                       : "bg-transparent border-0")}
                   style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",width:sz,aspectRatio:"1"}}>
-                  {dead?"✕":""}
+                  {dead?`A${n}`:""}
                 </button>
               );
             })}
@@ -761,7 +761,7 @@ export default function CoachPage(){
                       ? "bg-slate-900/85 border-2 border-red-500/70 text-red-400 text-[9px]"
                       : "bg-transparent border-0")}
                   style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",width:sz,aspectRatio:"1"}}>
-                  {dead?"✕":""}
+                  {dead?`E${n}`:""}
                 </button>
               );
             })}

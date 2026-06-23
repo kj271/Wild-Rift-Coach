@@ -133,7 +133,7 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) 
     ...[0,1,2,3,4].map(i => ({ team: "enemy" as Team, idx: i })),
   ];
 
-  const dotSize = (isActive: boolean) => isActive ? Math.max(cfg.sizePct * 1.3, 18) : cfg.sizePct;
+  const dotSize = (_isActive: boolean) => cfg.sizePct;
 
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
