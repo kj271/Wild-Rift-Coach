@@ -58,10 +58,12 @@ const CHAMPIONS = [
 ].sort();
 const ROLES = ["Top","Jungle","Mid","ADC","Support"] as const;
 type Role = typeof ROLES[number];
-type ObjStatus = "up" | "soon" | "down" | null;
+type ObjType = "baron" | "dragon" | "atakhan" | "elder_dragon";
+type ObjStatus = "up" | "soon" | null; // null = down
 type BuffHolder = "us" | "them" | null;
 type PinType = "me" | "ally" | "enemy";
-type PlaceMode = PinType | null;
+type PlaceMode = PinType | "obj" | null;
+interface ObjPin { id:string; x:number; y:number; objType:ObjType|null; status:ObjStatus }
 
 // ─── Position types ────────────────────────────────────────────────────────────
 type LanePos = { kind: "lane"; lane: string; progress: number; category: string };
@@ -388,30 +390,62 @@ function ChampionPicker({open,title,selected,max,onClose,onSelect,favorites,onTo
   );
 }
 
-// ─── ObjControl ───────────────────────────────────────────────────────────────
-function ObjControl({label,value,onChange}:{label:string;value:ObjStatus;onChange:(v:ObjStatus)=>void}){
-  const states=[
-    {v:"up"  as const,label:"UP",  a:"bg-emerald-500/25 text-emerald-400 border-emerald-500",i:"text-muted-foreground hover:border-emerald-500/40"},
-    {v:"soon"as const,label:"SOON",a:"bg-amber-500/25  text-amber-400  border-amber-500",    i:"text-muted-foreground hover:border-amber-500/40"},
-    {v:"down"as const,label:"DOWN",a:"bg-red-500/25    text-red-400    border-red-500",       i:"text-muted-foreground hover:border-red-400/40"},
-  ];
+interface StreamingMsg{role:"user"|"assistant";content:string;streaming?:boolean}
+
+// ─── Objective pin config ──────────────────────────────────────────────────────
+const OBJ_CFG:Record<ObjType,{label:string;short:string;color:string;bg:string;border:string}>={
+  baron:       {label:"Baron",       short:"B",  color:"#a855f7",bg:"rgba(168,85,247,0.18)",border:"rgba(168,85,247,0.6)"},
+  dragon:      {label:"Dragon",      short:"D",  color:"#f97316",bg:"rgba(249,115,22,0.18)", border:"rgba(249,115,22,0.6)"},
+  atakhan:     {label:"Atakhan",     short:"ATK",color:"#ef4444",bg:"rgba(239,68,68,0.18)",  border:"rgba(239,68,68,0.6)"},
+  elder_dragon:{label:"Elder Dragon",short:"ED", color:"#10b981",bg:"rgba(16,185,129,0.18)", border:"rgba(16,185,129,0.6)"},
+};
+
+// ─── QuickObjPicker — floating popup for objective pins ───────────────────────
+function QuickObjPicker({pin,pos,onUpdate,onRemove,onClose}:{
+  pin:ObjPin;pos:{x:number;y:number};
+  onUpdate:(p:Partial<ObjPin>)=>void;onRemove:()=>void;onClose:()=>void;
+}){
+  const PW=220,PH=210;
+  const left=Math.max(6,Math.min(pos.x-PW/2,window.innerWidth-PW-6));
+  const top=pos.y+20+PH>window.innerHeight?pos.y-PH-20:pos.y+20;
   return(
-    <div className="flex flex-col gap-1.5">
-      <span className="text-[10px] font-display uppercase tracking-widest text-muted-foreground/70 text-center">{label}</span>
-      <div className="flex rounded-lg overflow-hidden border border-border/30 divide-x divide-border/30">
-        {states.map(s=>(
-          <button key={s.v} onClick={()=>onChange(value===s.v?null:s.v)}
-            className={cn("flex-1 text-[11px] font-bold py-2.5 transition-all active:scale-95",
-              value===s.v?s.a:`bg-black/40 border-0 ${s.i}`)}>
-            {s.label}
-          </button>
-        ))}
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose}/>
+      <div className="fixed z-50 flex flex-col bg-[#0d1526] border border-border/60 rounded-xl shadow-2xl overflow-hidden"
+        style={{left,top,width:PW}}>
+        <div className="flex items-center justify-between px-3 pt-2.5 pb-2 border-b border-border/30 shrink-0">
+          <span className="text-[11px] font-display font-bold uppercase tracking-wider text-muted-foreground">Objective</span>
+          <button onClick={onRemove} className="text-[9px] text-red-400 border border-red-500/30 px-1.5 py-0.5 rounded active:scale-95">del</button>
+        </div>
+        <div className="px-2.5 pt-2 pb-1">
+          <span className="text-[9px] uppercase tracking-widest text-muted-foreground/60">Type</span>
+          <div className="grid grid-cols-2 gap-1.5 mt-1.5">
+            {(Object.entries(OBJ_CFG) as [ObjType,typeof OBJ_CFG[ObjType]][]).map(([k,cfg])=>(
+              <button key={k} onClick={()=>onUpdate({objType:pin.objType===k?null:k})}
+                className="py-1.5 rounded-lg border text-[10px] font-bold transition-all active:scale-95"
+                style={pin.objType===k?{background:cfg.bg,borderColor:cfg.color,color:cfg.color}:{background:"rgba(0,0,0,0.4)",borderColor:"rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.45)"}}>
+                {cfg.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="px-2.5 pb-2.5 pt-2">
+          <span className="text-[9px] uppercase tracking-widest text-muted-foreground/60">Status</span>
+          <div className="flex gap-1.5 mt-1.5">
+            {([["up","UP","#22c55e"],["soon","SOON","#f59e0b"]] as const).map(([v,l,c])=>(
+              <button key={v} onClick={()=>onUpdate({status:pin.status===v?null:v as ObjStatus})}
+                className="flex-1 py-1.5 rounded-lg border text-[10px] font-bold transition-all active:scale-95"
+                style={pin.status===v?{background:`${c}22`,borderColor:c,color:c}:{background:"rgba(0,0,0,0.4)",borderColor:"rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.45)"}}>
+                {l}
+              </button>
+            ))}
+          </div>
+          <p className="text-[8px] text-muted-foreground/40 mt-1.5 text-center">No status = down / dead</p>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
-
-interface StreamingMsg{role:"user"|"assistant";content:string;streaming?:boolean}
 
 // ─── QuickChampPicker — small floating popup anchored near the pin ─────────────
 function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,favorites,onToggleFav}:{
@@ -559,10 +593,9 @@ export default function CoachPage(){
   const gameTimeSecsRef=useRef((_sess.gameTimeSecs as number)??0);
   const[myRole,setMyRole]=useState<Role|null>((_sess.myRole as Role|null)??null);
   const[myChamp,setMyChamp]=useState<string|null>((_sess.myChamp as string|null)??null);
-  const[dragon,setDragon]=useState<ObjStatus>((_sess.dragon as ObjStatus)??null);
-  const[elderDragon,setElderDragon]=useState<ObjStatus>((_sess.elderDragon as ObjStatus)??null);
-  const[baron,setBaron]=useState<ObjStatus>((_sess.baron as ObjStatus)??null);
-  const[herald,setHerald]=useState<ObjStatus>((_sess.herald as ObjStatus)??null);
+  const[objPins,setObjPins]=useState<ObjPin[]>((_sess.objPins as ObjPin[])??[]);
+  const[quickObjPickId,setQuickObjPickId]=useState<string|null>(null);
+  const[quickObjPickPos,setQuickObjPickPos]=useState<{x:number;y:number}>({x:0,y:0});
   const[baronBuff,setBaronBuff]=useState<BuffHolder>((_sess.baronBuff as BuffHolder)??null);
   const[elderBuff,setElderBuff]=useState<BuffHolder>((_sess.elderBuff as BuffHolder)??null);
   const[alliesDown,setAlliesDown]=useState<number[]>((_sess.alliesDown as number[])??[]);
@@ -612,13 +645,13 @@ export default function CoachPage(){
 
   // ── Persist session to localStorage on every change ───────────────────────────
   useEffect(()=>{
-    saveSession({imageBase64,minimapBase64,pins,myRole,myChamp,dragon,elderDragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown,towersDown,gameTimeSecs,activeConversationId,advice,userNotes});
-  },[imageBase64,minimapBase64,pins,myRole,myChamp,dragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown,gameTimeSecs,activeConversationId,advice,userNotes]);
+    saveSession({imageBase64,minimapBase64,pins,objPins,myRole,myChamp,baronBuff,elderBuff,alliesDown,enemiesDown,towersDown,gameTimeSecs,activeConversationId,advice,userNotes});
+  },[imageBase64,minimapBase64,pins,objPins,myRole,myChamp,baronBuff,elderBuff,alliesDown,enemiesDown,gameTimeSecs,activeConversationId,advice,userNotes]);
 
   const handleClearSession=useCallback(()=>{
     clearSessionStorage();
     setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setPins([]);setPlaceMode(null);
-    setMyRole(null);setMyChamp(null);setDragon(null);setElderDragon(null);setBaron(null);setHerald(null);
+    setMyRole(null);setMyChamp(null);setObjPins([]);
     setBaronBuff(null);setElderBuff(null);setAlliesDown([]);setEnemiesDown([]);setTowersDown({ally:[],enemy:[]});
     setUserNotes('');setGameTimeSecs(0);setActiveConversationId(null);setAdvice("");setChatMessages([]);
     setDebugInfo(null);setDebugMinimapUrl(null);setPortraitStripCrop(null);
@@ -695,6 +728,13 @@ export default function CoachPage(){
     }else if(placeMode==="ally"){
       if(pins.filter(p=>p.type==="ally").length>=4)return;
       setPins(p=>[...p,{id:`ally-${Date.now()}`,type:"ally",x,y,pos,champ:null}]);
+    }else if(placeMode==="obj"){
+      const id=`obj-${Date.now()}`;
+      setObjPins(p=>[...p,{id,x,y,objType:null,status:null}]);
+      // Get screen coords for popup
+      const rect=minimapDivRef.current!.getBoundingClientRect();
+      setQuickObjPickPos({x:rect.left+x/100*rect.width,y:rect.top+y/100*rect.height});
+      setQuickObjPickId(id);
     }else{
       if(pins.filter(p=>p.type==="enemy").length>=5)return;
       setPins(p=>[...p,{id:`enemy-${Date.now()}`,type:"enemy",x,y,pos,champ:null}]);
@@ -712,10 +752,7 @@ export default function CoachPage(){
     if(ctx.myLocation)parts.push(`- My location: ${ctx.myLocation}`);
     if(ctx.allyChampions)parts.push(`- Ally champions: ${ctx.allyChampions}`);
     if(ctx.enemyChampions)parts.push(`- Enemy champions: ${ctx.enemyChampions}`);
-    if(ctx.dragonStatus)parts.push(`- Dragon: ${ctx.dragonStatus}`);
-    if(ctx.elderDragonStatus)parts.push(`- Elder Dragon: ${ctx.elderDragonStatus}`);
-    if(ctx.baronStatus)parts.push(`- Baron: ${ctx.baronStatus}`);
-    if(ctx.riftHeraldStatus)parts.push(`- Rift Herald: ${ctx.riftHeraldStatus}`);
+    if(ctx.dragonStatus)parts.push(ctx.dragonStatus);
     if(ctx.additionalNotes)parts.push(`- Additional notes: ${ctx.additionalNotes}`);
     parts.push("\n⚠️ IMPORTANT: Do NOT name or guess any champion from the minimap image. Only use champion names I have explicitly provided above. Refer to unknown pins only as A1/A2/E1/E2 etc.");
     if(hasImage)parts.push("\nAnalyze the attached minimap and provide macro advice based on the game state above.");
@@ -735,7 +772,8 @@ export default function CoachPage(){
       myLocation:myPin?posLabel(myPin.pos):null,
       allyChampions:allyPins.length?allyPins.map((p,i)=>{const s=pinSlot(i,alliesDown);const l=posLabel(p.pos);return p.champ?`${p.champ}(A${s}) at ${l}`:`A${s} at ${l}`;}).join(", "):null,
       enemyChampions:enemyPins.length?enemyPins.map((p,i)=>{const s=pinSlot(i,enemiesDown);const l=posLabel(p.pos);return p.champ?`${p.champ}(E${s}) at ${l}`:`E${s} at ${l}`;}).join(", "):null,
-      dragonStatus:dragon??null,elderDragonStatus:elderDragon??null,baronStatus:baron??null,riftHeraldStatus:herald??null,
+      dragonStatus:objPins.length?(()=>{const lines=objPins.map(p=>{const cfg=p.objType?OBJ_CFG[p.objType]:null;const t=cfg?cfg.label:"Unknown objective";const s=p.status==="up"?"Up":p.status==="soon"?"Spawning Soon":"Down";return`${t}: ${s}`;});return`Objectives pinned on map:\n${lines.map(l=>`  - ${l}`).join("\n")}`;})():null,
+      elderDragonStatus:null,baronStatus:null,riftHeraldStatus:null,
       goldDiff:null,score:null,
       additionalNotes:(()=>{
         const parts:string[]=[];
@@ -754,7 +792,7 @@ export default function CoachPage(){
         return parts.length?parts.join(". "):null;
       })(),
     };
-  },[pins,gameTimeSecs,myRole,myChamp,dragon,elderDragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown,towersDown,userNotes]);
+  },[pins,objPins,gameTimeSecs,myRole,myChamp,baronBuff,elderBuff,alliesDown,enemiesDown,towersDown,userNotes]);
 
   // Always return annotated minimap when available (with pins + game-time crop if present)
   const getAnnotatedMinimap=useCallback(async():Promise<string|null>=>{
@@ -879,14 +917,15 @@ export default function CoachPage(){
   const myPin=pins.find(p=>p.type==="me");
   const allyPins=pins.filter(p=>p.type==="ally");
   const enemyPins=pins.filter(p=>p.type==="enemy");
-  const hasContext=pins.length>0||!!myChamp||!!myRole||!!dragon||!!elderDragon||!!baron||!!herald||!!baronBuff||!!elderBuff||gameTimeSecs>0;
+  const hasContext=pins.length>0||objPins.length>0||!!myChamp||!!myRole||!!baronBuff||!!elderBuff||gameTimeSecs>0;
   const canAdvise=!!model&&!isAdvising&&(!!imageBase64||hasContext);
   const hasBuffs=baronBuff!==null||elderBuff!==null;
 
   const PLACE_CFG={
-    me:   {active:"bg-amber-400/20 border-amber-400 text-amber-400",idle:"border-border/40 text-muted-foreground hover:border-amber-400/40",dot:"bg-amber-400",hint:"Tap anywhere on the minimap to drop YOUR pin — tap pin to remove"},
-    ally: {active:"bg-sky-400/20   border-sky-400   text-sky-400",  idle:"border-border/40 text-muted-foreground hover:border-sky-400/40",  dot:"bg-sky-400",  hint:`Tap map to place ally pin (${allyPins.length}/4) — tap pin to assign champ`},
-    enemy:{active:"bg-red-500/20   border-red-500   text-red-400",  idle:"border-border/40 text-muted-foreground hover:border-red-400/40",  dot:"bg-red-500",  hint:`Tap map to place enemy pin (${enemyPins.length}/5) — tap pin to assign champ`},
+    me:   {active:"bg-amber-400/20  border-amber-400  text-amber-400",idle:"border-border/40 text-muted-foreground hover:border-amber-400/40",dot:"bg-amber-400", hint:"Tap anywhere on the minimap to drop YOUR pin — tap pin to remove"},
+    ally: {active:"bg-sky-400/20    border-sky-400    text-sky-400",  idle:"border-border/40 text-muted-foreground hover:border-sky-400/40",  dot:"bg-sky-400",  hint:`Tap map to place ally pin (${allyPins.length}/4) — tap pin to assign champ`},
+    enemy:{active:"bg-red-500/20    border-red-500    text-red-400",  idle:"border-border/40 text-muted-foreground hover:border-red-400/40",  dot:"bg-red-500",  hint:`Tap map to place enemy pin (${enemyPins.length}/5) — tap pin to assign champ`},
+    obj:  {active:"bg-purple-500/20 border-purple-500 text-purple-400",idle:"border-border/40 text-muted-foreground hover:border-purple-500/40",dot:"bg-purple-400",hint:"Tap map to mark an objective location — then pick type & status"},
   };
 
   const PIN_BG={me:"bg-amber-400",ally:"bg-sky-400",enemy:"bg-red-500"};
@@ -954,8 +993,8 @@ export default function CoachPage(){
                     <Map className="w-3 h-3"/> Edit zones
                   </button>
                 )}
-                {pins.length>0&&(
-                  <button onClick={()=>setPins([])}
+                {(pins.length>0||objPins.length>0)&&(
+                  <button onClick={()=>{setPins([]);setObjPins([]);}}
                     className="text-[10px] text-muted-foreground hover:text-white border border-border/30 px-2 py-1 rounded-full">
                     Clear all
                   </button>
@@ -965,20 +1004,21 @@ export default function CoachPage(){
 
             <div className="p-3 space-y-3">
               {/* Mode buttons */}
-              <div className="flex gap-2">
-                {(["me","ally","enemy"] as PinType[]).map(type=>{
+              <div className="grid grid-cols-4 gap-1.5">
+                {(["me","ally","enemy","obj"] as const).map(type=>{
                   const cfg=PLACE_CFG[type];
                   const active=placeMode===type;
-                  const count=type==="me"?(myPin?1:0):type==="ally"?allyPins.length:enemyPins.length;
+                  const count=type==="me"?(myPin?1:0):type==="ally"?allyPins.length:type==="enemy"?enemyPins.length:objPins.length;
                   return(
                     <button key={type} onClick={()=>setPlaceMode(p=>p===type?null:type)}
-                      className={cn("flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg border text-xs font-bold transition-all active:scale-95 font-display bg-black/30",
+                      className={cn("flex flex-col items-center justify-center gap-0.5 py-2 rounded-lg border text-[10px] font-bold transition-all active:scale-95 font-display bg-black/30",
                         active?cfg.active:`bg-black/30 ${cfg.idle}`)}>
                       {type==="me"&&<UserRound className="w-3.5 h-3.5"/>}
                       {type==="ally"&&<Users className="w-3.5 h-3.5"/>}
                       {type==="enemy"&&<Swords className="w-3.5 h-3.5"/>}
-                      {type==="me"?"Me":type==="ally"?"Ally":"Enemy"}
-                      {count>0&&<span className={cn("w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center text-black",cfg.dot)}>{count}</span>}
+                      {type==="obj"&&<Target className="w-3.5 h-3.5"/>}
+                      <span>{type==="me"?"Me":type==="ally"?"Ally":type==="enemy"?"Enemy":"Obj"}</span>
+                      {count>0&&<span className={cn("w-3.5 h-3.5 rounded-full text-[8px] font-bold flex items-center justify-center text-black",cfg.dot)}>{count}</span>}
                     </button>
                   );
                 })}
@@ -989,6 +1029,7 @@ export default function CoachPage(){
                 <p className={cn("text-[11px] px-3 py-2 rounded-lg border text-center font-display tracking-wide",
                   placeMode==="me"?"bg-amber-400/10 border-amber-400/40 text-amber-400":
                   placeMode==="ally"?"bg-sky-400/10 border-sky-400/40 text-sky-400":
+                  placeMode==="obj"?"bg-purple-500/10 border-purple-500/40 text-purple-400":
                   "bg-red-500/10 border-red-500/40 text-red-400")}>
                   {PLACE_CFG[placeMode].hint}
                 </p>
@@ -1041,6 +1082,29 @@ export default function CoachPage(){
                     )}
                   </div>
                 ))}
+                {/* Objective pins */}
+                {objPins.map(pin=>{
+                  const cfg=pin.objType?OBJ_CFG[pin.objType]:null;
+                  const short=cfg?cfg.short:"?";
+                  const color=cfg?.color??"#888888";
+                  return(
+                    <div key={pin.id} data-pin="true"
+                      className="absolute -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center cursor-pointer"
+                      style={{left:`${pin.x}%`,top:`${pin.y}%`}}
+                      onClick={e=>{
+                        e.stopPropagation();
+                        const rect=(e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setQuickObjPickPos({x:rect.left+rect.width/2,y:rect.top+rect.height/2});
+                        setQuickObjPickId(pin.id);
+                      }}>
+                      <div className="rounded-md border-2 flex flex-col items-center justify-center shadow-lg active:scale-90 transition-transform px-1 py-0.5"
+                        style={{background:"rgba(5,12,28,0.88)",borderColor:color,minWidth:"1.6rem"}}>
+                        <span style={{fontSize:"9px",fontWeight:"bold",color,lineHeight:1.1}}>{short}</span>
+                        {pin.status&&<span style={{fontSize:"7px",color:pin.status==="up"?"#22c55e":"#f59e0b",lineHeight:1}}>{pin.status==="up"?"UP":"~"}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
                 {/* Tower overlays — tappable on minimap */}
                 {(["ally","enemy"] as const).map(team=>
                   towerConfig[team].map((pos,idx)=>{
@@ -1290,16 +1354,6 @@ export default function CoachPage(){
                   {myChamp??`${favorites.length>0?"Other champion…":"+ Select champion (optional)"}`}
                 </button>
               </div>
-              {/* Objectives */}
-              <div>
-                <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground">Objectives</span>
-                <div className="space-y-2.5 mt-2">
-                  <ObjControl label="Dragon" value={dragon} onChange={setDragon}/>
-                  <ObjControl label="Elder Dragon" value={elderDragon} onChange={setElderDragon}/>
-                  <ObjControl label="Baron" value={baron} onChange={setBaron}/>
-                  <ObjControl label="Herald" value={herald} onChange={setHerald}/>
-                </div>
-              </div>
               {/* Buffs */}
               <div>
                 <button className="w-full flex items-center justify-between text-[10px] uppercase tracking-widest font-display text-muted-foreground mb-2"
@@ -1516,6 +1570,21 @@ export default function CoachPage(){
         favorites={favorites}
         onToggleFav={toggleFav}
       />
+
+      {/* Quick obj picker — appears when obj pin placed or tapped */}
+      {quickObjPickId&&(()=>{
+        const pin=objPins.find(p=>p.id===quickObjPickId);
+        if(!pin)return null;
+        return(
+          <QuickObjPicker
+            pin={pin}
+            pos={quickObjPickPos}
+            onUpdate={partial=>{setObjPins(prev=>prev.map(p=>p.id===quickObjPickId?{...p,...partial}:p));}}
+            onRemove={()=>{setObjPins(prev=>prev.filter(p=>p.id!==quickObjPickId));setQuickObjPickId(null);}}
+            onClose={()=>setQuickObjPickId(null)}
+          />
+        );
+      })()}
 
       {/* Quick champ picker — appears after placing ally/enemy pin, or on pin tap */}
       {quickPickPinId&&(()=>{
