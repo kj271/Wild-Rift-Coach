@@ -480,6 +480,7 @@ export default function CoachPage(){
   const[showDebug,setShowDebug]=useState(false);
 
   // Chat
+  const[userNotes,setUserNotes]=useState<string>((_sess.userNotes as string)??'');
   const[activeConversationId,setActiveConversationId]=useState<number|null>((_sess.activeConversationId as number|null)??null);
   const[chatMessages,setChatMessages]=useState<StreamingMsg[]>([]);
   const[chatInput,setChatInput]=useState("");
@@ -496,15 +497,15 @@ export default function CoachPage(){
 
   // ── Persist session to localStorage on every change ───────────────────────────
   useEffect(()=>{
-    saveSession({imageBase64,minimapBase64,pins,myRole,myChamp,dragon,elderDragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown,gameTimeSecs,activeConversationId,advice});
-  },[imageBase64,minimapBase64,pins,myRole,myChamp,dragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown,gameTimeSecs,activeConversationId,advice]);
+    saveSession({imageBase64,minimapBase64,pins,myRole,myChamp,dragon,elderDragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown,gameTimeSecs,activeConversationId,advice,userNotes});
+  },[imageBase64,minimapBase64,pins,myRole,myChamp,dragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown,gameTimeSecs,activeConversationId,advice,userNotes]);
 
   const handleClearSession=useCallback(()=>{
     clearSessionStorage();
     setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setPins([]);setPlaceMode(null);
     setMyRole(null);setMyChamp(null);setDragon(null);setElderDragon(null);setBaron(null);setHerald(null);
     setBaronBuff(null);setElderBuff(null);setAlliesDown([]);setEnemiesDown([]);
-    setGameTimeSecs(0);setActiveConversationId(null);setAdvice("");setChatMessages([]);
+    setUserNotes('');setGameTimeSecs(0);setActiveConversationId(null);setAdvice("");setChatMessages([]);
     setDebugInfo(null);setDebugMinimapUrl(null);setPortraitStripCrop(null);
   },[]);
 
@@ -628,12 +629,13 @@ export default function CoachPage(){
         else if(baronBuff==="them")parts.push("Enemy has Baron Buff");
         if(elderBuff==="us")parts.push("We have Elder Dragon Buff");
         else if(elderBuff==="them")parts.push("Enemy has Elder Dragon Buff");
-        if(alliesDown.length>0)parts.push(`Ally slot(s) ${alliesDown.sort().join(",")} are dead/respawning`);
-        if(enemiesDown.length>0)parts.push(`Enemy slot(s) ${enemiesDown.sort().join(",")} are dead/respawning — good window to act`);
+        if(alliesDown.length>0)parts.push(`Ally slot(s) ${alliesDown.sort().join(",")} are dead`);
+        if(enemiesDown.length>0)parts.push(`Enemy slot(s) ${enemiesDown.sort().join(",")} are dead`);
+        if(userNotes.trim())parts.push(userNotes.trim());
         return parts.length?parts.join(". "):null;
       })(),
     };
-  },[pins,gameTimeSecs,myRole,myChamp,dragon,elderDragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown]);
+  },[pins,gameTimeSecs,myRole,myChamp,dragon,elderDragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown,userNotes]);
 
   // Always return annotated minimap when available (with pins + game-time crop if present)
   const getAnnotatedMinimap=useCallback(async():Promise<string|null>=>{
@@ -1100,6 +1102,15 @@ export default function CoachPage(){
             </div>
           )}
         </div>
+
+        {/* ── NOTES ──────────────────────────────────────────────────── */}
+        <textarea
+          value={userNotes}
+          onChange={e=>setUserNotes(e.target.value)}
+          placeholder="Notes (optional) — anything extra for the AI e.g. 'enemy mid is roaming, we need dragon'"
+          rows={2}
+          className="w-full rounded-xl border border-border/40 bg-card/40 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 resize-none focus:outline-none focus:border-primary/50"
+        />
 
         {/* ── ADVISE ME ──────────────────────────────────────────────── */}
         <button onClick={getAdvice} disabled={!canAdvise}
