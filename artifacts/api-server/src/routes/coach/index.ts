@@ -99,8 +99,12 @@ router.post("/coach/analyze", async (req, res): Promise<void> => {
     | { role: "system" | "user" | "assistant"; content: string }
     | { role: "user"; content: ContentPart[] };
 
+  const systemPromptOverride = typeof (req.body as Record<string, unknown>).systemPrompt === "string"
+    ? (req.body as Record<string, unknown>).systemPrompt as string
+    : null;
+
   const messages: MessageParam[] = [
-    { role: "system", content: WILD_RIFT_MACRO_SYSTEM_PROMPT },
+    { role: "system", content: systemPromptOverride || WILD_RIFT_MACRO_SYSTEM_PROMPT },
   ];
 
   if (imageBase64 || minimapBase64) {

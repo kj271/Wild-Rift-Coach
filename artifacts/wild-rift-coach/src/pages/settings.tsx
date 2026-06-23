@@ -3,12 +3,13 @@ import { Link } from "wouter";
 import { useListModels } from "@workspace/api-client-react";
 import { useModelStorage } from "@/hooks/use-model-storage";
 import { ALL_CONFIG_KEYS } from "@/hooks/use-map-config";
+import { useSystemPrompt, DEFAULT_SYSTEM_PROMPT } from "@/hooks/use-system-prompt";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronDown, Check, ArrowLeft, Settings2, Download, Upload } from "lucide-react";
+import { ChevronDown, Check, ArrowLeft, Settings2, Download, Upload, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default function SettingsPage() {
@@ -17,6 +18,8 @@ export default function SettingsPage() {
   const [open, setOpen] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
+  const { prompt, save: savePrompt, reset: resetPrompt, isCustom } = useSystemPrompt();
+  const [promptDraft, setPromptDraft] = useState(prompt);
 
   const selectedModel = models?.find(m => m.id === model);
 
@@ -156,6 +159,51 @@ export default function SettingsPage() {
                 </p>
               )}
             </div>
+          </CardContent>
+        </Card>
+
+        {/* ── AI Instructions ── */}
+        <Card className="border-border bg-card/50 backdrop-blur-sm shadow-xl shadow-black/20">
+          <CardHeader>
+            <CardTitle className="text-xl flex items-center justify-between">
+              AI Instructions
+              {isCustom && (
+                <span className="text-xs font-normal text-amber-400 bg-amber-400/10 border border-amber-400/30 px-2 py-0.5 rounded-full">
+                  customised
+                </span>
+              )}
+            </CardTitle>
+            <CardDescription>
+              The system prompt sent to the AI before every analysis. Edit to give the AI extra context,
+              change its tone, or add your own rules. Revert to restore the default.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <textarea
+              className="w-full min-h-[280px] bg-black/40 border border-border/60 rounded-lg p-3 text-sm font-mono text-foreground resize-y focus:outline-none focus:border-primary/60 focus:ring-1 focus:ring-primary/30 leading-relaxed"
+              value={promptDraft}
+              onChange={e => setPromptDraft(e.target.value)}
+              spellCheck={false}
+            />
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex items-center gap-2"
+                onClick={() => { setPromptDraft(DEFAULT_SYSTEM_PROMPT); resetPrompt(); }}
+              >
+                <RotateCcw className="w-3.5 h-3.5" /> Revert to default
+              </Button>
+              <Button
+                className="flex-1"
+                disabled={promptDraft === prompt}
+                onClick={() => savePrompt(promptDraft)}
+              >
+                Save instructions
+              </Button>
+            </div>
+            {promptDraft !== prompt && (
+              <p className="text-xs text-amber-400/80">Unsaved changes — hit Save to apply.</p>
+            )}
           </CardContent>
         </Card>
 

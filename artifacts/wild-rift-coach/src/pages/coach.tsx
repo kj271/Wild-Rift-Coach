@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import {
   Target, Settings, AlertCircle, Loader2, Send, Upload,
   MessageSquare, X, Search, UserRound, Users, Swords,
-  ChevronDown, ChevronUp, Sparkles, Crop, Map, Star, RotateCcw, Bug, Skull, Clock,
+  ChevronDown, ChevronUp, Crop, Map, Star, RotateCcw, Bug, Skull, Clock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -198,7 +198,7 @@ async function renderAnnotatedMinimap(minimapDataUrl:string,pins:MapPin[],gameTi
       const tw=Math.round(W*0.40);
       const th=Math.round(tw*ti.naturalHeight/ti.naturalWidth);
       const pad=6,fs=Math.round(W*0.038);
-      const tx=W-tw-pad,ty=H-th-pad;
+      const tx=pad,ty=H-th-pad;
       ctx.fillStyle="rgba(0,0,0,0.78)";
       ctx.beginPath();ctx.roundRect(tx-pad,ty-fs-pad*2,tw+pad*2,th+fs+pad*3,5);ctx.fill();
       ctx.fillStyle="#93c5fd";ctx.font=`bold ${fs}px sans-serif`;
@@ -382,7 +382,6 @@ export default function CoachPage(){
   // Screenshot
   const[imageBase64,setImageBase64]=useState<string|null>((_sess.imageBase64 as string|null)??null);
   const[minimapBase64,setMinimapBase64]=useState<string|null>((_sess.minimapBase64 as string|null)??null);
-  const[extracting,setExtracting]=useState(false);
   const fileInputRef=useRef<HTMLInputElement>(null);
 
   // Calibration modals
@@ -458,20 +457,10 @@ export default function CoachPage(){
     setImageBase64(dataUrl);setMinimapBase64(null);setPins([]);setPlaceMode(null);
     setAlliesDown([]);setEnemiesDown([]);setGameTimeCrop(null);
     await recropMinimap(dataUrl);
-    setExtracting(true);
     try{
       const strip=await cropDataUrl(dataUrl,timerCropConfig.x,timerCropConfig.y,timerCropConfig.w,timerCropConfig.h);
       setGameTimeCrop(strip);
-      const BASE=import.meta.env.BASE_URL;
-      const metaRes=await fetch(`${BASE}api/coach/extract-metadata`,{
-        method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({imageBase64:strip.split(",")[1],model:model||undefined}),
-      });
-      if(metaRes.ok){
-        const d=await metaRes.json() as{gameTime?:string|null};
-        if(d.gameTime){const s=timeToSecs(d.gameTime);if(s>0&&s<=1800)setGameTimeSecs(s);}
-      }
-    }catch{}finally{setExtracting(false);}
+    }catch{}
   },[recropMinimap,model,timerCropConfig]);
 
   const handleFile=(file:File)=>{
@@ -486,25 +475,15 @@ export default function CoachPage(){
     if(imageBase64)await recropMinimap(imageBase64,cfg);
   },[saveCrop,imageBase64,recropMinimap]);
 
-  // ── Save timer-crop config and immediately re-crop + re-extract ──────────
+  // ── Save timer-crop config and immediately re-crop ───────────────────────
   const handleSaveTimerCrop=useCallback(async(cfg:typeof timerCropConfig)=>{
     saveTimerCrop(cfg);
     if(!imageBase64)return;
-    const strip=await cropDataUrl(imageBase64,cfg.x,cfg.y,cfg.w,cfg.h);
-    setGameTimeCrop(strip);
-    setExtracting(true);
     try{
-      const BASE=import.meta.env.BASE_URL;
-      const metaRes=await fetch(`${BASE}api/coach/extract-metadata`,{
-        method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({imageBase64:strip.split(",")[1],model:model||undefined}),
-      });
-      if(metaRes.ok){
-        const d=await metaRes.json() as{gameTime?:string|null};
-        if(d.gameTime){const s=timeToSecs(d.gameTime);if(s>0&&s<=1800)setGameTimeSecs(s);}
-      }
-    }catch{}finally{setExtracting(false);}
-  },[saveTimerCrop,imageBase64,model]);
+      const strip=await cropDataUrl(imageBase64,cfg.x,cfg.y,cfg.w,cfg.h);
+      setGameTimeCrop(strip);
+    }catch{}
+  },[saveTimerCrop,imageBase64]);
 
   // ── Tap on minimap ──────────────────────────────────────────────────────────
   const handleMinimapTap=useCallback((e:React.MouseEvent|React.TouchEvent)=>{
@@ -587,6 +566,7 @@ export default function CoachPage(){
           imageBase64:null,
           minimapBase64:annotated?.split(",")[1]??null,
           context:ctx,
+          systemPrompt:localStorage.getItem("wildrift_system_prompt")||undefined,
         }),
       });
       if(!res.ok)throw new Error();
@@ -717,10 +697,10 @@ export default function CoachPage(){
                 const dead=alliesDown.includes(n);
                 return(
                   <button key={`a${n}`} onClick={()=>setAlliesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
+                    title={dead?`A${n} dead — tap to revive`:`A${n} alive — tap to mark dead`}
                     className={cn("flex-1 relative flex items-center justify-center border-r border-white/5 transition-all",
-                      dead?"bg-slate-900/75":"bg-transparent hover:bg-sky-400/15")}>
-                    {dead&&<Skull className="w-3.5 h-3.5 text-slate-400"/>}
-                    <span className={cn("absolute bottom-0.5 text-[7px] font-bold leading-none",dead?"text-slate-500":"text-sky-300/50")}>A{n}</span>
+                      dead?"bg-slate-900/70":"bg-transparent hover:bg-sky-400/10")}>
+                    <span className={cn("text-[8px] font-bold leading-none select-none",dead?"text-slate-500":"text-sky-200/40")}>A{n}</span>
                   </button>
                 );
               })}
@@ -728,10 +708,10 @@ export default function CoachPage(){
                 const dead=enemiesDown.includes(n);
                 return(
                   <button key={`e${n}`} onClick={()=>setEnemiesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
+                    title={dead?`E${n} dead — tap to revive`:`E${n} alive — tap to mark dead`}
                     className={cn("flex-1 relative flex items-center justify-center border-r border-white/5 last:border-r-0 transition-all",
-                      dead?"bg-slate-900/75":"bg-transparent hover:bg-red-500/15")}>
-                    {dead&&<Skull className="w-3.5 h-3.5 text-slate-400"/>}
-                    <span className={cn("absolute bottom-0.5 text-[7px] font-bold leading-none",dead?"text-slate-500":"text-red-300/50")}>E{n}</span>
+                      dead?"bg-slate-900/70":"bg-transparent hover:bg-red-500/10")}>
+                    <span className={cn("text-[8px] font-bold leading-none select-none",dead?"text-slate-500":"text-red-200/40")}>E{n}</span>
                   </button>
                 );
               })}
@@ -778,7 +758,6 @@ export default function CoachPage(){
             <div className="px-4 py-2.5 border-b border-border/30 flex items-center justify-between">
               <span className="font-display text-xs tracking-widest uppercase text-muted-foreground flex items-center gap-2">
                 Minimap
-                {extracting&&<span className="text-primary/70 flex items-center gap-1 text-[10px]"><Sparkles className="w-3 h-3 animate-pulse"/>reading time…</span>}
               </span>
               <div className="flex items-center gap-2">
                 {minimapBase64&&(
@@ -899,7 +878,6 @@ export default function CoachPage(){
                 <div className="flex justify-between mb-2 items-center">
                   <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground flex items-center gap-2">
                     Game Time
-                    {extracting&&<span className="text-primary/70 flex items-center gap-1 text-[9px]"><Sparkles className="w-3 h-3 animate-pulse"/>auto…</span>}
                   </span>
                   <span className="font-display text-primary font-bold text-base">{fmt(gameTimeSecs)}</span>
                 </div>
