@@ -58,7 +58,7 @@ const CHAMPIONS = [
 ].sort();
 const ROLES = ["Top","Jungle","Mid","ADC","Support"] as const;
 type Role = typeof ROLES[number];
-type ObjType = "baron" | "dragon" | "atakhan" | "elder_dragon";
+type ObjType = "baron" | "dragon" | "rift_herald" | "elder_dragon";
 type ObjStatus = "up" | "soon" | null; // null = down
 type BuffHolder = "us" | "them" | null;
 type PinType = "me" | "ally" | "enemy";
@@ -256,8 +256,8 @@ async function renderAnnotatedMinimap(
 
   // Draw objective pins
   if(objPins?.length){
-    const objColors:Record<string,string>={baron:"#a855f7",dragon:"#f97316",atakhan:"#ef4444",elder_dragon:"#10b981"};
-    const objShorts:Record<string,string>={baron:"B",dragon:"D",atakhan:"ATK",elder_dragon:"ED"};
+    const objColors:Record<string,string>={baron:"#a855f7",dragon:"#f97316",rift_herald:"#ef4444",elder_dragon:"#10b981"};
+    const objShorts:Record<string,string>={baron:"B",dragon:"D",rift_herald:"RH",elder_dragon:"ED"};
     const or=Math.round(W*0.045);
     for(const op of objPins){
       const px=op.x/100*W,py=op.y/100*H;
@@ -430,7 +430,7 @@ interface StreamingMsg{role:"user"|"assistant";content:string;streaming?:boolean
 const OBJ_CFG:Record<ObjType,{label:string;short:string;color:string;bg:string;border:string}>={
   baron:       {label:"Baron",       short:"B",  color:"#a855f7",bg:"rgba(168,85,247,0.18)",border:"rgba(168,85,247,0.6)"},
   dragon:      {label:"Dragon",      short:"D",  color:"#f97316",bg:"rgba(249,115,22,0.18)", border:"rgba(249,115,22,0.6)"},
-  atakhan:     {label:"Atakhan",     short:"ATK",color:"#ef4444",bg:"rgba(239,68,68,0.18)",  border:"rgba(239,68,68,0.6)"},
+  rift_herald: {label:"Rift Herald", short:"RH", color:"#ef4444",bg:"rgba(239,68,68,0.18)",  border:"rgba(239,68,68,0.6)"},
   elder_dragon:{label:"Elder Dragon",short:"ED", color:"#10b981",bg:"rgba(16,185,129,0.18)", border:"rgba(16,185,129,0.6)"},
 };
 

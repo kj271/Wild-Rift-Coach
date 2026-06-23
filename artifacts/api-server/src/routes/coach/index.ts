@@ -28,7 +28,7 @@ MINIMAP READING:
   - "mid" (25–75%) — contested zone along the lane
   - "pushed" (>75%) — deep in enemy territory
 - Top Lane = the lane where Baron spawns | Bottom Lane = the lane where Dragon spawns | Mid Lane = center
-- IMPORTANT: Wild Rift flips the map each match. Baron pit may appear on the top OR bottom of the minimap image depending on which side the player is on. Likewise Dragon pit may appear on the top or bottom. Always use the lane labels in the game context (Top Lane / Bottom Lane / Mid Lane) rather than assuming Baron is at the top or Dragon is at the bottom of the image
+- IMPORTANT: Wild Rift map orientation depends on which team the player is on (blue side vs red side). Baron pit may appear at the top OR bottom of the minimap image, and Dragon pit likewise. Always use the lane labels in the game context (Top Lane / Bottom Lane / Mid Lane) — never assume Baron is at the top or Dragon is at the bottom based on image position alone
 - Named zones: Blue Base / Blue Jungle = allied side, Red Base / Red Jungle = enemy side
 - TOWERS on the minimap: blue towers = allied, red towers = enemy. A destroyed tower no longer appears on the minimap at all — its absence means it is gone
 - If a SCOREBOARD image appears below the minimap, read it for KDA, gold, and the game timer
