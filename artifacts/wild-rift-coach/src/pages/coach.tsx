@@ -24,7 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import {
   Target, Settings, AlertCircle, Loader2, Send, Upload,
   MessageSquare, X, Search, UserRound, Users, Swords,
-  ChevronDown, ChevronUp, Crop, Map as MapIcon, Star, RotateCcw, Bug, Timer, Clock, Building2,
+  ChevronDown, ChevronUp, Crop, Map as MapIcon, Star, RotateCcw, Bug, Timer, Clock, Building2, Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -76,6 +76,8 @@ interface ImageSlotState { pins:MapPin[]; benchPins:MapPin[]; objPins:ObjPin[]; 
 // ─── Session persistence ───────────────────────────────────────────────────────
 const SESSION_KEY = "wildrift_session";
 const SESSION_IMG_KEY = "wildrift_session_img";
+const SESSION_QUEUE_KEY = "wildrift_session_queue";
+const SESSION_CROPS_KEY = "wildrift_session_crops";
 
 let _cachedSession: Record<string, unknown> | null = null;
 function loadSession(): Record<string, unknown> {
@@ -101,6 +103,8 @@ function clearSessionStorage() {
   _cachedSession = null;
   try { localStorage.removeItem(SESSION_KEY); } catch {}
   try { localStorage.removeItem(SESSION_IMG_KEY); } catch {}
+  try { localStorage.removeItem(SESSION_QUEUE_KEY); } catch {}
+  try { sessionStorage.removeItem(SESSION_CROPS_KEY); } catch {}
 }
 
 // ─── Geometry helpers ─────────────────────────────────────────────────────────
@@ -608,6 +612,7 @@ export default function CoachPage(){
   const[activeQueueIdx,setActiveQueueIdx]=useState(0);
   const perImageState=useRef<Map<string,ImageSlotState>>(new Map());
   const fileInputRef=useRef<HTMLInputElement>(null);
+  const appendFileInputRef=useRef<HTMLInputElement>(null);
 
   // Calibration modals
   const[showCropEditor,setShowCropEditor]=useState(false);
@@ -707,6 +712,32 @@ export default function CoachPage(){
     saveSession({imageBase64,minimapBase64,pins,objPins,myRole,myChamp,baronBuff,elderBuff,alliesDown,enemiesDown,towersDown,gameTimeSecs,advice,userNotes});
   },[imageBase64,minimapBase64,pins,objPins,myRole,myChamp,baronBuff,elderBuff,alliesDown,enemiesDown,gameTimeSecs,advice,userNotes]);
 
+  // Persist full image queue so iOS background-kill can't wipe it
+  useEffect(()=>{
+    try{
+      if(imageQueue.length>0)localStorage.setItem(SESSION_QUEUE_KEY,JSON.stringify({imageQueue,activeQueueIdx}));
+      else localStorage.removeItem(SESSION_QUEUE_KEY);
+    }catch{}
+  },[imageQueue,activeQueueIdx]);
+
+  // Persist regeneratable crops to sessionStorage (smaller than full screenshots)
+  useEffect(()=>{
+    try{sessionStorage.setItem(SESSION_CROPS_KEY,JSON.stringify({gameTimeCrop,portraitStripCrop}));}catch{}
+  },[gameTimeCrop,portraitStripCrop]);
+
+  // On mount — restore imageQueue + crops (after iOS/Chrome background kill)
+  useEffect(()=>{
+    try{
+      const qd=localStorage.getItem(SESSION_QUEUE_KEY);
+      if(qd){const{imageQueue:q,activeQueueIdx:idx}=JSON.parse(qd);if(Array.isArray(q)&&q.length){setImageQueue(q);setActiveQueueIdx(idx??0);}}
+    }catch{}
+    try{
+      const cd=sessionStorage.getItem(SESSION_CROPS_KEY);
+      if(cd){const{gameTimeCrop:gtc,portraitStripCrop:psc}=JSON.parse(cd);if(gtc)setGameTimeCrop(gtc);if(psc)setPortraitStripCrop(psc);}
+    }catch{}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+
   const handleClearSession=useCallback(()=>{
     clearSessionStorage();
     setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setPins([]);setPlaceMode(null);
@@ -747,6 +778,18 @@ export default function CoachPage(){
   };
   const saveCurrentSlot=(url:string)=>{
     perImageState.current.set(url,{pins,benchPins,objPins,alliesDown,enemiesDown,towersDown});
+  };
+
+  const handleAppendFiles=(files:FileList|File[])=>{
+    const arr=Array.from(files);
+    if(!arr.length)return;
+    const readers=arr.map(f=>new Promise<string>(res=>{const r=new FileReader();r.onload=e=>res(e.target?.result as string);r.readAsDataURL(f);}));
+    Promise.all(readers).then(dataUrls=>{
+      const valid=dataUrls.filter(Boolean);
+      if(!valid.length)return;
+      setImageQueue(prev=>[...prev,...valid]);
+      // Stay on current image, don't touch pins or advice
+    });
   };
 
   const handleFiles=(files:FileList|File[])=>{
@@ -1081,6 +1124,8 @@ export default function CoachPage(){
         )}
         <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden"
           onChange={e=>{if(e.target.files?.length)handleFiles(e.target.files);e.target.value="";}}/>
+        <input ref={appendFileInputRef} type="file" accept="image/*" multiple className="hidden"
+          onChange={e=>{if(e.target.files?.length)handleAppendFiles(e.target.files);e.target.value="";}}/>
 
 
         {/* ── MINIMAP TAP PANEL + DEAD TRACKER ──────────────────────── */}
@@ -1113,8 +1158,8 @@ export default function CoachPage(){
             </div>
 
             {/* Batch thumbnail strip */}
-            {imageQueue.length>1&&(
-              <div className="flex gap-2 px-3 py-2 border-b border-border/30 overflow-x-auto">
+            {imageQueue.length>0&&(
+              <div className="flex gap-2 px-3 py-2 border-b border-border/30 overflow-x-auto items-center">
                 {imageQueue.map((img,i)=>(
                   <div key={i} className="relative shrink-0">
                     <button onClick={()=>{
@@ -1157,6 +1202,12 @@ export default function CoachPage(){
                     </button>
                   </div>
                 ))}
+                {/* Add more photos */}
+                <button onClick={()=>appendFileInputRef.current?.click()}
+                  className="shrink-0 w-14 h-14 rounded-lg border-2 border-dashed border-border/40 hover:border-primary/50 flex flex-col items-center justify-center gap-0.5 text-muted-foreground hover:text-primary transition-colors active:scale-95 touch-manipulation">
+                  <Plus className="w-4 h-4"/>
+                  <span className="text-[8px] font-display">Add</span>
+                </button>
               </div>
             )}
 
