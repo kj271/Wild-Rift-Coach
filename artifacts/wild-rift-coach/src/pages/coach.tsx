@@ -623,6 +623,20 @@ export default function CoachPage(){
   const[pins,setPins]=useState<MapPin[]>((_sess.pins as MapPin[])??[]);
   const[placeMode,setPlaceMode]=useState<PlaceMode>(null);
   const minimapDivRef=useRef<HTMLDivElement>(null);
+  const pinDragActive=useRef<{id:string;kind:"champ"|"obj"}|null>(null);
+  const pinDragMoved=useRef(false);
+  const handlePinPointerMove=useCallback((e:React.PointerEvent,id:string,kind:"champ"|"obj")=>{
+    if(!pinDragActive.current||pinDragActive.current.id!==id)return;
+    e.stopPropagation();
+    const rect=minimapDivRef.current?.getBoundingClientRect();
+    if(!rect)return;
+    pinDragMoved.current=true;
+    const x=Math.max(1,Math.min(99,(e.clientX-rect.left)/rect.width*100));
+    const y=Math.max(1,Math.min(99,(e.clientY-rect.top)/rect.height*100));
+    if(kind==="champ")setPins(p=>p.map(pp=>pp.id===id?{...pp,x,y,pos:classifyPos(x,y,lanePaths,zones)}:pp));
+    else setObjPins(p=>p.map(pp=>pp.id===id?{...pp,x,y,pos:classifyPos(x,y,lanePaths,zones)}:pp));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[lanePaths,zones]);
 
   // Context
   const[gameTimeSecs,setGameTimeSecs]=useState((_sess.gameTimeSecs as number)??0);
@@ -1102,10 +1116,19 @@ export default function CoachPage(){
                 )}
                 {pins.map(pin=>(
                   <div key={pin.id} data-pin="true"
-                    className="absolute -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center"
-                    style={{left:`${pin.x}%`,top:`${pin.y}%`}}
+                    className="absolute -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center touch-none"
+                    style={{left:`${pin.x}%`,top:`${pin.y}%`,cursor:pinDragActive.current?.id===pin.id?"grabbing":"grab"}}
+                    onPointerDown={e=>{
+                      e.stopPropagation();
+                      pinDragActive.current={id:pin.id,kind:"champ"};
+                      pinDragMoved.current=false;
+                      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                    }}
+                    onPointerMove={e=>handlePinPointerMove(e,pin.id,"champ")}
+                    onPointerUp={e=>{e.stopPropagation();pinDragActive.current=null;}}
                     onClick={e=>{
                       e.stopPropagation();
+                      if(pinDragMoved.current){pinDragMoved.current=false;return;}
                       if(pin.type!=="me"){
                         const rect=(e.currentTarget as HTMLElement).getBoundingClientRect();
                         setQuickPickPos({x:rect.left+rect.width/2,y:rect.top+rect.height/2});
@@ -1116,7 +1139,7 @@ export default function CoachPage(){
                     }}>
                     <div className={cn(
                       "w-8 h-8 rounded-full border-2 flex items-center justify-center",
-                      "font-display font-bold text-[11px] cursor-pointer shadow-lg active:scale-90 transition-transform",
+                      "font-display font-bold text-[11px] shadow-lg transition-transform",
                       PIN_BG[pin.type],PIN_BORDER[pin.type],PIN_TEXT[pin.type])}>
                       {pinLabel(pin)}
                     </div>
@@ -1132,10 +1155,19 @@ export default function CoachPage(){
                   const color=cfg?.color??"#888888";
                   return(
                     <div key={pin.id} data-pin="true"
-                      className="absolute -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center cursor-pointer"
-                      style={{left:`${pin.x}%`,top:`${pin.y}%`}}
+                      className="absolute -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center touch-none"
+                      style={{left:`${pin.x}%`,top:`${pin.y}%`,cursor:"grab"}}
+                      onPointerDown={e=>{
+                        e.stopPropagation();
+                        pinDragActive.current={id:pin.id,kind:"obj"};
+                        pinDragMoved.current=false;
+                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                      }}
+                      onPointerMove={e=>handlePinPointerMove(e,pin.id,"obj")}
+                      onPointerUp={e=>{e.stopPropagation();pinDragActive.current=null;}}
                       onClick={e=>{
                         e.stopPropagation();
+                        if(pinDragMoved.current){pinDragMoved.current=false;return;}
                         const rect=(e.currentTarget as HTMLElement).getBoundingClientRect();
                         setQuickObjPickPos({x:rect.left+rect.width/2,y:rect.top+rect.height/2});
                         setQuickObjPickId(pin.id);
