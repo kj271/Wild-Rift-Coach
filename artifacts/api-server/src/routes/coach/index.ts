@@ -126,6 +126,51 @@ router.post("/coach/analyze", async (req, res): Promise<void> => {
   }
 });
 
+router.post("/coach/extract-metadata", async (req, res): Promise<void> => {
+  const { imageBase64 } = req.body as { imageBase64?: string };
+  if (!imageBase64) {
+    res.status(400).json({ error: "imageBase64 required" });
+    return;
+  }
+
+  try {
+    const response = await openrouter.chat.completions.create({
+      model: "google/gemini-2.0-flash-001",
+      max_tokens: 64,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: 'This is a Wild Rift screenshot. Read the game timer (the MM:SS clock shown near the top-center — NOT the kill score like "23 vs 12"). Return ONLY a JSON object like: {"gameTime":"17:16"}. If you cannot read the timer, return {"gameTime":null}. No explanation.',
+            },
+            {
+              type: "image_url",
+              image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
+            },
+          ],
+        },
+      ],
+      stream: false,
+    });
+
+    const text = response.choices[0]?.message?.content ?? "";
+    const match = text.match(/\{[^}]+\}/);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[0]) as { gameTime?: string | null };
+        res.json({ gameTime: parsed.gameTime ?? null });
+        return;
+      } catch {}
+    }
+    res.json({ gameTime: null });
+  } catch (err) {
+    req.log.error({ err }, "Error extracting metadata");
+    res.json({ gameTime: null });
+  }
+});
+
 router.get("/coach/models", async (req, res): Promise<void> => {
   try {
     const response = await fetch("https://openrouter.ai/api/v1/models", {

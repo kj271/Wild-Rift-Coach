@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Link } from "wouter";
 import { useModelStorage } from "@/hooks/use-model-storage";
 import {
@@ -15,11 +15,13 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  Target, Settings, AlertCircle, Loader2, Send, Upload, MessageSquare, X, Search, UserRound, Users, Swords, ChevronDown, ChevronUp,
+  Target, Settings, AlertCircle, Loader2, Send, Upload,
+  MessageSquare, X, Search, UserRound, Users, Swords,
+  ChevronDown, ChevronUp, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// ─── Champions ────────────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 const CHAMPIONS = [
   "Ahri","Akali","Akshan","Alistar","Amumu","Annie","Ashe","Aurelion Sol",
   "Blitzcrank","Brand","Braum","Camille","Corki","Darius","Diana","Dr. Mundo",
@@ -35,35 +37,72 @@ const CHAMPIONS = [
 
 const ROLES = ["Top","Jungle","Mid","ADC","Support"] as const;
 type Role = typeof ROLES[number];
-type ObjStatus = "up" | "down";
+type ObjStatus = "up" | "soon" | "down" | null;
 type PinType = "me" | "ally" | "enemy";
 type PlaceMode = PinType | null;
 
-interface Pin {
+// ─── Wild Rift minimap zones ──────────────────────────────────────────────────
+// Coordinate system: (cx, cy) = center % of the minimap image
+// Blue base = lower-left, Red base = upper-right
+interface MapZone {
   id: string;
-  type: PinType;
-  x: number; // % from left
-  y: number; // % from top
-  champ: string | null;
+  label: string;
+  cx: number; // center x % on minimap
+  cy: number; // center y % on minimap
+  short: string; // short label for AI context
 }
 
-// ─── Convert % position → rough zone name ────────────────────────────────────
-function posToZone(x: number, y: number): string {
-  // Wild Rift map: top-left = Baron side top lane, bottom-right = Dragon side bot lane
-  const col = x < 33 ? "left" : x < 67 ? "center" : "right";
-  const row = y < 33 ? "top" : y < 67 ? "mid" : "bot";
-  const table: Record<string, string> = {
-    "top-left":    "Top Lane / Baron side",
-    "top-center":  "Top River / Upper Jungle",
-    "top-right":   "Baron Lane / Top-right",
-    "mid-left":    "Blue Jungle / Dragon side",
-    "mid-center":  "Mid Lane",
-    "mid-right":   "Red Jungle / Baron side",
-    "bot-left":    "Dragon Lane / Bot-left",
-    "bot-center":  "Bot River / Lower Jungle",
-    "bot-right":   "Bot Lane / Dragon side",
-  };
-  return table[`${row}-${col}`] ?? "Mid Lane";
+const MAP_ZONES: MapZone[] = [
+  // Bases
+  { id: "blue_base",      label: "Blue Base",             cx: 7,  cy: 90, short: "Blue Base" },
+  { id: "red_base",       label: "Red Base",              cx: 93, cy: 10, short: "Red Base" },
+  // Baron Lane (top lane in WR)
+  { id: "baron_blue",     label: "Baron Lane\n(our side)",cx: 8,  cy: 60, short: "Baron Lane (Blue side)" },
+  { id: "baron_center",   label: "Baron Lane\n(center)",  cx: 27, cy: 30, short: "Baron Lane center" },
+  { id: "baron_red",      label: "Baron Lane\n(their side)", cx: 52, cy: 8, short: "Baron Lane (Red side)" },
+  // Mid Lane
+  { id: "mid_blue",       label: "Mid Lane\n(our side)",  cx: 32, cy: 72, short: "Mid Lane (Blue side)" },
+  { id: "mid_center",     label: "Mid Lane\n(center)",    cx: 50, cy: 50, short: "Mid Lane center" },
+  { id: "mid_red",        label: "Mid Lane\n(their side)",cx: 68, cy: 28, short: "Mid Lane (Red side)" },
+  // Dragon Lane (bot lane in WR)
+  { id: "dragon_blue",    label: "Dragon Lane\n(our side)", cx: 28, cy: 88, short: "Dragon Lane (Blue side)" },
+  { id: "dragon_center",  label: "Dragon Lane\n(center)", cx: 53, cy: 80, short: "Dragon Lane center" },
+  { id: "dragon_red",     label: "Dragon Lane\n(their side)", cx: 77, cy: 68, short: "Dragon Lane (Red side)" },
+  // Jungle
+  { id: "jungle_blue",    label: "Blue Jungle",           cx: 18, cy: 52, short: "Blue Jungle" },
+  { id: "jungle_red",     label: "Red Jungle",            cx: 82, cy: 48, short: "Red Jungle" },
+  // Objectives
+  { id: "baron_pit",      label: "Baron Pit",             cx: 40, cy: 20, short: "Baron Pit area" },
+  { id: "dragon_pit",     label: "Dragon Pit",            cx: 60, cy: 80, short: "Dragon Pit area" },
+];
+
+interface PlayerMark { zone: string; champ: string | null }
+
+// ─── Canvas crop helper ───────────────────────────────────────────────────────
+function cropImageRegion(
+  img: HTMLImageElement,
+  xPct: number, yPct: number, wPct: number, hPct: number,
+  quality = 0.92
+): Promise<string> {
+  return new Promise(resolve => {
+    const w = img.naturalWidth;
+    const h = img.naturalHeight;
+    const sx = Math.round(w * xPct / 100);
+    const sy = Math.round(h * yPct / 100);
+    const sw = Math.round(w * wPct / 100);
+    const sh = Math.round(h * hPct / 100);
+    const canvas = document.createElement("canvas");
+    canvas.width = sw;
+    canvas.height = sh;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+    resolve(canvas.toDataURL("image/jpeg", quality));
+  });
+}
+
+function timeToSeconds(t: string): number {
+  const [m, s] = t.split(":").map(Number);
+  return (m ?? 0) * 60 + (s ?? 0);
 }
 
 // ─── Champion picker ──────────────────────────────────────────────────────────
@@ -75,7 +114,7 @@ function ChampionPicker({ open, title, selected, max, onClose, onSelect }: {
   const filtered = CHAMPIONS.filter(c => c.toLowerCase().includes(search.toLowerCase()));
   const toggle = (c: string) => {
     if (selected.includes(c)) onSelect(selected.filter(s => s !== c));
-    else if (selected.length < max) onSelect([...selected, c]);
+    else if (selected.length < max) { onSelect([...selected, c]); if (max === 1) onClose(); }
   };
   return (
     <Dialog open={open} onOpenChange={o => { if (!o) onClose(); }}>
@@ -88,7 +127,7 @@ function ChampionPicker({ open, title, selected, max, onClose, onSelect }: {
         <div className="p-3 border-b border-border/30 shrink-0">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input autoFocus placeholder="Search champion..." className="pl-9 h-9 bg-black/40 text-sm"
+            <Input autoFocus placeholder="Search..." className="pl-9 h-9 bg-black/40 text-sm"
               value={search} onChange={e => setSearch(e.target.value)} />
           </div>
         </div>
@@ -119,29 +158,78 @@ function ChampionPicker({ open, title, selected, max, onClose, onSelect }: {
             })}
           </div>
         </div>
-        <div className="p-3 border-t border-border/30 shrink-0">
-          <Button className="w-full h-10 font-display tracking-wider" onClick={onClose}>Done</Button>
-        </div>
+        {max > 1 && (
+          <div className="p-3 border-t border-border/30 shrink-0">
+            <Button className="w-full h-10 font-display tracking-wider" onClick={onClose}>Done</Button>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
 }
 
-// ─── Objective toggle ─────────────────────────────────────────────────────────
-function ObjToggle({ label, value, onChange }: { label: string; value: ObjStatus | null; onChange: (v: ObjStatus | null) => void }) {
-  const tap = (v: ObjStatus) => onChange(value === v ? null : v);
+// ─── Minimap zone button ──────────────────────────────────────────────────────
+function ZoneButton({
+  zone, mode, myMark, allyMarks, enemyMarks, onTap,
+}: {
+  zone: MapZone; mode: PlaceMode;
+  myMark: PlayerMark | null; allyMarks: PlayerMark[]; enemyMarks: PlayerMark[];
+  onTap: (zoneId: string) => void;
+}) {
+  const isMe = myMark?.zone === zone.id;
+  const allyCount = allyMarks.filter(m => m.zone === zone.id).length;
+  const enemyCount = enemyMarks.filter(m => m.zone === zone.id).length;
+  const hasAny = isMe || allyCount > 0 || enemyCount > 0;
+
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-[10px] font-display uppercase tracking-wider text-muted-foreground/70 text-center">{label}</span>
-      <div className="flex gap-1">
-        <button onClick={() => tap("up")} className={cn("flex-1 text-xs font-bold py-2 rounded border transition-all active:scale-95",
-          value === "up" ? "bg-primary/20 border-primary text-primary" : "bg-black/30 border-border/40 text-muted-foreground hover:border-primary/30")}>
-          UP
-        </button>
-        <button onClick={() => tap("down")} className={cn("flex-1 text-xs font-bold py-2 rounded border transition-all active:scale-95",
-          value === "down" ? "bg-red-500/20 border-red-500 text-red-400" : "bg-black/30 border-border/40 text-muted-foreground hover:border-red-400/30")}>
-          DOWN
-        </button>
+    <button
+      onClick={() => onTap(zone.id)}
+      className={cn(
+        "absolute -translate-x-1/2 -translate-y-1/2 transition-all active:scale-90",
+        "rounded-lg border text-[9px] leading-tight text-center font-display tracking-wide px-1 py-1",
+        "min-w-[48px]",
+        mode ? "cursor-crosshair" : "cursor-default",
+        hasAny
+          ? "bg-black/80 border-white/30 text-white"
+          : mode
+            ? "bg-black/60 border-white/15 text-white/50 hover:border-white/40 hover:text-white/80 hover:bg-black/75"
+            : "bg-black/40 border-white/10 text-white/30"
+      )}
+      style={{ left: `${zone.cx}%`, top: `${zone.cy}%` }}
+    >
+      <div className="whitespace-pre-line">{zone.label}</div>
+      {hasAny && (
+        <div className="flex gap-0.5 justify-center mt-0.5 flex-wrap">
+          {isMe && <span className="w-3 h-3 rounded-full bg-amber-400 text-black text-[7px] flex items-center justify-center font-bold">M</span>}
+          {Array.from({ length: allyCount }).map((_, i) => <span key={i} className="w-2.5 h-2.5 rounded-full bg-sky-400" />)}
+          {Array.from({ length: enemyCount }).map((_, i) => <span key={i} className="w-2.5 h-2.5 rounded-full bg-red-500" />)}
+        </div>
+      )}
+    </button>
+  );
+}
+
+// ─── 3-state objective control ────────────────────────────────────────────────
+function ObjControl({ label, value, onChange }: {
+  label: string; value: ObjStatus; onChange: (v: ObjStatus) => void;
+}) {
+  const states: { v: NonNullable<ObjStatus>; label: string; active: string; idle: string }[] = [
+    { v: "up",   label: "UP",   active: "bg-emerald-500/25 text-emerald-400 border-emerald-500",   idle: "text-muted-foreground border-border/30 hover:border-emerald-500/40" },
+    { v: "soon", label: "SOON", active: "bg-amber-500/25  text-amber-400  border-amber-500",       idle: "text-muted-foreground border-border/30 hover:border-amber-500/40"   },
+    { v: "down", label: "DOWN", active: "bg-red-500/25    text-red-400    border-red-500",         idle: "text-muted-foreground border-border/30 hover:border-red-400/40"     },
+  ];
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[10px] font-display uppercase tracking-widest text-muted-foreground/70 text-center">{label}</span>
+      <div className="flex rounded-lg overflow-hidden border border-border/30 divide-x divide-border/30">
+        {states.map(s => (
+          <button key={s.v}
+            onClick={() => onChange(value === s.v ? null : s.v)}
+            className={cn("flex-1 text-[11px] font-bold py-2.5 transition-all active:scale-95 border-0",
+              value === s.v ? s.active : `bg-black/40 ${s.idle}`)}>
+            {s.label}
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -155,24 +243,28 @@ export default function CoachPage() {
   const queryClient = useQueryClient();
   const [model] = useModelStorage();
 
-  // Screenshot
+  // Screenshot state
   const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [minimapBase64, setMinimapBase64] = useState<string | null>(null);
+  const [extracting, setExtracting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const imgRef = useRef<HTMLDivElement>(null);
+  const hiddenImgRef = useRef<HTMLImageElement>(null);
 
-  // Pins on the image
-  const [pins, setPins] = useState<Pin[]>([]);
+  // Position pins on minimap
+  const [myMark, setMyMark] = useState<PlayerMark | null>(null);
+  const [allyMarks, setAllyMarks] = useState<PlayerMark[]>([]);
+  const [enemyMarks, setEnemyMarks] = useState<PlayerMark[]>([]);
   const [placeMode, setPlaceMode] = useState<PlaceMode>(null);
-  const [champPickPin, setChampPickPin] = useState<string | null>(null); // pin id
 
   // Context
   const [gameTimeSecs, setGameTimeSecs] = useState(0);
   const [myRole, setMyRole] = useState<Role | null>(null);
   const [myChamp, setMyChamp] = useState<string | null>(null);
-  const [dragon, setDragon] = useState<ObjStatus | null>(null);
-  const [baron, setBaron] = useState<ObjStatus | null>(null);
-  const [herald, setHerald] = useState<ObjStatus | null>(null);
+  const [dragon, setDragon] = useState<ObjStatus>(null);
+  const [baron, setBaron] = useState<ObjStatus>(null);
+  const [herald, setHerald] = useState<ObjStatus>(null);
   const [contextOpen, setContextOpen] = useState(true);
+  const [champPickOpen, setChampPickOpen] = useState(false);
 
   // Advice
   const [advice, setAdvice] = useState("");
@@ -191,114 +283,113 @@ export default function CoachPage() {
     { query: { enabled: !!activeConversationId, queryKey: getGetOpenrouterConversationQueryKey(activeConversationId as number) } }
   );
   const createConversation = useCreateOpenrouterConversation();
-
   const formatTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
-  // ── Handle tap on image ────────────────────────────────────────────────────
-  const handleImageTap = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
-    if (!placeMode || !imgRef.current) return;
+  // ── Auto-crop minimap + extract time ────────────────────────────────────────
+  const processUploadedImage = useCallback(async (dataUrl: string) => {
+    setImageBase64(dataUrl);
+    setMinimapBase64(null);
+    setMyMark(null); setAllyMarks([]); setEnemyMarks([]);
 
-    // Don't place if clicking an existing pin
-    const target = e.target as HTMLElement;
-    if (target.closest("[data-pin]")) return;
+    const img = new Image();
+    img.onload = async () => {
+      // Crop minimap: top-left ~20% width, ~28% height
+      const minimap = await cropImageRegion(img, 0, 0, 20, 28, 0.95);
+      setMinimapBase64(minimap);
 
-    const rect = imgRef.current.getBoundingClientRect();
-    let clientX: number, clientY: number;
-    if ("touches" in e) {
-      clientX = e.touches[0]!.clientX;
-      clientY = e.touches[0]!.clientY;
-    } else {
-      clientX = e.clientX;
-      clientY = e.clientY;
+      // Extract game time using AI
+      setExtracting(true);
+      try {
+        // Send a top strip of the image (top 15%) to save tokens
+        const strip = await cropImageRegion(img, 25, 0, 50, 14, 0.9);
+        const BASE = import.meta.env.BASE_URL;
+        const res = await fetch(`${BASE}api/coach/extract-metadata`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64: strip.split(",")[1] }),
+        });
+        if (res.ok) {
+          const data = await res.json() as { gameTime?: string | null };
+          if (data.gameTime) {
+            const secs = timeToSeconds(data.gameTime);
+            if (secs > 0 && secs <= 1800) setGameTimeSecs(secs);
+          }
+        }
+      } catch { /* silent — user can set time manually */ }
+      finally { setExtracting(false); }
+    };
+    img.src = dataUrl;
+  }, []);
+
+  // Hidden img element for triggering the load
+  useEffect(() => {
+    if (hiddenImgRef.current && imageBase64) {
+      hiddenImgRef.current.src = imageBase64;
     }
+  }, [imageBase64]);
 
-    const x = ((clientX - rect.left) / rect.width) * 100;
-    const y = ((clientY - rect.top) / rect.height) * 100;
+  const handleFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = e => { const r = e.target?.result as string; if (r) processUploadedImage(r); };
+    reader.readAsDataURL(file);
+  };
 
+  // ── Minimap zone tap ─────────────────────────────────────────────────────────
+  const handleZoneTap = (zoneId: string) => {
+    if (!placeMode) return;
     if (placeMode === "me") {
-      // Only one "me" pin — replace existing
-      setPins(p => [...p.filter(pin => pin.type !== "me"), { id: `me-${Date.now()}`, type: "me", x, y, champ: myChamp }]);
+      setMyMark(p => p?.zone === zoneId ? null : { zone: zoneId, champ: myChamp });
     } else if (placeMode === "ally") {
-      const allies = pins.filter(p => p.type === "ally");
-      if (allies.length >= 4) return;
-      setPins(p => [...p, { id: `ally-${Date.now()}`, type: "ally", x, y, champ: null }]);
-    } else if (placeMode === "enemy") {
-      const enemies = pins.filter(p => p.type === "enemy");
-      if (enemies.length >= 5) return;
-      setPins(p => [...p, { id: `enemy-${Date.now()}`, type: "enemy", x, y, champ: null }]);
+      const existing = allyMarks.findIndex(m => m.zone === zoneId);
+      if (existing >= 0) setAllyMarks(p => p.filter((_, i) => i !== existing));
+      else if (allyMarks.length < 4) setAllyMarks(p => [...p, { zone: zoneId, champ: null }]);
+    } else {
+      const existing = enemyMarks.findIndex(m => m.zone === zoneId);
+      if (existing >= 0) setEnemyMarks(p => p.filter((_, i) => i !== existing));
+      else if (enemyMarks.length < 5) setEnemyMarks(p => [...p, { zone: zoneId, champ: null }]);
     }
   };
 
-  const removePin = (id: string) => setPins(p => p.filter(pin => pin.id !== id));
-
-  // ── Build context ──────────────────────────────────────────────────────────
+  // ── Build AI context ─────────────────────────────────────────────────────────
   const buildContext = useCallback((): GameContext => {
-    const myPin = pins.find(p => p.type === "me");
-    const allyPins = pins.filter(p => p.type === "ally");
-    const enemyPins = pins.filter(p => p.type === "enemy");
-
-    const myLocationText = myPin ? posToZone(myPin.x, myPin.y) : null;
-    const allyText = allyPins.length
-      ? allyPins.map(p => {
-          const zone = posToZone(p.x, p.y);
-          return p.champ ? `${p.champ} at ${zone}` : zone;
-        }).join(", ")
+    const zoneShort = (id: string) => MAP_ZONES.find(z => z.id === id)?.short ?? id;
+    const myLoc = myMark ? zoneShort(myMark.zone) : null;
+    const allyText = allyMarks.length
+      ? allyMarks.map(m => { const z = zoneShort(m.zone); return m.champ ? `${m.champ} (${z})` : z; }).join(", ")
       : null;
-    const enemyText = enemyPins.length
-      ? enemyPins.map(p => {
-          const zone = posToZone(p.x, p.y);
-          return p.champ ? `${p.champ} at ${zone}` : zone;
-        }).join(", ")
+    const enemyText = enemyMarks.length
+      ? enemyMarks.map(m => { const z = zoneShort(m.zone); return m.champ ? `${m.champ} (${z})` : z; }).join(", ")
       : null;
-
-    const notes: string[] = [];
-    if (myChamp) notes.push(`I am playing ${myChamp}`);
-    if (myPin) notes.push(`I am pinned at (${Math.round(myPin.x)}%, ${Math.round(myPin.y)}%) on the screenshot`);
-
     return {
       gameTime: gameTimeSecs > 0 ? formatTime(gameTimeSecs) : null,
       myRole: myRole ?? null,
-      myLocation: myLocationText,
+      myLocation: myLoc,
       allyChampions: allyText,
       enemyChampions: enemyText,
       dragonStatus: dragon ?? null,
       baronStatus: baron ?? null,
       riftHeraldStatus: herald ?? null,
-      goldDiff: null,
-      score: null,
-      additionalNotes: notes.length ? notes.join(". ") : null,
+      goldDiff: null, score: null,
+      additionalNotes: myChamp ? `I am playing ${myChamp}` : null,
     };
-  }, [pins, gameTimeSecs, myRole, myChamp, dragon, baron, herald]);
+  }, [myMark, allyMarks, enemyMarks, gameTimeSecs, myRole, myChamp, dragon, baron, herald]);
 
-  // ── File upload ────────────────────────────────────────────────────────────
-  const handleFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = e => { const r = e.target?.result as string; if (r) { setImageBase64(r); setPins([]); } };
-    reader.readAsDataURL(file);
-  };
-
-  // ── Advise ─────────────────────────────────────────────────────────────────
+  // ── Advise ───────────────────────────────────────────────────────────────────
   const getAdvice = async () => {
     if (!model) return;
-    setIsAdvising(true);
-    setAdvice("");
+    setIsAdvising(true); setAdvice("");
     try {
       const BASE = import.meta.env.BASE_URL;
       const res = await fetch(`${BASE}api/coach/analyze`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model, imageBase64: imageBase64?.split(",")[1] ?? null, context: buildContext() }),
       });
       if (!res.ok) throw new Error();
-      const reader = res.body!.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
+      const reader = res.body!.getReader(); const dec = new TextDecoder(); let buf = "";
       while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        const { done, value } = await reader.read(); if (done) break;
         buf += dec.decode(value, { stream: true });
-        const lines = buf.split("\n");
-        buf = lines.pop() || "";
+        const lines = buf.split("\n"); buf = lines.pop() || "";
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           try {
@@ -312,14 +403,11 @@ export default function CoachPage() {
           } catch {}
         }
       }
-    } catch {
-      setAdvice("Error — check your model in Settings and try again.");
-    } finally {
-      setIsAdvising(false);
-    }
+    } catch { setAdvice("Error — check model in Settings and try again."); }
+    finally { setIsAdvising(false); }
   };
 
-  // ── Chat ───────────────────────────────────────────────────────────────────
+  // ── Chat ─────────────────────────────────────────────────────────────────────
   const sendChat = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim() || !model) return;
@@ -329,8 +417,7 @@ export default function CoachPage() {
       convId = conv.id; setActiveConversationId(conv.id);
       queryClient.invalidateQueries({ queryKey: getListOpenrouterConversationsQueryKey() });
     }
-    const msg = chatInput.trim();
-    setChatInput(""); setIsChatting(true);
+    const msg = chatInput.trim(); setChatInput(""); setIsChatting(true);
     setChatMessages(p => [...p, { role: "user", content: msg }, { role: "assistant", content: "", streaming: true }]);
     try {
       const BASE = import.meta.env.BASE_URL;
@@ -339,12 +426,9 @@ export default function CoachPage() {
         body: JSON.stringify({ content: msg, model, context: buildContext() }),
       });
       if (!res.ok) throw new Error();
-      const reader = res.body!.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
+      const reader = res.body!.getReader(); const dec = new TextDecoder(); let buf = "";
       while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        const { done, value } = await reader.read(); if (done) break;
         buf += dec.decode(value, { stream: true });
         const lines = buf.split("\n"); buf = lines.pop() || "";
         for (const line of lines) {
@@ -352,41 +436,36 @@ export default function CoachPage() {
           try {
             const d = JSON.parse(line.slice(6));
             if (d.content) {
-              setChatMessages(p => { const n = [...p]; const l = n[n.length - 1]; if (l?.streaming) l.content += d.content; return n; });
+              setChatMessages(p => { const n=[...p]; const l=n[n.length-1]; if(l?.streaming) l.content+=d.content; return n; });
               chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
             }
             if (d.done) {
-              setChatMessages(p => p.map((m, i) => i === p.length - 1 ? { ...m, streaming: false } : m));
+              setChatMessages(p => p.map((m,i) => i===p.length-1 ? {...m,streaming:false} : m));
               queryClient.invalidateQueries({ queryKey: getGetOpenrouterConversationQueryKey(convId!) });
             }
           } catch {}
         }
       }
     } catch {
-      setChatMessages(p => p.map((m, i) => i === p.length - 1 ? { ...m, content: "Error — try again.", streaming: false } : m));
+      setChatMessages(p => p.map((m,i) => i===p.length-1 ? {...m,content:"Error — try again.",streaming:false} : m));
     } finally { setIsChatting(false); }
   };
 
-  const myPin = pins.find(p => p.type === "me");
-  const allyPins = pins.filter(p => p.type === "ally");
-  const enemyPins = pins.filter(p => p.type === "enemy");
-  const hasContext = pins.length > 0 || !!myChamp || !!myRole || !!dragon || !!baron || !!herald || gameTimeSecs > 0;
+  const hasContext = !!myMark || allyMarks.length>0 || enemyMarks.length>0 || !!myChamp || !!myRole || !!dragon || !!baron || !!herald || gameTimeSecs>0;
   const canAdvise = !!model && !isAdvising && (!!imageBase64 || hasContext);
 
-  const PIN_STYLES: Record<PinType, { ring: string; bg: string; text: string; label: string }> = {
-    me:    { ring: "ring-amber-400",   bg: "bg-amber-400",   text: "text-black",   label: "ME" },
-    ally:  { ring: "ring-sky-400",     bg: "bg-sky-400",     text: "text-black",   label: "A" },
-    enemy: { ring: "ring-red-500",     bg: "bg-red-500",     text: "text-white",   label: "E" },
-  };
-
-  const MODE_BTN: Record<PinType, { active: string; idle: string; icon: React.ReactNode; label: string }> = {
-    me:    { active: "bg-amber-400/20 border-amber-400 text-amber-400",    idle: "bg-black/30 border-border/40 text-muted-foreground hover:border-amber-400/40",    icon: <UserRound className="w-3.5 h-3.5" />, label: "Me" },
-    ally:  { active: "bg-sky-400/20   border-sky-400   text-sky-400",      idle: "bg-black/30 border-border/40 text-muted-foreground hover:border-sky-400/40",      icon: <Users     className="w-3.5 h-3.5" />, label: `Allies ${allyPins.length > 0 ? `(${allyPins.length}/4)` : ""}` },
-    enemy: { active: "bg-red-500/20   border-red-500   text-red-400",      idle: "bg-black/30 border-border/40 text-muted-foreground hover:border-red-400/40",      icon: <Swords    className="w-3.5 h-3.5" />, label: `Enemies ${enemyPins.length > 0 ? `(${enemyPins.length}/5)` : ""}` },
+  const PIN_COLOR: Record<PinType, string> = { me: "amber", ally: "sky", enemy: "red" };
+  const PLACE_BTN = {
+    me:    { active: "bg-amber-400/20 border-amber-400 text-amber-400", idle: "border-border/40 text-muted-foreground hover:border-amber-400/40", dot: "bg-amber-400" },
+    ally:  { active: "bg-sky-400/20   border-sky-400   text-sky-400",   idle: "border-border/40 text-muted-foreground hover:border-sky-400/40",   dot: "bg-sky-400"   },
+    enemy: { active: "bg-red-500/20   border-red-500   text-red-400",   idle: "border-border/40 text-muted-foreground hover:border-red-400/40",   dot: "bg-red-500"   },
   };
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
+      {/* Hidden img for canvas crop */}
+      <img ref={hiddenImgRef} className="hidden" alt="" />
+
       {/* Header */}
       <header className="sticky top-0 z-20 bg-background/90 backdrop-blur border-b border-border/40">
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
@@ -405,126 +484,154 @@ export default function CoachPage() {
           <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-3 flex gap-3 items-start">
             <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
             <div className="text-sm">
-              <span className="font-semibold text-destructive">No AI model selected. </span>
+              <span className="font-semibold text-destructive">No AI model. </span>
               <Link href="/settings"><span className="underline text-destructive/80 cursor-pointer">Go to Settings</span></Link>
             </div>
           </div>
         )}
 
-        {/* ══ SCREENSHOT + PIN OVERLAY ══════════════════════════════════════ */}
+        {/* ── SCREENSHOT ───────────────────────────────────────────────────── */}
         {imageBase64 ? (
-          <div className="space-y-2">
-            {/* Mode selector bar */}
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground shrink-0">Tap on pic:</span>
-              {(["me","ally","enemy"] as PinType[]).map(type => {
-                const s = MODE_BTN[type];
-                const active = placeMode === type;
-                return (
-                  <button key={type}
-                    onClick={() => setPlaceMode(p => p === type ? null : type)}
-                    className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 font-display",
-                      active ? s.active : s.idle)}>
-                    {s.icon} {s.label}
-                  </button>
-                );
-              })}
-              {pins.length > 0 && (
-                <button onClick={() => setPins([])} className="ml-auto text-[10px] text-muted-foreground hover:text-white border border-border/30 px-2 py-1 rounded-full shrink-0">
-                  Clear all
-                </button>
-              )}
-            </div>
-
-            {/* Instruction hint */}
-            {placeMode && (
-              <div className={cn("text-xs px-3 py-2 rounded-lg border font-display tracking-wide text-center",
-                placeMode === "me"    ? "bg-amber-400/10 border-amber-400/40 text-amber-400" :
-                placeMode === "ally"  ? "bg-sky-400/10   border-sky-400/40   text-sky-400" :
-                                        "bg-red-500/10   border-red-500/40   text-red-400"
-              )}>
-                {placeMode === "me" && "Tap your position on the screenshot"}
-                {placeMode === "ally" && `Tap where your allies are (${allyPins.length}/4)`}
-                {placeMode === "enemy" && `Tap where enemies are (${enemyPins.length}/5)`}
-              </div>
-            )}
-
-            {/* Image with tap overlay + pins */}
-            <div
-              ref={imgRef}
-              className={cn("relative w-full rounded-xl overflow-hidden border border-border/40 select-none",
-                placeMode ? "cursor-crosshair" : "cursor-default")}
-              onClick={handleImageTap}
-              onTouchStart={handleImageTap}
-            >
-              <img
-                src={imageBase64}
-                alt="Game screenshot"
-                className="w-full h-auto block pointer-events-none"
-                draggable={false}
-              />
-
-              {/* Pins */}
-              {pins.map(pin => {
-                const s = PIN_STYLES[pin.type];
-                return (
-                  <div
-                    key={pin.id}
-                    data-pin="true"
-                    className="absolute -translate-x-1/2 -translate-y-full"
-                    style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
-                    onClick={e => { e.stopPropagation(); removePin(pin.id); }}
-                  >
-                    {/* Stem */}
-                    <div className="flex flex-col items-center">
-                      <div className={cn("w-8 h-8 rounded-full ring-2 flex items-center justify-center font-display font-bold text-xs shadow-lg cursor-pointer active:scale-90 transition-transform", s.bg, s.text, s.ring)}>
-                        {pin.champ ? pin.champ.slice(0, 2) : s.label}
-                      </div>
-                      <div className={cn("w-0.5 h-3", s.bg)} />
-                      <div className={cn("w-1.5 h-1.5 rounded-full", s.bg)} />
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* Replace button */}
-              <button
-                className="absolute top-2 right-2 bg-black/70 border border-white/20 text-white text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 active:scale-95"
-                onClick={e => { e.stopPropagation(); fileInputRef.current?.click(); }}
-              >
+          <div className="relative w-full rounded-xl overflow-hidden border border-border/40">
+            <img src={imageBase64} alt="Game screenshot" className="w-full h-auto block" draggable={false} />
+            <div className="absolute top-2 right-2 flex gap-2">
+              <button className="bg-black/70 border border-white/20 text-white text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 active:scale-95"
+                onClick={() => fileInputRef.current?.click()}>
                 <Upload className="w-3 h-3" /> Replace
               </button>
+              <button className="w-8 h-8 rounded-full bg-black/70 border border-white/20 flex items-center justify-center text-white active:scale-95"
+                onClick={() => { setImageBase64(null); setMinimapBase64(null); setMyMark(null); setAllyMarks([]); setEnemyMarks([]); }}>
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
-
-            {/* Pin legend */}
-            {pins.length > 0 && (
-              <div className="flex gap-2 flex-wrap text-[10px]">
-                {myPin && <span className="flex items-center gap-1 text-amber-400"><span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" /> You: {posToZone(myPin.x, myPin.y)}</span>}
-                {allyPins.map((p, i) => <span key={p.id} className="flex items-center gap-1 text-sky-400"><span className="w-2.5 h-2.5 rounded-full bg-sky-400 inline-block" /> Ally {i+1}: {posToZone(p.x, p.y)}</span>)}
-                {enemyPins.map((p, i) => <span key={p.id} className="flex items-center gap-1 text-red-400"><span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" /> Enemy {i+1}: {posToZone(p.x, p.y)}</span>)}
-              </div>
-            )}
           </div>
         ) : (
           <div
             className="w-full h-28 rounded-xl border-2 border-dashed border-border/40 hover:border-primary/30 transition-colors cursor-pointer flex flex-col items-center justify-center gap-2 text-muted-foreground"
             onClick={() => fileInputRef.current?.click()}
             onDragOver={e => e.preventDefault()}
-            onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
+            onDrop={e => { e.preventDefault(); const f=e.dataTransfer.files[0]; if(f) handleFile(f); }}
           >
             <Upload className="w-5 h-5" />
-            <span className="text-sm">Upload screenshot — then tap it to mark positions</span>
+            <span className="text-sm">Upload screenshot</span>
+            <span className="text-xs text-muted-foreground/50">Minimap auto-crops · timer auto-reads</span>
           </div>
         )}
         <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
-          onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+          onChange={e => { const f=e.target.files?.[0]; if(f) handleFile(f); }} />
 
-        {/* ══ CONTEXT PANEL ════════════════════════════════════════════════ */}
+        {/* ── MINIMAP PANEL ────────────────────────────────────────────────── */}
+        {imageBase64 && (
+          <div className="bg-card/40 border border-border/40 rounded-xl overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-border/30 flex items-center justify-between">
+              <span className="font-display text-xs tracking-widest uppercase text-muted-foreground">
+                Minimap — tap zones
+                {extracting && <span className="ml-2 inline-flex items-center gap-1 text-primary/70"><Sparkles className="w-3 h-3 animate-pulse" /> reading time…</span>}
+              </span>
+              {(myMark || allyMarks.length > 0 || enemyMarks.length > 0) && (
+                <button onClick={() => { setMyMark(null); setAllyMarks([]); setEnemyMarks([]); }}
+                  className="text-[10px] text-muted-foreground hover:text-white border border-border/30 px-2 py-1 rounded-full">
+                  Clear
+                </button>
+              )}
+            </div>
+
+            <div className="p-3 space-y-3">
+              {/* Mode selector */}
+              <div className="flex gap-2">
+                {(["me","ally","enemy"] as PinType[]).map(type => {
+                  const b = PLACE_BTN[type];
+                  const active = placeMode === type;
+                  const count = type === "me" ? (myMark ? 1 : 0) : type === "ally" ? allyMarks.length : enemyMarks.length;
+                  return (
+                    <button key={type}
+                      onClick={() => setPlaceMode(p => p === type ? null : type)}
+                      className={cn("flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg border text-xs font-bold transition-all active:scale-95 font-display bg-black/30",
+                        active ? b.active : `bg-black/30 ${b.idle}`)}>
+                      {type === "me" && <UserRound className="w-3.5 h-3.5" />}
+                      {type === "ally" && <Users className="w-3.5 h-3.5" />}
+                      {type === "enemy" && <Swords className="w-3.5 h-3.5" />}
+                      {type === "me" ? "Me" : type === "ally" ? "Ally" : "Enemy"}
+                      {count > 0 && <span className={cn("w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center text-black", b.dot)}>{count}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Instruction */}
+              {placeMode && (
+                <div className={cn("text-xs px-3 py-2 rounded-lg border text-center font-display tracking-wide",
+                  placeMode === "me"    ? "bg-amber-400/10 border-amber-400/40 text-amber-400" :
+                  placeMode === "ally"  ? "bg-sky-400/10   border-sky-400/40   text-sky-400" :
+                                          "bg-red-500/10   border-red-500/40   text-red-400")}>
+                  {placeMode === "me"    ? "Tap your location on the minimap" :
+                   placeMode === "ally"  ? `Tap where allies are (${allyMarks.length}/4) — tap again to remove` :
+                                          `Tap where enemies are (${enemyMarks.length}/5) — tap again to remove`}
+                </div>
+              )}
+
+              {/* Minimap image + zone overlay */}
+              <div className="relative w-full rounded-lg overflow-hidden border border-border/30" style={{ aspectRatio: "1" }}>
+                {minimapBase64 ? (
+                  <img src={minimapBase64} alt="Minimap" className="w-full h-full object-cover pointer-events-none" />
+                ) : (
+                  <div className="w-full h-full bg-slate-900/80 flex items-center justify-center">
+                    <Loader2 className="w-5 h-5 animate-spin text-muted-foreground/40" />
+                  </div>
+                )}
+
+                {/* Dark overlay when no mode active */}
+                {!placeMode && (
+                  <div className="absolute inset-0 bg-black/30 pointer-events-none" />
+                )}
+
+                {/* Zone buttons */}
+                {MAP_ZONES.map(zone => (
+                  <ZoneButton
+                    key={zone.id}
+                    zone={zone}
+                    mode={placeMode}
+                    myMark={myMark}
+                    allyMarks={allyMarks}
+                    enemyMarks={enemyMarks}
+                    onTap={handleZoneTap}
+                  />
+                ))}
+              </div>
+
+              {/* Summary */}
+              {(myMark || allyMarks.length > 0 || enemyMarks.length > 0) && (
+                <div className="flex gap-2 flex-wrap">
+                  {myMark && (
+                    <span className="flex items-center gap-1.5 text-[10px] text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-full px-2.5 py-1">
+                      <span className="w-2 h-2 rounded-full bg-amber-400" />
+                      You: {MAP_ZONES.find(z=>z.id===myMark.zone)?.short}
+                    </span>
+                  )}
+                  {allyMarks.map((m,i) => (
+                    <span key={m.zone+i} className="flex items-center gap-1.5 text-[10px] text-sky-400 bg-sky-400/10 border border-sky-400/20 rounded-full px-2.5 py-1">
+                      <span className="w-2 h-2 rounded-full bg-sky-400" />
+                      A{i+1}: {MAP_ZONES.find(z=>z.id===m.zone)?.short}
+                    </span>
+                  ))}
+                  {enemyMarks.map((m,i) => (
+                    <span key={m.zone+i} className="flex items-center gap-1.5 text-[10px] text-red-400 bg-red-500/10 border border-red-400/20 rounded-full px-2.5 py-1">
+                      <span className="w-2 h-2 rounded-full bg-red-500" />
+                      E{i+1}: {MAP_ZONES.find(z=>z.id===m.zone)?.short}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── CONTEXT PANEL ────────────────────────────────────────────────── */}
         <div className="bg-card/40 border border-border/40 rounded-xl overflow-hidden">
           <button className="w-full flex items-center justify-between px-4 py-3 text-xs font-display tracking-widest uppercase text-muted-foreground"
             onClick={() => setContextOpen(o => !o)}>
             <span className="flex items-center gap-2">
-              More Context
+              Game Context
               {hasContext && <span className="w-2 h-2 rounded-full bg-primary" />}
             </span>
             {contextOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -535,8 +642,11 @@ export default function CoachPage() {
 
               {/* Game time */}
               <div className="pt-4">
-                <div className="flex justify-between mb-2">
-                  <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground">Game Time</span>
+                <div className="flex justify-between mb-2 items-center">
+                  <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground">
+                    Game Time
+                    {extracting && <span className="ml-2 text-primary/70 inline-flex items-center gap-1"><Sparkles className="w-3 h-3 animate-pulse" /> auto-reading…</span>}
+                  </span>
                   <span className="font-display text-primary font-bold text-base">{formatTime(gameTimeSecs)}</span>
                 </div>
                 <input type="range" min={0} max={1800} step={30} value={gameTimeSecs}
@@ -554,8 +664,7 @@ export default function CoachPage() {
                   {ROLES.map(r => (
                     <button key={r} onClick={() => setMyRole(myRole === r ? null : r)}
                       className={cn("flex-1 py-2 rounded-lg text-[11px] font-bold border transition-all active:scale-95 font-display",
-                        myRole === r ? "bg-primary/20 border-primary text-primary shadow-[0_0_10px_rgba(0,160,210,0.2)]"
-                                     : "bg-black/30 border-border/40 text-muted-foreground hover:border-primary/30")}>
+                        myRole === r ? "bg-primary/20 border-primary text-primary" : "bg-black/30 border-border/40 text-muted-foreground hover:border-primary/30")}>
                       {r}
                     </button>
                   ))}
@@ -565,20 +674,20 @@ export default function CoachPage() {
               {/* My champion */}
               <div>
                 <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground">My Champion <span className="text-muted-foreground/40">(optional)</span></span>
-                <button onClick={() => setChampPickPin("myChamp")}
+                <button onClick={() => setChampPickOpen(true)}
                   className={cn("w-full mt-2 py-2.5 rounded-lg border text-sm font-medium transition-all active:scale-[0.98]",
                     myChamp ? "bg-amber-400/15 border-amber-400/50 text-amber-400" : "bg-black/30 border-border/40 text-muted-foreground hover:border-amber-400/40")}>
-                  {myChamp ?? "+ Select your champion (optional)"}
+                  {myChamp ?? "+ Select champion (optional)"}
                 </button>
               </div>
 
-              {/* Objectives */}
+              {/* Objectives — 3-state */}
               <div>
                 <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground">Objectives</span>
-                <div className="grid grid-cols-3 gap-3 mt-2">
-                  <ObjToggle label="Dragon" value={dragon} onChange={setDragon} />
-                  <ObjToggle label="Baron" value={baron} onChange={setBaron} />
-                  <ObjToggle label="Herald" value={herald} onChange={setHerald} />
+                <div className="space-y-2.5 mt-2">
+                  <ObjControl label="Dragon" value={dragon} onChange={setDragon} />
+                  <ObjControl label="Baron" value={baron} onChange={setBaron} />
+                  <ObjControl label="Herald" value={herald} onChange={setHerald} />
                 </div>
               </div>
 
@@ -586,18 +695,18 @@ export default function CoachPage() {
           )}
         </div>
 
-        {/* ══ ADVISE ME ════════════════════════════════════════════════════ */}
+        {/* ── ADVISE ME ────────────────────────────────────────────────────── */}
         <button onClick={getAdvice} disabled={!canAdvise}
           className={cn("w-full h-16 rounded-xl font-display text-xl font-bold tracking-widest uppercase transition-all relative overflow-hidden",
             canAdvise ? "bg-primary text-primary-foreground shadow-[0_0_30px_rgba(0,160,210,0.35)] hover:shadow-[0_0_45px_rgba(0,160,210,0.5)] active:scale-[0.98]"
                       : "bg-muted text-muted-foreground cursor-not-allowed opacity-60")}>
           {isAdvising
-            ? <span className="flex items-center justify-center gap-3"><Loader2 className="w-5 h-5 animate-spin" /> Analyzing...</span>
+            ? <span className="flex items-center justify-center gap-3"><Loader2 className="w-5 h-5 animate-spin" /> Analyzing…</span>
             : <span className="flex items-center justify-center gap-3"><Target className="w-5 h-5" /> Advise Me</span>}
           {canAdvise && !isAdvising && <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full animate-[shimmer_2.5s_infinite]" />}
         </button>
 
-        {/* ══ ADVICE OUTPUT ════════════════════════════════════════════════ */}
+        {/* ── ADVICE OUTPUT ────────────────────────────────────────────────── */}
         {(advice || isAdvising) && (
           <div className="bg-card/60 border border-primary/30 rounded-xl overflow-hidden">
             <div className="px-4 py-2.5 bg-primary/5 border-b border-primary/20 flex items-center gap-2">
@@ -612,7 +721,7 @@ export default function CoachPage() {
           </div>
         )}
 
-        {/* ══ CHAT ═════════════════════════════════════════════════════════ */}
+        {/* ── CHAT ─────────────────────────────────────────────────────────── */}
         <div className="bg-card/40 border border-border/40 rounded-xl overflow-hidden">
           <div className="px-4 py-2.5 border-b border-border/30 flex items-center gap-2">
             <MessageSquare className="w-4 h-4 text-primary" />
@@ -660,7 +769,7 @@ export default function CoachPage() {
           )}
           <div className="p-3 border-t border-border/20">
             <form onSubmit={sendChat} className="flex gap-2">
-              <Input placeholder="Ask anything about the situation..." className="bg-black/40 border-border/50 text-sm h-10"
+              <Input placeholder="Ask anything…" className="bg-black/40 border-border/50 text-sm h-10"
                 value={chatInput} onChange={e => setChatInput(e.target.value)} disabled={isChatting} />
               <Button type="submit" size="icon" className="h-10 w-10 shrink-0" disabled={!chatInput.trim() || isChatting || !model}>
                 {isChatting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -673,12 +782,12 @@ export default function CoachPage() {
 
       {/* Champion picker */}
       <ChampionPicker
-        open={champPickPin === "myChamp"}
+        open={champPickOpen}
         title="Your Champion"
         selected={myChamp ? [myChamp] : []}
         max={1}
-        onClose={() => setChampPickPin(null)}
-        onSelect={s => { setMyChamp(s[0] ?? null); if (s.length === 1) setChampPickPin(null); }}
+        onClose={() => setChampPickOpen(false)}
+        onSelect={s => setMyChamp(s[0] ?? null)}
       />
     </div>
   );
