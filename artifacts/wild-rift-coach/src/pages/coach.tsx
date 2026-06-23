@@ -635,7 +635,7 @@ export default function CoachPage(){
     const rect=minimapDivRef.current?.getBoundingClientRect();
     if(!rect)return;
     pinDragMoved.current=true;
-    const x=Math.max(1,Math.min(99,(e.clientX-rect.left)/rect.width*100));
+    const x=Math.max(1,Math.min(130,(e.clientX-rect.left)/rect.width*100));
     const y=Math.max(1,Math.min(99,(e.clientY-rect.top)/rect.height*100));
     if(kind==="champ")setPins(p=>p.map(pp=>pp.id===id?{...pp,x,y,pos:classifyPos(x,y,lanePaths,zones)}:pp));
     else setObjPins(p=>p.map(pp=>pp.id===id?{...pp,x,y,pos:classifyPos(x,y,lanePaths,zones)}:pp));
@@ -1131,9 +1131,10 @@ export default function CoachPage(){
                 </p>
               )}
 
-              {/* Minimap with off-map bench zone overlay on right */}
+              {/* Minimap + bench zone flex row */}
+              <div className="flex items-stretch gap-1">
               <div ref={minimapDivRef}
-                className={cn("relative w-full rounded-lg overflow-hidden border border-border/30",
+                className={cn("relative flex-1",
                   placeMode?"cursor-crosshair":"cursor-default")}
                 onClick={handleMinimapTap}
                 onTouchStart={handleMinimapTap}>
@@ -1146,13 +1147,16 @@ export default function CoachPage(){
                     <X className="w-5 h-5"/>
                   </button>
                 )}
-                {minimapBase64?(
-                  <img src={minimapBase64} alt="Minimap" className="w-full h-auto block pointer-events-none select-none" draggable={false}/>
-                ):(
-                  <div className="w-full aspect-square bg-slate-900/80 flex items-center justify-center">
-                    <Loader2 className="w-5 h-5 animate-spin text-muted-foreground/40"/>
-                  </div>
-                )}
+                {/* Image in its own clipping wrapper so pins can render past the edge */}
+                <div className="rounded-lg overflow-hidden border border-border/30">
+                  {minimapBase64?(
+                    <img src={minimapBase64} alt="Minimap" className="w-full h-auto block pointer-events-none select-none" draggable={false}/>
+                  ):(
+                    <div className="w-full aspect-square bg-slate-900/80 flex items-center justify-center">
+                      <Loader2 className="w-5 h-5 animate-spin text-muted-foreground/40"/>
+                    </div>
+                  )}
+                </div>
                 {pins.map(pin=>(
                   <div key={pin.id} data-pin="true"
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center touch-none"
@@ -1178,6 +1182,8 @@ export default function CoachPage(){
                           return;
                         }
                       }
+                      // Clamp x back to map range in case it drifted past 100% during drag
+                      setPins(p=>p.map(pp=>pp.id===pin.id?{...pp,x:Math.min(99,Math.max(1,pp.x))}:pp));
                       pinDragActive.current=null;
                     }}
                     onClick={e=>{
@@ -1269,9 +1275,10 @@ export default function CoachPage(){
                     );
                   })
                 )}
-                {/* Off-map bench zone — absolute overlay on right side */}
-                <div ref={benchRef}
-                  className="absolute top-0 right-0 bottom-0 w-16 border-l-2 border-dashed border-border/40 bg-black/30 z-20">
+              </div>
+              {/* Bench zone — separate column to the right of minimap */}
+              <div ref={benchRef}
+                className="relative w-16 shrink-0 rounded-lg border-2 border-dashed border-border/30 bg-black/20">
                   {benchPins.length===0&&(
                     <span className="absolute inset-0 flex items-center justify-center text-[8px] uppercase tracking-widest text-muted-foreground/30 font-display text-center leading-tight pointer-events-none">Off<br/>map</span>
                   )}
