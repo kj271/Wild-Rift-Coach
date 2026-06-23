@@ -3,11 +3,12 @@ import { useState, useCallback } from "react";
 export interface CropConfig { x: number; y: number; w: number; h: number }
 export interface Point { x: number; y: number }
 export interface LanePaths { baron: Point[]; mid: Point[]; dragon: Point[] }
-export interface ZoneData { id: string; label: string; cx: number; cy: number; r: number }
+export interface ZoneData { id: string; label: string; points: Point[] }
 
-const CROP_KEY  = "wildrift_crop_config";
-const LANES_KEY = "wildrift_lane_paths";
-const ZONES_KEY = "wildrift_zones";
+const CROP_KEY      = "wildrift_crop_config";
+const LANES_KEY     = "wildrift_lane_paths";
+const ZONES_KEY     = "wildrift_zones";
+const FAVORITES_KEY = "wildrift_favorites";
 
 export const DEFAULT_CROP: CropConfig = { x: 0, y: 0, w: 22, h: 36 };
 
@@ -18,12 +19,12 @@ export const DEFAULT_LANES: LanePaths = {
 };
 
 export const DEFAULT_ZONES: ZoneData[] = [
-  { id: "blue_base",   label: "Blue Base",    cx: 6,  cy: 90, r: 12 },
-  { id: "red_base",    label: "Red Base",     cx: 93, cy: 8,  r: 12 },
-  { id: "baron_pit",   label: "Baron Pit",    cx: 36, cy: 21, r: 12 },
-  { id: "dragon_pit",  label: "Dragon Pit",   cx: 60, cy: 80, r: 12 },
-  { id: "jungle_blue", label: "Blue Jungle",  cx: 14, cy: 52, r: 14 },
-  { id: "jungle_red",  label: "Red Jungle",   cx: 84, cy: 48, r: 14 },
+  { id: "blue_base",   label: "Blue Base",   points: [{x:0,y:78},{x:18,y:78},{x:18,y:100},{x:0,y:100}] },
+  { id: "red_base",    label: "Red Base",    points: [{x:82,y:0},{x:100,y:0},{x:100,y:22},{x:82,y:22}] },
+  { id: "baron_pit",   label: "Baron Pit",   points: [{x:26,y:12},{x:46,y:12},{x:46,y:32},{x:26,y:32}] },
+  { id: "dragon_pit",  label: "Dragon Pit",  points: [{x:50,y:69},{x:70,y:69},{x:70,y:92},{x:50,y:92}] },
+  { id: "jungle_blue", label: "Blue Jungle", points: [{x:7,y:36},{x:26,y:24},{x:34,y:38},{x:22,y:60},{x:7,y:60}] },
+  { id: "jungle_red",  label: "Red Jungle",  points: [{x:68,y:40},{x:93,y:30},{x:93,y:62},{x:78,y:62},{x:68,y:52}] },
 ];
 
 function load<T>(key: string, fallback: T): T {
@@ -50,4 +51,16 @@ export function useZones() {
   const save = useCallback((z: ZoneData[]) => { setZones(z); localStorage.setItem(ZONES_KEY, JSON.stringify(z)); }, []);
   const reset = useCallback(() => save(DEFAULT_ZONES), [save]);
   return { zones, save, reset } as const;
+}
+
+export function useFavoriteChamps() {
+  const [favorites, setFavorites] = useState<string[]>(() => load(FAVORITES_KEY, []));
+  const toggle = useCallback((champ: string) => {
+    setFavorites(prev => {
+      const next = prev.includes(champ) ? prev.filter(c => c !== champ) : [...prev, champ];
+      localStorage.setItem(FAVORITES_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+  return { favorites, toggle } as const;
 }

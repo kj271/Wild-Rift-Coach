@@ -1,7 +1,7 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Link } from "wouter";
 import { useModelStorage } from "@/hooks/use-model-storage";
-import { useCropConfig, useLanePaths, useZones, LanePaths, ZoneData, Point } from "@/hooks/use-map-config";
+import { useCropConfig, useLanePaths, useZones, useFavoriteChamps, LanePaths, ZoneData, Point } from "@/hooks/use-map-config";
 import { CropCalibrator } from "@/components/crop-calibrator";
 import { ZoneEditor } from "@/components/zone-editor";
 import {
@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import {
   Target, Settings, AlertCircle, Loader2, Send, Upload,
   MessageSquare, X, Search, UserRound, Users, Swords,
-  ChevronDown, ChevronUp, Sparkles, Crop, Map,
+  ChevronDown, ChevronUp, Sparkles, Crop, Map, Star, Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -49,6 +49,27 @@ type ZonePos = { kind: "zone"; zone: string };
 type PosInfo = LanePos | ZonePos;
 
 interface MapPin { id: string; type: PinType; x: number; y: number; pos: PosInfo; champ: string | null }
+
+// ─── Session persistence ───────────────────────────────────────────────────────
+const SESSION_KEY = "wildrift_session";
+let _cachedSession: Record<string, unknown> | null = null;
+function loadSession(): Record<string, unknown> {
+  if (_cachedSession !== null) return _cachedSession;
+  try { const s = localStorage.getItem(SESSION_KEY); _cachedSession = s ? JSON.parse(s) : {}; }
+  catch { _cachedSession = {}; }
+  return _cachedSession!;
+}
+function saveSession(data: Record<string, unknown>) {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(data)); }
+  catch {
+    try { localStorage.setItem(SESSION_KEY, JSON.stringify({ ...data, imageBase64: null, minimapBase64: null })); }
+    catch {}
+  }
+}
+function clearSessionStorage() {
+  _cachedSession = null;
+  try { localStorage.removeItem(SESSION_KEY); } catch {}
+}
 
 // ─── Geometry helpers ─────────────────────────────────────────────────────────
 function segmentProject(px:number,py:number,ax:number,ay:number,bx:number,by:number){
@@ -81,7 +102,22 @@ function laneCategory(p:number):string{
   return"Deep Push";
 }
 
+function pointInPolygon(px:number,py:number,poly:Point[]):boolean{
+  let inside=false;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const xi=poly[i]!.x,yi=poly[i]!.y,xj=poly[j]!.x,yj=poly[j]!.y;
+    const hit=((yi>py)!==(yj>py))&&(px<(xj-xi)*(py-yi)/(yj-yi)+xi);
+    if(hit)inside=!inside;
+  }
+  return inside;
+}
+
 function classifyPos(x:number,y:number,lanePaths:LanePaths,zones:ZoneData[]):PosInfo{
+  // 1. Polygon zones have priority
+  for(const z of zones){
+    if(z.points.length>=3&&pointInPolygon(x,y,z.points))return{kind:"zone",zone:z.label};
+  }
+  // 2. Lanes
   const lanes=[
     {name:"Baron Lane", path:lanePaths.baron},
     {name:"Mid Lane",   path:lanePaths.mid},
@@ -92,16 +128,19 @@ function classifyPos(x:number,y:number,lanePaths:LanePaths,zones:ZoneData[]):Pos
     const{dist,progress}=polylineProject(x,y,l.path);
     if(!bestLane||dist<bestLane.dist)bestLane={name:l.name,dist,progress};
   }
-  let bestZone:{label:string;dist:number}|null=null;
-  for(const z of zones){
-    const dist=Math.hypot(x-z.cx,y-z.cy);
-    if(!bestZone||dist<bestZone.dist)bestZone={label:z.label,dist};
-  }
   const LANE_THRESH=14;
-  if(bestLane&&bestLane.dist<LANE_THRESH&&(!bestZone||bestLane.dist<bestZone.dist)){
+  if(bestLane&&bestLane.dist<LANE_THRESH){
     return{kind:"lane",lane:bestLane.name,progress:Math.round(bestLane.progress),category:laneCategory(bestLane.progress)};
   }
-  return{kind:"zone",zone:bestZone?.label??"Jungle"};
+  // 3. Nearest zone centroid fallback
+  let bestZone:{label:string;dist:number}|null=null;
+  for(const z of zones){
+    const cx=z.points.reduce((s,p)=>s+p.x,0)/z.points.length;
+    const cy=z.points.reduce((s,p)=>s+p.y,0)/z.points.length;
+    const dist=Math.hypot(x-cx,y-cy);
+    if(!bestZone||dist<bestZone.dist)bestZone={label:z.label,dist};
+  }
+  return{kind:"zone",zone:bestZone?.label??"Unknown"};
 }
 
 function posLabel(pos:PosInfo):string{
@@ -170,11 +209,13 @@ function fmt(s:number){return`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")
 function timeToSecs(t:string){const[m,s]=t.split(":").map(Number);return(m??0)*60+(s??0);}
 
 // ─── ChampionPicker ───────────────────────────────────────────────────────────
-function ChampionPicker({open,title,selected,max,onClose,onSelect}:{
+function ChampionPicker({open,title,selected,max,onClose,onSelect,favorites,onToggleFav}:{
   open:boolean;title:string;selected:string[];max:number;
   onClose:()=>void;onSelect:(c:string[])=>void;
+  favorites?:string[];onToggleFav?:(c:string)=>void;
 }){
   const[search,setSearch]=useState("");
+  const favs=favorites??[];
   const filtered=CHAMPIONS.filter(c=>c.toLowerCase().includes(search.toLowerCase()));
   const toggle=(c:string)=>{
     if(selected.includes(c))onSelect(selected.filter(s=>s!==c));
@@ -195,6 +236,21 @@ function ChampionPicker({open,title,selected,max,onClose,onSelect}:{
               value={search} onChange={e=>setSearch(e.target.value)}/>
           </div>
         </div>
+        {/* Favorites quick row */}
+        {favs.length>0&&!search&&(
+          <div className="px-3 pt-2.5 pb-2 border-b border-border/20 shrink-0">
+            <p className="text-[9px] uppercase tracking-widest text-amber-400/70 mb-2 font-display">⭐ Favorites</p>
+            <div className="flex flex-wrap gap-1.5">
+              {favs.map(c=>(
+                <button key={c} onClick={()=>toggle(c)}
+                  className={cn("text-xs px-2.5 py-1 rounded-full border transition-all active:scale-95",
+                    selected.includes(c)?"bg-amber-400/25 border-amber-400 text-amber-300":"bg-black/40 border-amber-400/30 text-amber-300/80 hover:border-amber-400/60")}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {selected.length>0&&(
           <div className="px-3 pt-2 pb-1 flex flex-wrap gap-1.5 shrink-0">
             {selected.map(c=>(
@@ -210,14 +266,24 @@ function ChampionPicker({open,title,selected,max,onClose,onSelect}:{
             {filtered.map(c=>{
               const sel=selected.includes(c);
               const full=!sel&&selected.length>=max;
+              const isFav=favs.includes(c);
               return(
-                <button key={c} onClick={()=>toggle(c)} disabled={full}
-                  className={cn("rounded-md px-2 py-2.5 text-xs font-medium text-center transition-all active:scale-95",
-                    sel?"bg-primary/25 text-primary border border-primary/50"
-                    :full?"opacity-30 cursor-not-allowed bg-black/20 border border-border/20"
-                    :"bg-black/30 text-slate-300 border border-border/30 hover:border-primary/30 hover:text-primary")}>
-                  {c}
-                </button>
+                <div key={c} className="relative">
+                  <button onClick={()=>toggle(c)} disabled={full}
+                    className={cn("w-full rounded-md px-2 py-2.5 text-xs font-medium text-center transition-all active:scale-95",
+                      sel?"bg-primary/25 text-primary border border-primary/50"
+                      :full?"opacity-30 cursor-not-allowed bg-black/20 border border-border/20"
+                      :"bg-black/30 text-slate-300 border border-border/30 hover:border-primary/30 hover:text-primary")}>
+                    {c}
+                  </button>
+                  {onToggleFav&&(
+                    <button onClick={e=>{e.stopPropagation();onToggleFav(c);}}
+                      className="absolute top-0.5 right-0.5 p-0.5 leading-none text-[10px]"
+                      title={isFav?"Remove from favorites":"Add to favorites"}>
+                      <Star className={cn("w-2.5 h-2.5",isFav?"fill-amber-400 text-amber-400":"text-muted-foreground/40 hover:text-amber-400")}/>
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -264,10 +330,14 @@ export default function CoachPage(){
   const{config:cropConfig,save:saveCrop}=useCropConfig();
   const{paths:lanePaths,save:saveLanes}=useLanePaths();
   const{zones,save:saveZones}=useZones();
+  const{favorites,toggle:toggleFav}=useFavoriteChamps();
+
+  // Load persisted session once on mount
+  const[_sess]=useState(()=>loadSession());
 
   // Screenshot
-  const[imageBase64,setImageBase64]=useState<string|null>(null);
-  const[minimapBase64,setMinimapBase64]=useState<string|null>(null);
+  const[imageBase64,setImageBase64]=useState<string|null>((_sess.imageBase64 as string|null)??null);
+  const[minimapBase64,setMinimapBase64]=useState<string|null>((_sess.minimapBase64 as string|null)??null);
   const[extracting,setExtracting]=useState(false);
   const fileInputRef=useRef<HTMLInputElement>(null);
 
@@ -276,26 +346,26 @@ export default function CoachPage(){
   const[showZoneEditor,setShowZoneEditor]=useState(false);
 
   // Pins
-  const[pins,setPins]=useState<MapPin[]>([]);
+  const[pins,setPins]=useState<MapPin[]>((_sess.pins as MapPin[])??[]);
   const[placeMode,setPlaceMode]=useState<PlaceMode>(null);
   const minimapDivRef=useRef<HTMLDivElement>(null);
 
   // Context
-  const[gameTimeSecs,setGameTimeSecs]=useState(0);
-  const[myRole,setMyRole]=useState<Role|null>(null);
-  const[myChamp,setMyChamp]=useState<string|null>(null);
-  const[dragon,setDragon]=useState<ObjStatus>(null);
-  const[baron,setBaron]=useState<ObjStatus>(null);
-  const[herald,setHerald]=useState<ObjStatus>(null);
+  const[gameTimeSecs,setGameTimeSecs]=useState((_sess.gameTimeSecs as number)??0);
+  const[myRole,setMyRole]=useState<Role|null>((_sess.myRole as Role|null)??null);
+  const[myChamp,setMyChamp]=useState<string|null>((_sess.myChamp as string|null)??null);
+  const[dragon,setDragon]=useState<ObjStatus>((_sess.dragon as ObjStatus)??null);
+  const[baron,setBaron]=useState<ObjStatus>((_sess.baron as ObjStatus)??null);
+  const[herald,setHerald]=useState<ObjStatus>((_sess.herald as ObjStatus)??null);
   const[contextOpen,setContextOpen]=useState(true);
   const[champPickOpen,setChampPickOpen]=useState(false);
 
   // Advice
-  const[advice,setAdvice]=useState("");
+  const[advice,setAdvice]=useState((_sess.advice as string)??'');
   const[isAdvising,setIsAdvising]=useState(false);
 
   // Chat
-  const[activeConversationId,setActiveConversationId]=useState<number|null>(null);
+  const[activeConversationId,setActiveConversationId]=useState<number|null>((_sess.activeConversationId as number|null)??null);
   const[chatMessages,setChatMessages]=useState<StreamingMsg[]>([]);
   const[chatInput,setChatInput]=useState("");
   const[isChatting,setIsChatting]=useState(false);
@@ -307,6 +377,18 @@ export default function CoachPage(){
     {query:{enabled:!!activeConversationId,queryKey:getGetOpenrouterConversationQueryKey(activeConversationId as number)}}
   );
   const createConversation=useCreateOpenrouterConversation();
+
+  // ── Persist session to localStorage on every change ───────────────────────────
+  useEffect(()=>{
+    saveSession({imageBase64,minimapBase64,pins,myRole,myChamp,dragon,baron,herald,gameTimeSecs,activeConversationId,advice});
+  },[imageBase64,minimapBase64,pins,myRole,myChamp,dragon,baron,herald,gameTimeSecs,activeConversationId,advice]);
+
+  const handleClearSession=useCallback(()=>{
+    clearSessionStorage();
+    setImageBase64(null);setMinimapBase64(null);setPins([]);setPlaceMode(null);
+    setMyRole(null);setMyChamp(null);setDragon(null);setBaron(null);setHerald(null);
+    setGameTimeSecs(0);setActiveConversationId(null);setAdvice("");setChatMessages([]);
+  },[]);
 
   // ── Re-crop minimap with current config ──────────────────────────────────────
   const recropMinimap=useCallback(async(dataUrl:string,cfg=cropConfig)=>{
@@ -498,11 +580,18 @@ export default function CoachPage(){
       <header className="sticky top-0 z-20 bg-background/90 backdrop-blur border-b border-border/40">
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
           <h1 className="font-display text-lg font-bold tracking-tight">MACRO<span className="text-primary">COACH</span></h1>
-          <Link href="/settings">
-            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-white">
-              <Settings className="w-5 h-5"/>
-            </Button>
-          </Link>
+          <div className="flex items-center gap-1">
+            <button onClick={handleClearSession}
+              title="Clear session (start fresh)"
+              className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-colors">
+              <Trash2 className="w-4 h-4"/>
+            </button>
+            <Link href="/settings">
+              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-white">
+                <Settings className="w-5 h-5"/>
+              </Button>
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -707,10 +796,21 @@ export default function CoachPage(){
               {/* Champion */}
               <div>
                 <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground">My Champion <span className="text-muted-foreground/40">(optional)</span></span>
+                {favorites.length>0&&(
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {favorites.map(c=>(
+                      <button key={c} onClick={()=>setMyChamp(myChamp===c?null:c)}
+                        className={cn("text-xs px-2.5 py-1.5 rounded-full border transition-all active:scale-95",
+                          myChamp===c?"bg-amber-400/25 border-amber-400 text-amber-300":"bg-black/30 border-amber-400/25 text-amber-300/70 hover:border-amber-400/50")}>
+                        ★ {c}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <button onClick={()=>setChampPickOpen(true)}
                   className={cn("w-full mt-2 py-2.5 rounded-lg border text-sm font-medium transition-all active:scale-[0.98]",
                     myChamp?"bg-amber-400/15 border-amber-400/50 text-amber-400":"bg-black/30 border-border/40 text-muted-foreground hover:border-amber-400/40")}>
-                  {myChamp??"+ Select champion (optional)"}
+                  {myChamp??`${favorites.length>0?"Other champion…":"+ Select champion (optional)"}`}
                 </button>
               </div>
               {/* Objectives */}
@@ -834,6 +934,8 @@ export default function CoachPage(){
         selected={myChamp?[myChamp]:[]} max={1}
         onClose={()=>setChampPickOpen(false)}
         onSelect={s=>setMyChamp(s[0]??null)}
+        favorites={favorites}
+        onToggleFav={toggleFav}
       />
     </div>
   );
