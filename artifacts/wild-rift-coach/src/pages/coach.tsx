@@ -1034,7 +1034,7 @@ export default function CoachPage(){
                   </button>
                 )}
                 {(pins.length>0||objPins.length>0)&&(
-                  <button onClick={()=>{setPins([]);setObjPins([]);}}
+                  <button onClick={()=>{setPins([]);setObjPins([]);setTowersDown({ally:[],enemy:[]});}}
                     className="text-[10px] text-muted-foreground hover:text-white border border-border/30 px-2 py-1 rounded-full">
                     Clear all
                   </button>
