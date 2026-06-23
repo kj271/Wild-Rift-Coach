@@ -456,8 +456,12 @@ export default function CoachPage(){
   // Advice
   const[advice,setAdvice]=useState((_sess.advice as string)??'');
   const[isAdvising,setIsAdvising]=useState(false);
-  const[debugInfo,setDebugInfo]=useState<{systemPrompt:string;userText:string}|null>(null);
-  const[debugMinimapUrl,setDebugMinimapUrl]=useState<string|null>(null);
+  const[debugInfo,setDebugInfo]=useState<{systemPrompt:string;userText:string}|null>(()=>{
+    try{const s=sessionStorage.getItem("wr_debug_info");return s?JSON.parse(s):null;}catch{return null;}
+  });
+  const[debugMinimapUrl,setDebugMinimapUrl]=useState<string|null>(()=>{
+    try{return sessionStorage.getItem("wr_debug_minimap");}catch{return null;}
+  });
   const[showDebug,setShowDebug]=useState(false);
 
   // Chat
@@ -620,6 +624,20 @@ export default function CoachPage(){
     return renderAnnotatedMinimap(minimapBase64,pins,gameTimeCrop,portraitStripCrop);
   },[minimapBase64,pins,gameTimeCrop,portraitStripCrop]);
 
+  // Persist debug info to sessionStorage so it survives refresh / tab switch
+  useEffect(()=>{
+    try{
+      if(debugInfo)sessionStorage.setItem("wr_debug_info",JSON.stringify(debugInfo));
+      else sessionStorage.removeItem("wr_debug_info");
+    }catch{}
+  },[debugInfo]);
+  useEffect(()=>{
+    try{
+      if(debugMinimapUrl)sessionStorage.setItem("wr_debug_minimap",debugMinimapUrl);
+      else sessionStorage.removeItem("wr_debug_minimap");
+    }catch{}
+  },[debugMinimapUrl]);
+
   // Keep ref in sync so async callbacks always read the latest game time
   useEffect(() => { gameTimeSecsRef.current = gameTimeSecs; }, [gameTimeSecs]);
 
@@ -773,9 +791,15 @@ export default function CoachPage(){
         {/* ── SCREENSHOT ──────────────────────────────────────────────── */}
         {imageBase64?(
           <div className="flex flex-col gap-1.5">
-            {/* Image — no overlay buttons, fully visible */}
+            {/* Image with X in top-right corner */}
             <div className="relative w-full rounded-xl overflow-hidden border border-border/40">
               <img src={imageBase64} alt="Game screenshot" className="w-full h-auto block" draggable={false}/>
+              <button
+                className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/70 border border-white/30 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/90 active:scale-95"
+                title="Remove screenshot"
+                onClick={()=>{setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setPortraitStripCrop(null);setAlliesDown([]);setEnemiesDown([]);setPins([]);}}>
+                <X className="w-3.5 h-3.5"/>
+              </button>
 
               {/* ── Individual portrait tap targets (who's dead) ── */}
               {portraitConfig.allies.map((pos,i)=>{
@@ -847,11 +871,6 @@ export default function CoachPage(){
                 className="border border-sky-400/40 text-sky-400 text-xs px-2 py-1 rounded-lg flex items-center gap-1 active:scale-95 hover:bg-sky-400/10"
                 onClick={()=>setShowPortraitBarEditor(true)} title="Place individual portrait click zones">
                 <Users className="w-3 h-3"/> Zones
-              </button>
-              <button className="ml-auto w-7 h-7 rounded-full border border-white/20 flex items-center justify-center text-white/60 active:scale-95 hover:text-white hover:border-white/40"
-                title="Remove screenshot"
-                onClick={()=>{setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setPortraitStripCrop(null);setAlliesDown([]);setEnemiesDown([]);setPins([]);}}>
-                <X className="w-3 h-3"/>
               </button>
             </div>
           </div>
