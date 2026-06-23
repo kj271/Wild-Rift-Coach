@@ -10,6 +10,10 @@ interface Props {
   current: PortraitConfig;
   onSave: (c: PortraitConfig) => void;
   onClose: () => void;
+  // Optional: when the screenshot is a cropped region, supply transforms so that
+  // stored positions (full-image %) and display positions (crop %) stay in sync.
+  toDisplay?: (p: PortraitPos) => PortraitPos;
+  toStored?: (p: PortraitPos) => PortraitPos;
 }
 
 type Team = "ally" | "enemy";
@@ -19,7 +23,7 @@ function key(s: Slot) { return `${s.team}${s.idx}`; }
 function label(s: Slot) { return s.team === "ally" ? `A${s.idx + 1}` : `E${s.idx + 1}`; }
 function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 
-export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) {
+export function PortraitPlacer({ screenshot, current, onSave, onClose, toDisplay, toStored }: Props) {
   const [cfg, setCfg] = useState<PortraitConfig>(() => ({
     ...DEFAULT_PORTRAIT_CONFIG,
     ...structuredClone(current),
@@ -27,11 +31,13 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) 
   }));
   const [active, setActive] = useState<Slot>({ team: "ally", idx: 0 });
   const [zoom, setZoom] = useState(1);
-  // dragging state: which dot + whether a real drag happened (to suppress tap)
   const dragging = useRef<{ slot: Slot; moved: boolean } | null>(null);
-
   const imgRef = useRef<HTMLDivElement>(null);
   const pinch = useRef<{ dist: number; startZoom: number } | null>(null);
+
+  const identity = (p: PortraitPos) => p;
+  const toDisp = toDisplay ?? identity;
+  const toStor = toStored ?? identity;
 
   // ── Zoom ─────────────────────────────────────────────────────────────────────
   const zoomIn  = () => setZoom(z => clamp(Math.round((z + 0.5) * 10) / 10, 1, 12));
@@ -52,19 +58,18 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) 
   }, []);
   const onTouchEnd = useCallback(() => { pinch.current = null; }, []);
 
-  // ── Convert client coords → % within image ───────────────────────────────────
+  // ── Convert client coords → % within displayed image → stored coords ──────────
   const clientToPercent = (cx: number, cy: number): PortraitPos | null => {
     if (!imgRef.current) return null;
     const rect = imgRef.current.getBoundingClientRect();
-    return {
+    const disp: PortraitPos = {
       x: clamp(Math.round(((cx - rect.left) / rect.width)  * 1000) / 10, 0, 100),
       y: clamp(Math.round(((cy - rect.top)  / rect.height) * 1000) / 10, 0, 100),
     };
+    return toStor(disp);
   };
 
-  // ── Tap to place (on the background, not on a dot) ───────────────────────────
   const handleContainerClick = (e: React.MouseEvent) => {
-    // Ignore if a drag just finished
     if (dragging.current?.moved) { dragging.current = null; return; }
     dragging.current = null;
     const pos = clientToPercent(e.clientX, e.clientY);
@@ -109,8 +114,13 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) 
   const onDotPointerMove = (e: React.PointerEvent) => {
     if (!dragging.current) return;
     dragging.current.moved = true;
-    const pos = clientToPercent(e.clientX, e.clientY);
-    if (!pos) return;
+    if (!imgRef.current) return;
+    const rect = imgRef.current.getBoundingClientRect();
+    const disp: PortraitPos = {
+      x: clamp(Math.round(((e.clientX - rect.left) / rect.width) * 1000) / 10, 0, 100),
+      y: clamp(Math.round(((e.clientY - rect.top)  / rect.height) * 1000) / 10, 0, 100),
+    };
+    const pos = toStor(disp);
     const { slot } = dragging.current;
     setCfg(prev => {
       const next = structuredClone(prev);
@@ -122,7 +132,6 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) 
 
   const onDotPointerUp = (e: React.PointerEvent) => {
     e.stopPropagation();
-    // keep dragging.current so the parent click handler can check .moved
     setTimeout(() => { dragging.current = null; }, 50);
   };
 
@@ -132,8 +141,6 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) 
     ...[0,1,2,3].map(i => ({ team: "ally" as Team, idx: i })),
     ...[0,1,2,3,4].map(i => ({ team: "enemy" as Team, idx: i })),
   ];
-
-  const dotSize = (_isActive: boolean) => cfg.sizePct;
 
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
@@ -185,7 +192,6 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) 
             className="w-7 h-7 rounded-lg border border-border/40 flex items-center justify-center text-muted-foreground hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
             <ZoomIn className="w-3 h-3"/>
           </button>
-
           <div className="flex-1 flex items-center gap-1.5 ml-2">
             <span className="text-[10px] text-muted-foreground whitespace-nowrap">Circle size</span>
             <input type="range" min={2} max={14} step={0.5}
@@ -213,11 +219,11 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) 
           >
             <img src={screenshot} alt="screenshot" className="w-full h-auto block pointer-events-none" draggable={false}/>
 
-            {/* Ally dots */}
-            {cfg.allies.map((pos, i) => {
+            {/* Ally dots — convert stored coords to display coords for rendering */}
+            {cfg.allies.map((storedPos, i) => {
               const slot: Slot = { team: "ally", idx: i };
               const isActive = key(slot) === key(active);
-              const sz = dotSize(isActive);
+              const pos = toDisp(storedPos);
               return (
                 <div key={`a${i}`}
                   className={cn("absolute rounded-full border-2 flex items-center justify-center font-bold select-none cursor-grab active:cursor-grabbing transition-colors touch-none",
@@ -226,9 +232,9 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) 
                       : "border-sky-500/80 bg-sky-600/70 text-white")}
                   style={{
                     left: `${pos.x}%`, top: `${pos.y}%`,
-                    width: `${sz}%`, aspectRatio: "1",
+                    width: `${cfg.sizePct}%`, aspectRatio: "1",
                     transform: "translate(-50%, -50%)",
-                    fontSize: `${sz * 0.35}%`,
+                    fontSize: `${cfg.sizePct * 0.35}%`,
                     zIndex: isActive ? 10 : 5,
                   }}
                   onPointerDown={e => onDotPointerDown(e, slot)}
@@ -240,10 +246,10 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) 
             })}
 
             {/* Enemy dots */}
-            {cfg.enemies.map((pos, i) => {
+            {cfg.enemies.map((storedPos, i) => {
               const slot: Slot = { team: "enemy", idx: i };
               const isActive = key(slot) === key(active);
-              const sz = dotSize(isActive);
+              const pos = toDisp(storedPos);
               return (
                 <div key={`e${i}`}
                   className={cn("absolute rounded-full border-2 flex items-center justify-center font-bold select-none cursor-grab active:cursor-grabbing transition-colors touch-none",
@@ -252,9 +258,9 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) 
                       : "border-red-500/80 bg-red-600/70 text-white")}
                   style={{
                     left: `${pos.x}%`, top: `${pos.y}%`,
-                    width: `${sz}%`, aspectRatio: "1",
+                    width: `${cfg.sizePct}%`, aspectRatio: "1",
                     transform: "translate(-50%, -50%)",
-                    fontSize: `${sz * 0.35}%`,
+                    fontSize: `${cfg.sizePct * 0.35}%`,
                     zIndex: isActive ? 10 : 5,
                   }}
                   onPointerDown={e => onDotPointerDown(e, slot)}

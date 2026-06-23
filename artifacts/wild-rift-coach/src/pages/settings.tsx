@@ -1,18 +1,67 @@
-import { useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
-import { useListModels } from "@workspace/api-client-react";
+import { useListModels, ModelInfo } from "@workspace/api-client-react";
 import { useModelStorage } from "@/hooks/use-model-storage";
 import { ALL_CONFIG_KEYS } from "@/hooks/use-map-config";
 import { useSystemPrompt, DEFAULT_SYSTEM_PROMPT } from "@/hooks/use-system-prompt";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChevronDown, Check, ArrowLeft, Settings2, Download, Upload, RotateCcw, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const FAV_MODELS_KEY = "wildrift_fav_models";
+
+interface ModelItemProps {
+  m: ModelInfo;
+  isFav: boolean;
+  isSelected: boolean;
+  onSelect: (id: string) => void;
+  onToggleFav: (id: string) => void;
+}
+
+const ModelItem = memo(function ModelItem({ m, isFav, isSelected, onSelect, onToggleFav }: ModelItemProps) {
+  return (
+    <CommandItem
+      value={`${m.id} ${m.name}`}
+      onSelect={() => onSelect(m.id)}
+      className="flex items-start justify-between py-3 cursor-pointer"
+    >
+      <div className="flex items-start gap-2 flex-1 min-w-0">
+        <button
+          onPointerDown={e => { e.stopPropagation(); e.preventDefault(); onToggleFav(m.id); }}
+          className={cn(
+            "mt-0.5 shrink-0 transition-colors",
+            isFav ? "text-amber-400" : "text-muted-foreground/30 hover:text-amber-400/60"
+          )}
+          title={isFav ? "Remove from favourites" : "Add to favourites"}
+        >
+          <Star className={cn("w-3.5 h-3.5", isFav && "fill-amber-400")} />
+        </button>
+        <div className="flex flex-col gap-1 min-w-0 pr-2">
+          <span className={cn("font-medium", isSelected ? "text-primary" : "text-foreground")}>
+            {m.name}
+          </span>
+          {m.description && (
+            <span className="text-xs text-muted-foreground line-clamp-2">
+              {m.description}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-col items-end gap-1 shrink-0">
+        <Check className={cn("h-4 w-4 text-primary", isSelected ? "opacity-100" : "opacity-0")} />
+        {m.pricing && (
+          <span className="text-[10px] text-muted-foreground font-mono">
+            {m.pricing.prompt}
+          </span>
+        )}
+      </div>
+    </CommandItem>
+  );
+});
 
 export default function SettingsPage() {
   const [model, setModel] = useModelStorage();
@@ -27,18 +76,22 @@ export default function SettingsPage() {
     try { return JSON.parse(localStorage.getItem(FAV_MODELS_KEY) ?? "[]"); } catch { return []; }
   });
 
-  const toggleFavModel = (id: string) => {
+  const toggleFavModel = useCallback((id: string) => {
     setFavModels(prev => {
       const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
       localStorage.setItem(FAV_MODELS_KEY, JSON.stringify(next));
       return next;
     });
-  };
+  }, []);
 
-  const selectedModel = models?.find(m => m.id === model);
+  const handleSelect = useCallback((id: string) => {
+    setModel(id === model ? null : id);
+    setOpen(false);
+  }, [model, setModel]);
 
-  const favList = models?.filter(m => favModels.includes(m.id)) ?? [];
-  const otherList = models?.filter(m => !favModels.includes(m.id)) ?? [];
+  const selectedModel = useMemo(() => models?.find(m => m.id === model), [models, model]);
+  const favList = useMemo(() => models?.filter(m => favModels.includes(m.id)) ?? [], [models, favModels]);
+  const otherList = useMemo(() => models?.filter(m => !favModels.includes(m.id)) ?? [], [models, favModels]);
 
   const exportConfig = () => {
     const data: Record<string, unknown> = {};
@@ -82,50 +135,6 @@ export default function SettingsPage() {
     reader.readAsText(file);
     e.target.value = "";
   };
-
-  const ModelItem = ({ m, isFav }: { m: NonNullable<typeof models>[number]; isFav: boolean }) => (
-    <CommandItem
-      key={m.id}
-      value={`${m.id} ${m.name}`}
-      onSelect={(v) => {
-        const id = v.split(" ")[0];
-        setModel(id === model ? null : id);
-        setOpen(false);
-      }}
-      className="flex items-start justify-between py-3 cursor-pointer group"
-    >
-      <div className="flex items-start gap-2 flex-1 min-w-0">
-        <button
-          onPointerDown={e => { e.stopPropagation(); e.preventDefault(); toggleFavModel(m.id); }}
-          className={cn(
-            "mt-0.5 shrink-0 transition-colors",
-            isFav ? "text-amber-400" : "text-muted-foreground/30 hover:text-amber-400/60"
-          )}
-          title={isFav ? "Remove from favourites" : "Add to favourites"}
-        >
-          <Star className={cn("w-3.5 h-3.5", isFav && "fill-amber-400")} />
-        </button>
-        <div className="flex flex-col gap-1 min-w-0 pr-2">
-          <span className={cn("font-medium", model === m.id ? "text-primary" : "text-foreground")}>
-            {m.name}
-          </span>
-          {m.description && (
-            <span className="text-xs text-muted-foreground line-clamp-2">
-              {m.description}
-            </span>
-          )}
-        </div>
-      </div>
-      <div className="flex flex-col items-end gap-1 shrink-0">
-        <Check className={cn("h-4 w-4 text-primary", model === m.id ? "opacity-100" : "opacity-0")} />
-        {m.pricing && (
-          <span className="text-[10px] text-muted-foreground font-mono">
-            {m.pricing.prompt}
-          </span>
-        )}
-      </div>
-    </CommandItem>
-  );
 
   return (
     <div className="min-h-screen bg-background text-foreground p-4 md:p-6 lg:p-8 flex justify-center">
@@ -176,55 +185,73 @@ export default function SettingsPage() {
             )}
 
             <div className="space-y-2">
-              <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+              <label className="text-sm font-medium leading-none">
                 {favList.length > 0 ? "All models" : "Select model"}
               </label>
               {isLoading ? (
                 <Skeleton className="h-10 w-full" />
               ) : (
-                <Popover open={open} onOpenChange={setOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      aria-expanded={open}
-                      className="w-full justify-between bg-black/40 border-border hover:bg-black/60 hover:text-primary transition-colors"
-                    >
-                      <span className="truncate">
-                        {selectedModel ? selectedModel.name : "Search & select a model..."}
-                      </span>
-                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    className="w-[var(--radix-popover-trigger-width)] p-0 border-border bg-card/95 backdrop-blur-xl shadow-2xl"
-                    align="start"
-                    side="bottom"
-                    avoidCollisions={true}
-                    collisionPadding={16}
+                <>
+                  {/* Trigger button — opens a Dialog so it's never clipped by the keyboard/viewport */}
+                  <Button
+                    variant="outline"
+                    onClick={() => setOpen(true)}
+                    className="w-full justify-between bg-black/40 border-border hover:bg-black/60 hover:text-primary transition-colors"
                   >
-                    <Command className="bg-transparent">
-                      <div className="sticky top-0 z-10 bg-card/95 backdrop-blur border-b border-border/40">
-                        <CommandInput placeholder="Search models..." className="border-none focus:ring-0" />
-                      </div>
-                      <CommandList className="max-h-[min(380px,55vh)] overflow-y-scroll overscroll-contain" style={{WebkitOverflowScrolling:'touch'} as React.CSSProperties}>
-                        <CommandEmpty>No model found.</CommandEmpty>
-                        {favList.length > 0 && (
-                          <CommandGroup heading="⭐ Favourites">
-                            {favList.map(m => (
-                              <ModelItem key={m.id} m={m} isFav={true} />
+                    <span className="truncate">
+                      {selectedModel ? selectedModel.name : "Search & select a model..."}
+                    </span>
+                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+
+                  {/* Full-screen-friendly Dialog — never gets clipped on iPad */}
+                  <Dialog open={open} onOpenChange={setOpen}>
+                    <DialogContent className="p-0 gap-0 bg-[#0b1120] border-border max-w-sm w-full max-h-[80vh] flex flex-col">
+                      <DialogHeader className="px-4 py-3 border-b border-border/50 shrink-0">
+                        <DialogTitle className="text-sm font-display tracking-wider text-primary uppercase">
+                          Select AI Model
+                        </DialogTitle>
+                      </DialogHeader>
+                      <Command className="bg-transparent flex-1 min-h-0 flex flex-col">
+                        <div className="sticky top-0 z-10 bg-[#0b1120] border-b border-border/40 shrink-0">
+                          <CommandInput placeholder="Search models..." className="border-none focus:ring-0" />
+                        </div>
+                        <CommandList
+                          className="flex-1 min-h-0 overflow-y-scroll overscroll-contain"
+                          style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}
+                        >
+                          <CommandEmpty>No model found.</CommandEmpty>
+                          {favList.length > 0 && (
+                            <CommandGroup heading="⭐ Favourites">
+                              {favList.map(m => (
+                                <ModelItem
+                                  key={m.id}
+                                  m={m}
+                                  isFav={true}
+                                  isSelected={model === m.id}
+                                  onSelect={handleSelect}
+                                  onToggleFav={toggleFavModel}
+                                />
+                              ))}
+                            </CommandGroup>
+                          )}
+                          <CommandGroup heading={favList.length > 0 ? "All models" : undefined}>
+                            {otherList.map(m => (
+                              <ModelItem
+                                key={m.id}
+                                m={m}
+                                isFav={false}
+                                isSelected={model === m.id}
+                                onSelect={handleSelect}
+                                onToggleFav={toggleFavModel}
+                              />
                             ))}
                           </CommandGroup>
-                        )}
-                        <CommandGroup heading={favList.length > 0 ? "All models" : undefined}>
-                          {otherList.map(m => (
-                            <ModelItem key={m.id} m={m} isFav={false} />
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
+                        </CommandList>
+                      </Command>
+                    </DialogContent>
+                  </Dialog>
+                </>
               )}
               {!model && !isLoading && (
                 <p className="text-sm text-destructive font-medium mt-2">

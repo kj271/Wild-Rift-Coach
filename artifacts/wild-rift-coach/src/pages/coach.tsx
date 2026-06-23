@@ -980,10 +980,10 @@ export default function CoachPage(){
                         onClick={()=>setAlliesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
                         className="absolute rounded-full flex items-center justify-center font-bold leading-none select-none"
                         style={{left:`${sx}%`,top:`${sy}%`,transform:"translate(-50%,-50%)",width:`${sz}%`,aspectRatio:"1",
-                          background:dead?"rgba(2,6,23,0.88)":"rgba(56,189,248,0.12)",
-                          border:dead?"2px solid rgba(56,189,248,0.7)":"2px solid rgba(56,189,248,0.35)",
-                          color:dead?"#7dd3fc":"rgba(56,189,248,0.6)",fontSize:"9px"}}>
-                        {dead?`A${n} ✕`:`A${n}`}
+                          background:dead?"rgba(2,6,23,0.88)":"transparent",
+                          border:dead?"2px solid rgba(56,189,248,0.7)":"2px solid transparent",
+                          color:dead?"#7dd3fc":"transparent",fontSize:"9px"}}>
+                        {dead?`A${n} ✕`:""}
                       </button>
                     );
                   })}
@@ -999,10 +999,10 @@ export default function CoachPage(){
                         onClick={()=>setEnemiesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
                         className="absolute rounded-full flex items-center justify-center font-bold leading-none select-none"
                         style={{left:`${sx}%`,top:`${sy}%`,transform:"translate(-50%,-50%)",width:`${sz}%`,aspectRatio:"1",
-                          background:dead?"rgba(2,6,23,0.88)":"rgba(239,68,68,0.12)",
-                          border:dead?"2px solid rgba(239,68,68,0.7)":"2px solid rgba(239,68,68,0.35)",
-                          color:dead?"#fca5a5":"rgba(239,68,68,0.6)",fontSize:"9px"}}>
-                        {dead?`E${n} ✕`:`E${n}`}
+                          background:dead?"rgba(2,6,23,0.88)":"transparent",
+                          border:dead?"2px solid rgba(239,68,68,0.7)":"2px solid transparent",
+                          color:dead?"#fca5a5":"transparent",fontSize:"9px"}}>
+                        {dead?`E${n} ✕`:""}
                       </button>
                     );
                   })}
@@ -1075,7 +1075,7 @@ export default function CoachPage(){
                 </button>
                 <button className="border border-sky-400/40 text-sky-400 text-xs px-2 py-1 rounded-lg flex items-center gap-1 active:scale-95 hover:bg-sky-400/10"
                   onClick={()=>setShowPortraitBarEditor(true)}>
-                  <Users className="w-3 h-3"/> Zones
+                  <Users className="w-3 h-3"/> Portraits
                 </button>
               </div>
             </>)}
@@ -1311,12 +1311,20 @@ export default function CoachPage(){
           onClose={()=>setShowPortraitStripEditor(false)}
         />
       )}
-      {showPortraitBarEditor&&imageBase64&&(
+      {showPortraitBarEditor&&(portraitStripCrop||imageBase64)&&(
         <PortraitPlacer
-          screenshot={imageBase64}
+          screenshot={portraitStripCrop??imageBase64!}
           current={portraitConfig}
           onSave={cfg=>{savePortraitConfig(cfg);}}
           onClose={()=>setShowPortraitBarEditor(false)}
+          toDisplay={portraitStripCrop ? (p=>({
+            x: ((p.x-portraitStripConfig.x)/portraitStripConfig.w)*100,
+            y: ((p.y-portraitStripConfig.y)/portraitStripConfig.h)*100,
+          })) : undefined}
+          toStored={portraitStripCrop ? (p=>({
+            x: p.x*portraitStripConfig.w/100+portraitStripConfig.x,
+            y: p.y*portraitStripConfig.h/100+portraitStripConfig.y,
+          })) : undefined}
         />
       )}
       {showZoneEditor&&minimapBase64&&(
