@@ -492,8 +492,8 @@ function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,favorites,onT
   const popupRef=useRef<HTMLDivElement>(null);
   useEffect(()=>{setTimeout(()=>inputRef.current?.focus(),60);},[]);
 
-  // Clamp popup so it stays on screen (popup is ~220×300)
-  const PW=224,PH=300;
+  // Clamp popup so it stays on screen (popup is ~300×420)
+  const PW=300,PH=420;
   const left=Math.max(6,Math.min(pos.x-PW/2,window.innerWidth-PW-6));
   const top=pos.y+20+PH>window.innerHeight?pos.y-PH-20:pos.y+20;
 
@@ -510,27 +510,27 @@ function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,favorites,onT
         className="fixed z-50 flex flex-col bg-[#0d1526] border border-border/60 rounded-xl shadow-2xl overflow-hidden"
         style={{left,top,width:PW,maxHeight:PH}}>
         {/* Header */}
-        <div className="flex items-center gap-1.5 px-2.5 pt-2 pb-1.5 border-b border-border/30 shrink-0">
-          <span className="text-[11px] font-display font-bold uppercase tracking-wider" style={{color:accent}}>{label}</span>
-          {pin.champ&&<span className="text-[9px] text-muted-foreground flex-1 truncate">{pin.champ}</span>}
+        <div className="flex items-center gap-2 px-3 pt-3 pb-2 border-b border-border/30 shrink-0">
+          <span className="text-sm font-display font-bold uppercase tracking-wider" style={{color:accent}}>{label}</span>
+          {pin.champ&&<span className="text-xs text-muted-foreground flex-1 truncate">{pin.champ}</span>}
           {!pin.champ&&<span className="flex-1"/>}
-          {pin.champ&&<button onClick={()=>onAssign(null)} className="text-[8px] text-muted-foreground border border-border/30 px-1 py-0.5 rounded active:scale-95 shrink-0">✕</button>}
+          {pin.champ&&<button onClick={()=>onAssign(null)} className="text-xs text-muted-foreground border border-border/30 px-2 py-1 rounded active:scale-95 shrink-0">✕</button>}
           <button onClick={onRemove} className="text-sm font-bold text-red-400 border border-red-500/50 px-3 py-1.5 rounded-lg active:scale-95 shrink-0 min-w-[44px] min-h-[36px]">Del</button>
         </div>
         {/* Search */}
-        <div className="px-2 py-1.5 shrink-0">
+        <div className="px-3 py-2 shrink-0">
           <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none"/>
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none"/>
             <input ref={inputRef} placeholder="Search champion…" value={search} onChange={e=>setSearch(e.target.value)}
-              className="w-full pl-6 pr-2 h-6 rounded bg-black/60 border border-border/30 text-[11px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/50"/>
+              className="w-full pl-9 pr-3 h-10 rounded-lg bg-black/60 border border-border/30 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/50"/>
           </div>
         </div>
         {/* Favorites strip */}
         {favorites.length>0&&!search&&(
-          <div className="px-2 pb-1 flex gap-1 overflow-x-auto shrink-0">
+          <div className="px-3 pb-1.5 flex gap-1.5 overflow-x-auto shrink-0">
             {favorites.map(c=>(
               <button key={c} onClick={()=>onAssign(c)}
-                className={cn("shrink-0 text-[8px] px-1.5 py-0.5 rounded-full border active:scale-95",
+                className={cn("shrink-0 text-xs px-2.5 py-1 rounded-full border active:scale-95",
                   pin.champ===c?"bg-amber-400/25 border-amber-400 text-amber-300":"border-amber-400/30 text-amber-300/70")}>
                 ★ {c}
               </button>
@@ -545,12 +545,12 @@ function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,favorites,onT
             return(
               <div key={c} className="flex items-center gap-1 group">
                 <button onClick={()=>onAssign(c)}
-                  className={cn("flex-1 text-left px-2 py-1 text-[11px] rounded transition-all active:scale-[.97]",
+                  className={cn("flex-1 text-left px-3 py-2.5 text-sm rounded-lg transition-all active:scale-[.97]",
                     sel?"bg-primary/20 text-primary":"text-slate-300 hover:bg-white/5 hover:text-white")}>
                   {c}
                 </button>
-                <button onClick={ev=>{ev.stopPropagation();onToggleFav(c);}} className="opacity-0 group-hover:opacity-100 px-1">
-                  <Star className={cn("w-2.5 h-2.5",isFav?"fill-amber-400 text-amber-400":"text-muted-foreground/40")}/>
+                <button onClick={ev=>{ev.stopPropagation();onToggleFav(c);}} className="opacity-0 group-hover:opacity-100 px-2 py-2">
+                  <Star className={cn("w-3.5 h-3.5",isFav?"fill-amber-400 text-amber-400":"text-muted-foreground/40")}/>
                 </button>
               </div>
             );
