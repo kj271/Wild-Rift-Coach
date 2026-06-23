@@ -71,8 +71,9 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) 
       return next;
     });
 
-    // Auto-advance
-    if (active.idx < 4) {
+    // Auto-advance: allies have 4 slots (0-3), enemies have 5 (0-4)
+    const maxIdx = active.team === "ally" ? 3 : 4;
+    if (active.idx < maxIdx) {
       setActive({ team: active.team, idx: active.idx + 1 });
     } else if (active.team === "ally") {
       setActive({ team: "enemy", idx: 0 });
@@ -82,7 +83,7 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) 
   const reset = () => setCfg(structuredClone(DEFAULT_PORTRAIT_CONFIG));
 
   const slots: Slot[] = [
-    ...[0,1,2,3,4].map(i => ({ team: "ally" as Team, idx: i })),
+    ...[0,1,2,3].map(i => ({ team: "ally" as Team, idx: i })),   // 4 other allies
     ...[0,1,2,3,4].map(i => ({ team: "enemy" as Team, idx: i })),
   ];
 
@@ -156,19 +157,19 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose }: Props) 
           >
             <img src={screenshot} alt="screenshot" className="w-full h-auto block pointer-events-none" draggable={false}/>
 
-            {/* Ally dots */}
+            {/* Ally dots (4 allies) */}
             {cfg.allies.map((pos, i) => {
               const isActive = key({ team: "ally", idx: i }) === key(active);
               return (
                 <div key={`a${i}`}
-                  className={cn("absolute rounded-full border-2 flex items-center justify-center text-[8px] font-bold select-none pointer-events-none transition-all",
+                  className={cn("absolute rounded-full border-2 flex items-center justify-center font-bold select-none pointer-events-none transition-all",
                     isActive
                       ? "border-sky-300 bg-sky-400/90 text-white shadow-lg shadow-sky-500/50"
                       : "border-sky-500/70 bg-sky-600/60 text-white")}
                   style={{
                     left: `${pos.x}%`, top: `${pos.y}%`,
-                    width: isActive ? 24 : 16, height: isActive ? 24 : 16,
-                    transform: `translate(-50%, -50%)`,
+                    width: isActive ? 24 : 14, height: isActive ? 24 : 14,
+                    transform: "translate(-50%, -50%)",
                     fontSize: isActive ? 8 : 0,
                   }}>
                   {isActive ? `A${i+1}` : ""}

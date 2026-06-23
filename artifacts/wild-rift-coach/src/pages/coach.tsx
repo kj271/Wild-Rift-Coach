@@ -431,7 +431,7 @@ export default function CoachPage(){
   // Advice
   const[advice,setAdvice]=useState((_sess.advice as string)??'');
   const[isAdvising,setIsAdvising]=useState(false);
-  const[debugPayload,setDebugPayload]=useState<Record<string,unknown>|null>(null);
+  const[debugInfo,setDebugInfo]=useState<{systemPrompt:string;userText:string}|null>(null);
   const[debugMinimapUrl,setDebugMinimapUrl]=useState<string|null>(null);
   const[showDebug,setShowDebug]=useState(false);
 
@@ -460,7 +460,7 @@ export default function CoachPage(){
     setMyRole(null);setMyChamp(null);setDragon(null);setBaron(null);setHerald(null);
     setBaronBuff(null);setElderBuff(null);setAlliesDown([]);setEnemiesDown([]);
     setGameTimeSecs(0);setActiveConversationId(null);setAdvice("");setChatMessages([]);
-    setDebugPayload(null);
+    setDebugInfo(null);setDebugMinimapUrl(null);
   },[]);
 
   // ── Re-crop minimap with current config ──────────────────────────────────────
@@ -528,6 +528,25 @@ export default function CoachPage(){
 
   const removePin=(id:string)=>setPins(p=>p.filter(pp=>pp.id!==id));
 
+  // ── Mirror of server buildUserMessage — shows the exact text the AI receives ─
+  const buildUserMessageText=useCallback((ctx:ReturnType<typeof buildContext>,hasImage:boolean):string=>{
+    const parts:string[]=[];
+    parts.push("**Current Game State:**");
+    if(ctx.gameTime)parts.push(`- Game time: ${ctx.gameTime}`);
+    if(ctx.myRole)parts.push(`- My role: ${ctx.myRole}`);
+    if(ctx.myLocation)parts.push(`- My location: ${ctx.myLocation}`);
+    if(ctx.allyChampions)parts.push(`- Ally champions: ${ctx.allyChampions}`);
+    if(ctx.enemyChampions)parts.push(`- Enemy champions: ${ctx.enemyChampions}`);
+    if(ctx.dragonStatus)parts.push(`- Dragon: ${ctx.dragonStatus}`);
+    if(ctx.baronStatus)parts.push(`- Baron: ${ctx.baronStatus}`);
+    if(ctx.riftHeraldStatus)parts.push(`- Rift Herald: ${ctx.riftHeraldStatus}`);
+    if(ctx.additionalNotes)parts.push(`- Additional notes: ${ctx.additionalNotes}`);
+    if(hasImage)parts.push("\nAnalyze the attached minimap and provide macro advice based on the game state above.");
+    else if(parts.length>1)parts.push("\nBased on the game state above, what should I do right now?");
+    else parts.push("What should I focus on macro-wise right now?");
+    return parts.join("\n");
+  },[]);
+
   // ── Build context ────────────────────────────────────────────────────────────
   const buildContext=useCallback(():GameContext=>{
     const myPin=pins.find(p=>p.type==="me");
@@ -569,15 +588,9 @@ export default function CoachPage(){
       const annotated=await getAnnotatedMinimap();
       const ctx=buildContext();
       const customPrompt=localStorage.getItem(PROMPT_KEY);
-      const payload={
-        model,
-        systemPrompt: customPrompt ?? DEFAULT_SYSTEM_PROMPT,
-        imageBase64:"[NOT sent — only annotated minimap below is sent]",
-        minimapBase64:annotated?"[see preview below]":null,
-        gameTimeCropEmbedded:!!gameTimeCrop,
-        context:ctx,
-      };
-      setDebugPayload(payload);
+      const sysPrompt=customPrompt??DEFAULT_SYSTEM_PROMPT;
+      const userText=buildUserMessageText(ctx,!!annotated);
+      setDebugInfo({systemPrompt:sysPrompt,userText});
       setDebugMinimapUrl(annotated);
       const BASE=import.meta.env.BASE_URL;
       const res=await fetch(`${BASE}api/coach/analyze`,{
@@ -712,17 +725,18 @@ export default function CoachPage(){
           <div className="relative w-full rounded-xl overflow-hidden border border-border/40">
             <img src={imageBase64} alt="Game screenshot" className="w-full h-auto block" draggable={false}/>
 
-            {/* ── Individual portrait tap targets (who's down) ── */}
+            {/* ── Individual portrait tap targets (who's dead) ── */}
+            {/* 4 other allies — you are the 5th so no slot for yourself */}
             {portraitConfig.allies.map((pos,i)=>{
               const n=i+1,dead=alliesDown.includes(n);
               return(
                 <button key={`a${n}`}
                   onClick={()=>setAlliesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
                   title={dead?`A${n} dead — tap to revive`:`A${n} alive — tap to mark dead`}
-                  className={cn("absolute flex items-center justify-center rounded text-[9px] font-bold leading-none select-none transition-all",
-                    dead?"bg-slate-900/90 border border-slate-700 text-slate-600 line-through":"bg-sky-500/25 border border-sky-400/60 text-sky-300 hover:bg-sky-400/40")}
-                  style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",minWidth:26,minHeight:18,width:"8%",height:"3%"}}>
-                  A{n}
+                  className={cn("absolute rounded-full border-2 flex items-center justify-center text-[8px] font-bold leading-none select-none transition-all",
+                    dead?"bg-slate-900/80 border-slate-600 text-slate-600 opacity-60":"bg-sky-500/30 border-sky-400/70 text-sky-200 hover:bg-sky-400/50")}
+                  style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",width:"5.5%",aspectRatio:"1"}}>
+                  {dead?"✕":`A${n}`}
                 </button>
               );
             })}
@@ -732,10 +746,10 @@ export default function CoachPage(){
                 <button key={`e${n}`}
                   onClick={()=>setEnemiesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
                   title={dead?`E${n} dead — tap to revive`:`E${n} alive — tap to mark dead`}
-                  className={cn("absolute flex items-center justify-center rounded text-[9px] font-bold leading-none select-none transition-all",
-                    dead?"bg-slate-900/90 border border-slate-700 text-slate-600 line-through":"bg-red-500/25 border border-red-400/60 text-red-300 hover:bg-red-400/40")}
-                  style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",minWidth:26,minHeight:18,width:"8%",height:"3%"}}>
-                  E{n}
+                  className={cn("absolute rounded-full border-2 flex items-center justify-center text-[8px] font-bold leading-none select-none transition-all",
+                    dead?"bg-slate-900/80 border-slate-600 text-slate-600 opacity-60":"bg-red-500/30 border-red-400/70 text-red-200 hover:bg-red-400/50")}
+                  style={{left:`${pos.x}%`,top:`${pos.y}%`,transform:"translate(-50%,-50%)",width:"5.5%",aspectRatio:"1"}}>
+                  {dead?"✕":`E${n}`}
                 </button>
               );
             })}
@@ -1002,30 +1016,47 @@ export default function CoachPage(){
         )}
 
         {/* ── DEBUG PANEL ────────────────────────────────────────────── */}
-        {debugPayload&&(
+        {debugInfo&&(
           <div className="bg-card/40 border border-border/40 rounded-xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-display tracking-widest uppercase text-muted-foreground hover:text-slate-300 transition-colors"
               onClick={()=>setShowDebug(d=>!d)}>
-              <span className="flex items-center gap-2"><Bug className="w-3 h-3"/> AI Input Debug</span>
+              <span className="flex items-center gap-2"><Bug className="w-3 h-3"/> What the AI received</span>
               {showDebug?<ChevronUp className="w-3 h-3"/>:<ChevronDown className="w-3 h-3"/>}
             </button>
             {showDebug&&(
-              <div className="border-t border-border/30 p-3 space-y-3">
-                <p className="text-[10px] text-muted-foreground/60">
-                  Preview of what gets sent on each Advise Me call. The actual API request includes the real minimap image as base64 — it's replaced with a human-readable label here so the panel stays readable. The minimap image preview is shown below the JSON.
-                </p>
-                <pre className="text-[10px] text-slate-400 whitespace-pre-wrap overflow-auto max-h-48 bg-black/30 rounded-lg p-3">
-                  {JSON.stringify(debugPayload,null,2)}
-                </pre>
-                {debugMinimapUrl&&(
-                  <div>
-                    <p className="text-[10px] text-muted-foreground/60 mb-1.5">Actual minimap image sent to AI (with pins + game-time crop bottom-right):</p>
-                    <img src={debugMinimapUrl} alt="Minimap sent to AI" className="w-full rounded-lg border border-border/30"/>
-                  </div>
-                )}
-                {!debugMinimapUrl&&(
-                  <p className="text-[10px] text-amber-400/70">⚠ No minimap image was sent — upload a screenshot and set the minimap crop area.</p>
-                )}
+              <div className="border-t border-border/30 p-3 space-y-4">
+
+                {/* 1 — System instructions */}
+                <div>
+                  <p className="text-[10px] font-bold text-primary/70 uppercase tracking-wider mb-1">① Instructions given to the AI (system prompt)</p>
+                  <p className="text-[10px] text-muted-foreground/50 mb-1.5">This tells the AI what role to play and how to respond.</p>
+                  <pre className="text-[10px] text-slate-300 whitespace-pre-wrap overflow-auto max-h-40 bg-black/40 rounded-lg p-3 leading-relaxed">
+                    {debugInfo.systemPrompt}
+                  </pre>
+                </div>
+
+                {/* 2 — User message text */}
+                <div>
+                  <p className="text-[10px] font-bold text-primary/70 uppercase tracking-wider mb-1">② Your game state (text sent to AI)</p>
+                  <p className="text-[10px] text-muted-foreground/50 mb-1.5">This is the actual text message the AI reads — your game context formatted as plain English.</p>
+                  <pre className="text-[10px] text-slate-300 whitespace-pre-wrap bg-black/40 rounded-lg p-3 leading-relaxed">
+                    {debugInfo.userText}
+                  </pre>
+                </div>
+
+                {/* 3 — Minimap image */}
+                <div>
+                  <p className="text-[10px] font-bold text-primary/70 uppercase tracking-wider mb-1">③ Minimap image (sent to AI)</p>
+                  {debugMinimapUrl?(
+                    <>
+                      <p className="text-[10px] text-muted-foreground/50 mb-1.5">This is the actual image the AI sees — annotated minimap with your pins and game time below it.</p>
+                      <img src={debugMinimapUrl} alt="Minimap sent to AI" className="w-full rounded-lg border border-border/30"/>
+                    </>
+                  ):(
+                    <p className="text-[10px] text-amber-400/70">No minimap sent — upload a screenshot and calibrate the Map crop area.</p>
+                  )}
+                </div>
+
               </div>
             )}
           </div>

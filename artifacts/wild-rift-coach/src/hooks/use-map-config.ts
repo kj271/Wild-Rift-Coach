@@ -61,17 +61,15 @@ export const DEFAULT_TIMER_CROP: CropConfig = { x: 28, y: 0, w: 44, h: 13 };
 // ── Individual portrait positions (v2) ──────────────────────────────────────
 export interface PortraitPos { x: number; y: number } // centre as % of full screenshot
 export interface PortraitConfig {
-  allies:  [PortraitPos, PortraitPos, PortraitPos, PortraitPos, PortraitPos];
+  allies:  [PortraitPos, PortraitPos, PortraitPos, PortraitPos]; // 4 other allies (you are the 5th)
   enemies: [PortraitPos, PortraitPos, PortraitPos, PortraitPos, PortraitPos];
 }
 
 const PORTRAIT_CONFIG_KEY = "wildrift_portraits_v2";
 
-// Default: 5 ally portraits across the top-left, 5 enemy across the top-right
-// (approximate positions for a typical Wild Rift screenshot)
 export const DEFAULT_PORTRAIT_CONFIG: PortraitConfig = {
-  allies:  [{x:4,y:7},{x:12,y:7},{x:20,y:7},{x:28,y:7},{x:36,y:7}],
-  enemies: [{x:64,y:7},{x:72,y:7},{x:80,y:7},{x:88,y:7},{x:96,y:7}],
+  allies:  [{x:5,y:7},{x:14,y:7},{x:23,y:7},{x:32,y:7}],
+  enemies: [{x:64,y:7},{x:73,y:7},{x:82,y:7},{x:91,y:7},{x:96,y:7}],
 };
 
 export function usePortraitConfig() {
