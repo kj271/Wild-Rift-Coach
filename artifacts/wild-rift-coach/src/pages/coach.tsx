@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { Link } from "wouter";
 import { useModelStorage } from "@/hooks/use-model-storage";
-import { useCropConfig, useLanePaths, LanePaths, Point } from "@/hooks/use-map-config";
+import { useCropConfig, useLanePaths, useZones, LanePaths, ZoneData, Point } from "@/hooks/use-map-config";
 import { CropCalibrator } from "@/components/crop-calibrator";
 import { ZoneEditor } from "@/components/zone-editor";
 import {
@@ -50,16 +50,6 @@ type PosInfo = LanePos | ZonePos;
 
 interface MapPin { id: string; type: PinType; x: number; y: number; pos: PosInfo; champ: string | null }
 
-// ─── Static simple zones (always the same) ────────────────────────────────────
-const SIMPLE_ZONES = [
-  { label: "Blue Base",    cx: 6,  cy: 90 },
-  { label: "Red Base",     cx: 93, cy: 8  },
-  { label: "Baron Pit",    cx: 36, cy: 21 },
-  { label: "Dragon Pit",   cx: 60, cy: 80 },
-  { label: "Blue Jungle",  cx: 14, cy: 52 },
-  { label: "Red Jungle",   cx: 84, cy: 48 },
-];
-
 // ─── Geometry helpers ─────────────────────────────────────────────────────────
 function segmentProject(px:number,py:number,ax:number,ay:number,bx:number,by:number){
   const dx=bx-ax,dy=by-ay,lenSq=dx*dx+dy*dy;
@@ -91,7 +81,7 @@ function laneCategory(p:number):string{
   return"Deep Push";
 }
 
-function classifyPos(x:number,y:number,lanePaths:LanePaths):PosInfo{
+function classifyPos(x:number,y:number,lanePaths:LanePaths,zones:ZoneData[]):PosInfo{
   const lanes=[
     {name:"Baron Lane", path:lanePaths.baron},
     {name:"Mid Lane",   path:lanePaths.mid},
@@ -103,7 +93,7 @@ function classifyPos(x:number,y:number,lanePaths:LanePaths):PosInfo{
     if(!bestLane||dist<bestLane.dist)bestLane={name:l.name,dist,progress};
   }
   let bestZone:{label:string;dist:number}|null=null;
-  for(const z of SIMPLE_ZONES){
+  for(const z of zones){
     const dist=Math.hypot(x-z.cx,y-z.cy);
     if(!bestZone||dist<bestZone.dist)bestZone={label:z.label,dist};
   }
@@ -273,6 +263,7 @@ export default function CoachPage(){
   const[model]=useModelStorage();
   const{config:cropConfig,save:saveCrop}=useCropConfig();
   const{paths:lanePaths,save:saveLanes}=useLanePaths();
+  const{zones,save:saveZones}=useZones();
 
   // Screenshot
   const[imageBase64,setImageBase64]=useState<string|null>(null);
@@ -366,7 +357,7 @@ export default function CoachPage(){
     else{cx=(e as React.MouseEvent).clientX;cy=(e as React.MouseEvent).clientY;}
     const x=Math.max(0,Math.min(100,(cx-rect.left)/rect.width*100));
     const y=Math.max(0,Math.min(100,(cy-rect.top)/rect.height*100));
-    const pos=classifyPos(x,y,lanePaths);
+    const pos=classifyPos(x,y,lanePaths,zones);
     if(placeMode==="me"){
       setPins(p=>[...p.filter(pp=>pp.type!=="me"),{id:`me-${Date.now()}`,type:"me",x,y,pos,champ:myChamp}]);
     }else if(placeMode==="ally"){
@@ -376,7 +367,7 @@ export default function CoachPage(){
       if(pins.filter(p=>p.type==="enemy").length>=5)return;
       setPins(p=>[...p,{id:`enemy-${Date.now()}`,type:"enemy",x,y,pos,champ:null}]);
     }
-  },[placeMode,myChamp,pins,lanePaths]);
+  },[placeMode,myChamp,pins,lanePaths,zones]);
 
   const removePin=(id:string)=>setPins(p=>p.filter(pp=>pp.id!==id));
 
@@ -831,8 +822,9 @@ export default function CoachPage(){
       {showZoneEditor&&minimapBase64&&(
         <ZoneEditor
           minimap={minimapBase64}
-          current={lanePaths}
-          onSave={saveLanes}
+          lanes={lanePaths}
+          zones={zones}
+          onSave={(l,z)=>{saveLanes(l);saveZones(z);}}
           onClose={()=>setShowZoneEditor(false)}
         />
       )}

@@ -1,9 +1,8 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { CropConfig, DEFAULT_CROP } from "@/hooks/use-map-config";
 import { RotateCcw } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 interface Props {
   screenshot: string;
@@ -12,37 +11,57 @@ interface Props {
   onClose: () => void;
 }
 
-function SliderRow({
-  label, value, min, max, step = 1, unit = "%",
-  onChange,
-}: {
-  label: string; value: number; min: number; max: number; step?: number;
-  unit?: string; onChange: (v: number) => void;
-}) {
-  return (
-    <div className="space-y-1">
-      <div className="flex justify-between items-center">
-        <span className="text-[11px] font-display uppercase tracking-wider text-muted-foreground">{label}</span>
-        <span className="text-xs font-mono text-primary font-bold">{value}{unit}</span>
-      </div>
-      <input
-        type="range" min={min} max={max} step={step} value={value}
-        onChange={e => onChange(Number(e.target.value))}
-        className="w-full accent-primary h-1.5 rounded-full cursor-pointer"
-      />
-    </div>
-  );
-}
+type Handle = "move" | "nw" | "ne" | "sw" | "se";
+function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
+function round1(v: number) { return Math.round(v * 10) / 10; }
 
 export function CropCalibrator({ screenshot, current, onSave, onClose }: Props) {
-  const [cfg, setCfg] = useState<CropConfig>(current);
+  const [cfg, setCfg] = useState<CropConfig>({ ...current });
+  const containerRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ handle: Handle; sx: number; sy: number; sc: CropConfig } | null>(null);
 
-  const update = (key: keyof CropConfig) => (v: number) =>
-    setCfg(p => ({ ...p, [key]: v }));
+  const startDrag = (e: React.PointerEvent, handle: Handle) => {
+    e.preventDefault();
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    drag.current = { handle, sx: e.clientX, sy: e.clientY, sc: { ...cfg } };
+  };
 
-  const right = cfg.x + cfg.w;
-  const bottom = cfg.y + cfg.h;
-  const overflow = right > 100 || bottom > 100;
+  const onMove = (e: React.PointerEvent) => {
+    if (!drag.current || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const dx = (e.clientX - drag.current.sx) / rect.width * 100;
+    const dy = (e.clientY - drag.current.sy) / rect.height * 100;
+    const s = drag.current.sc;
+    const MIN = 8;
+
+    let next: CropConfig;
+    if (drag.current.handle === "move") {
+      next = {
+        x: round1(clamp(s.x + dx, 0, 100 - s.w)),
+        y: round1(clamp(s.y + dy, 0, 100 - s.h)),
+        w: s.w, h: s.h,
+      };
+    } else if (drag.current.handle === "nw") {
+      const x = round1(clamp(s.x + dx, 0, s.x + s.w - MIN));
+      const y = round1(clamp(s.y + dy, 0, s.y + s.h - MIN));
+      next = { x, y, w: round1(s.x + s.w - x), h: round1(s.y + s.h - y) };
+    } else if (drag.current.handle === "ne") {
+      const y = round1(clamp(s.y + dy, 0, s.y + s.h - MIN));
+      next = { x: s.x, y, w: round1(clamp(s.w + dx, MIN, 100 - s.x)), h: round1(s.y + s.h - y) };
+    } else if (drag.current.handle === "sw") {
+      const x = round1(clamp(s.x + dx, 0, s.x + s.w - MIN));
+      next = { x, y: s.y, w: round1(s.x + s.w - x), h: round1(clamp(s.h + dy, MIN, 100 - s.y)) };
+    } else {
+      next = { x: s.x, y: s.y, w: round1(clamp(s.w + dx, MIN, 100 - s.x)), h: round1(clamp(s.h + dy, MIN, 100 - s.y)) };
+    }
+    setCfg(next);
+  };
+
+  const onUp = () => { drag.current = null; };
+
+  const r = cfg.x + cfg.w;
+  const b = cfg.y + cfg.h;
 
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
@@ -52,91 +71,87 @@ export function CropCalibrator({ screenshot, current, onSave, onClose }: Props) 
             Set Minimap Crop Area
           </DialogTitle>
           <p className="text-[11px] text-muted-foreground mt-0.5">
-            Adjust the yellow box until it covers exactly your minimap.
-            This saves and is used for every future screenshot.
+            Drag the box to move · drag corners to resize
           </p>
         </DialogHeader>
 
-        {/* Screenshot preview with crop box */}
-        <div className="relative mx-3 mt-3 rounded-lg overflow-hidden border border-border/40 shrink-0">
-          <img src={screenshot} alt="Screenshot" className="w-full h-auto block select-none" draggable={false} />
-          {/* Dark overlay outside crop */}
+        {/* Interactive crop area */}
+        <div
+          ref={containerRef}
+          className="relative mx-3 mt-3 select-none rounded-lg overflow-hidden border border-border/40"
+          style={{ touchAction: "none" }}
+          onPointerMove={onMove}
+          onPointerUp={onUp}
+          onPointerCancel={onUp}
+        >
+          <img
+            src={screenshot}
+            alt="screenshot"
+            className="w-full h-auto block pointer-events-none"
+            draggable={false}
+          />
+
+          {/* Darkened overlay — top / bottom / left / right strips */}
           <div className="absolute inset-0 pointer-events-none">
-            {/* top */}
-            <div className="absolute top-0 left-0 right-0 bg-black/60" style={{ height: `${cfg.y}%` }} />
-            {/* bottom */}
-            <div className="absolute bottom-0 left-0 right-0 bg-black/60" style={{ height: `${100 - bottom}%` }} />
-            {/* left */}
-            <div className="absolute bg-black/60" style={{ top: `${cfg.y}%`, left: 0, width: `${cfg.x}%`, height: `${cfg.h}%` }} />
-            {/* right */}
-            <div className="absolute bg-black/60" style={{ top: `${cfg.y}%`, right: 0, width: `${100 - right}%`, height: `${cfg.h}%` }} />
-            {/* crop border */}
+            <div className="absolute top-0 left-0 right-0 bg-black/65" style={{ height: `${cfg.y}%` }} />
+            <div className="absolute left-0 right-0 bg-black/65" style={{ top: `${b}%`, bottom: 0 }} />
+            <div className="absolute bg-black/65" style={{ top: `${cfg.y}%`, left: 0, width: `${cfg.x}%`, height: `${cfg.h}%` }} />
+            <div className="absolute bg-black/65" style={{ top: `${cfg.y}%`, left: `${r}%`, right: 0, height: `${cfg.h}%` }} />
+          </div>
+
+          {/* Crop box */}
+          <div
+            className="absolute border-2 border-yellow-400"
+            style={{ left: `${cfg.x}%`, top: `${cfg.y}%`, width: `${cfg.w}%`, height: `${cfg.h}%` }}
+          >
+            {/* Move handle — centre of box */}
             <div
-              className={cn("absolute border-2", overflow ? "border-red-400" : "border-yellow-400")}
-              style={{ left: `${cfg.x}%`, top: `${cfg.y}%`, width: `${cfg.w}%`, height: `${cfg.h}%` }}
-            >
-              {/* corner handles */}
-              {["top-0 left-0","top-0 right-0","bottom-0 left-0","bottom-0 right-0"].map(pos => (
-                <div key={pos} className={cn("absolute w-3 h-3 border-2 border-yellow-400 bg-yellow-400/20", pos,
-                  pos.includes("right") ? "-translate-x-full" : "translate-x-0",
-                  pos.includes("bottom") ? "-translate-y-full" : "translate-y-0",
-                )} />
-              ))}
-            </div>
+              className="absolute inset-4 cursor-move"
+              onPointerDown={e => startDrag(e, "move")}
+            />
+
+            {/* Corner handles */}
+            {([
+              ["nw", "top-0 left-0 -translate-x-1/2 -translate-y-1/2 cursor-nwse-resize"],
+              ["ne", "top-0 right-0 translate-x-1/2 -translate-y-1/2 cursor-nesw-resize"],
+              ["sw", "bottom-0 left-0 -translate-x-1/2 translate-y-1/2 cursor-nesw-resize"],
+              ["se", "bottom-0 right-0 translate-x-1/2 translate-y-1/2 cursor-nwse-resize"],
+            ] as [Handle, string][]).map(([h, cls]) => (
+              <div
+                key={h}
+                className={`absolute w-6 h-6 bg-yellow-400 rounded-sm shadow-lg ${cls}`}
+                onPointerDown={e => startDrag(e, h)}
+              />
+            ))}
+
+            {/* Edge midpoint indicators */}
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-1.5 bg-yellow-400/60 rounded-full pointer-events-none" />
+            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-4 h-1.5 bg-yellow-400/60 rounded-full pointer-events-none" />
+            <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-1.5 h-4 bg-yellow-400/60 rounded-full pointer-events-none" />
+            <div className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-1.5 h-4 bg-yellow-400/60 rounded-full pointer-events-none" />
           </div>
         </div>
 
-        {overflow && (
-          <p className="text-[11px] text-red-400 text-center mt-1 shrink-0">
-            Crop box exceeds image bounds — reduce left/top or width/height
-          </p>
-        )}
-
-        {/* Sliders */}
-        <div className="p-4 space-y-4 overflow-y-auto flex-1">
-          <SliderRow label="Left edge"  value={cfg.x} min={0} max={80} onChange={update("x")} />
-          <SliderRow label="Top edge"   value={cfg.y} min={0} max={80} onChange={update("y")} />
-          <SliderRow label="Width"      value={cfg.w} min={5} max={70} onChange={update("w")} />
-          <SliderRow label="Height"     value={cfg.h} min={5} max={70} onChange={update("h")} />
-
-          {/* Cropped preview */}
-          <div className="space-y-1.5">
-            <span className="text-[11px] font-display uppercase tracking-wider text-muted-foreground">
-              Cropped preview
-            </span>
-            <div className="rounded-lg overflow-hidden border border-border/40 bg-black/40">
-              <div
-                className="w-full overflow-hidden"
-                style={{ paddingBottom: `${(cfg.h / cfg.w) * 100}%`, position: "relative" }}
-              >
-                <img
-                  src={screenshot}
-                  alt="Crop preview"
-                  className="absolute inset-0 w-full h-full select-none"
-                  style={{
-                    objectFit: "none",
-                    objectPosition: `-${cfg.x}% -${cfg.y}%`,
-                    width: `${100 / (cfg.w / 100)}%`,
-                    height: `${100 / (cfg.h / 100)}%`,
-                    transform: `translate(${-cfg.x / cfg.w * 100}%, ${-cfg.y / cfg.h * 100}%)`,
-                  }}
-                  draggable={false}
-                />
-              </div>
-            </div>
-          </div>
+        {/* Live stats */}
+        <div className="mx-3 mt-2 mb-3 flex gap-4 text-[11px] font-mono text-muted-foreground bg-black/30 rounded-lg px-3 py-2 shrink-0">
+          <span>X <span className="text-primary">{cfg.x}%</span></span>
+          <span>Y <span className="text-primary">{cfg.y}%</span></span>
+          <span>W <span className="text-primary">{cfg.w}%</span></span>
+          <span>H <span className="text-primary">{cfg.h}%</span></span>
         </div>
 
         <div className="p-3 border-t border-border/30 flex gap-2 shrink-0">
           <button
-            onClick={() => setCfg(DEFAULT_CROP)}
+            onClick={() => setCfg({ ...DEFAULT_CROP })}
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-white border border-border/30 px-3 py-2 rounded-lg"
           >
             <RotateCcw className="w-3 h-3" /> Reset
           </button>
           <Button variant="outline" className="flex-1 h-10" onClick={onClose}>Cancel</Button>
-          <Button className="flex-1 h-10 font-display tracking-wider" disabled={overflow}
-            onClick={() => { onSave(cfg); onClose(); }}>
+          <Button
+            className="flex-1 h-10 font-display tracking-wider"
+            onClick={() => { onSave(cfg); onClose(); }}
+          >
             Save
           </Button>
         </div>
