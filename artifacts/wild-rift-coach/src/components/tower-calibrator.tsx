@@ -13,6 +13,8 @@ interface Props {
 
 const LANE_LABELS = ["Baron", "Mid", "Dragon"] as const;
 
+function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
+
 export function TowerCalibrator({ imageDataUrl, config, onSave, onClose }: Props) {
   const [editing, setEditing] = useState<TowerConfig>({
     ally:  config.ally.map(p => p ? { ...p } : null),
@@ -20,41 +22,73 @@ export function TowerCalibrator({ imageDataUrl, config, onSave, onClose }: Props
   });
   const [selected, setSelected] = useState<{ team: "ally" | "enemy"; idx: number } | null>(null);
   const imgRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef<{ team: "ally" | "enemy"; idx: number; moved: boolean } | null>(null);
 
-  function handleImageTap(e: React.MouseEvent | React.TouchEvent) {
-    if (!selected || !imgRef.current) return;
-    e.preventDefault();
-    e.stopPropagation();
+  function clientToPercent(cx: number, cy: number): TowerPos | null {
+    if (!imgRef.current) return null;
     const rect = imgRef.current.getBoundingClientRect();
-    let cx: number, cy: number;
-    if ("touches" in e) {
-      cx = e.touches[0]!.clientX;
-      cy = e.touches[0]!.clientY;
-    } else {
-      cx = (e as React.MouseEvent).clientX;
-      cy = (e as React.MouseEvent).clientY;
-    }
-    const x = Math.max(0, Math.min(100, (cx - rect.left) / rect.width * 100));
-    const y = Math.max(0, Math.min(100, (cy - rect.top) / rect.height * 100));
-    const pos: TowerPos = { x, y };
+    return {
+      x: clamp(Math.round(((cx - rect.left) / rect.width)  * 1000) / 10, 0, 100),
+      y: clamp(Math.round(((cy - rect.top)  / rect.height) * 1000) / 10, 0, 100),
+    };
+  }
+
+  function setTower(team: "ally" | "enemy", idx: number, pos: TowerPos) {
     setEditing(prev => {
       const next: TowerConfig = { ally: [...prev.ally], enemy: [...prev.enemy] };
-      next[selected.team][selected.idx] = pos;
+      next[team][idx] = pos;
       return next;
     });
-    // Auto-advance
-    const nextIdx = selected.idx + 1;
-    if (nextIdx < 9) {
-      setSelected({ team: selected.team, idx: nextIdx });
-    } else if (selected.team === "ally") {
-      setSelected({ team: "enemy", idx: 0 });
-    } else {
-      setSelected(null);
-    }
+  }
+
+  // Tap on background → place selected tower (no auto-advance)
+  function handleBgClick(e: React.MouseEvent) {
+    if (dragging.current?.moved) { dragging.current = null; return; }
+    dragging.current = null;
+    if (!selected) return;
+    const pos = clientToPercent(e.clientX, e.clientY);
+    if (!pos) return;
+    setTower(selected.team, selected.idx, pos);
+  }
+
+  function handleBgTouchEnd(e: React.TouchEvent) {
+    if (dragging.current?.moved) { dragging.current = null; return; }
+    dragging.current = null;
+    if (!selected) return;
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    if (!t) return;
+    const pos = clientToPercent(t.clientX, t.clientY);
+    if (!pos) return;
+    setTower(selected.team, selected.idx, pos);
+  }
+
+  // Drag an existing tower indicator to reposition it
+  function onTowerPointerDown(e: React.PointerEvent, team: "ally" | "enemy", idx: number) {
+    e.stopPropagation();
+    e.preventDefault();
+    dragging.current = { team, idx, moved: false };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setSelected({ team, idx });
+  }
+
+  function onTowerPointerMove(e: React.PointerEvent) {
+    if (!dragging.current) return;
+    dragging.current.moved = true;
+    const pos = clientToPercent(e.clientX, e.clientY);
+    if (!pos) return;
+    const { team, idx } = dragging.current;
+    setTower(team, idx, pos);
+  }
+
+  function onTowerPointerUp(e: React.PointerEvent) {
+    e.stopPropagation();
+    setTimeout(() => { dragging.current = null; }, 50);
   }
 
   function clearTower(team: "ally" | "enemy", idx: number, e: React.MouseEvent) {
     e.stopPropagation();
+    if (dragging.current?.moved) return;
     setEditing(prev => {
       const next: TowerConfig = { ally: [...prev.ally], enemy: [...prev.enemy] };
       next[team][idx] = null;
@@ -74,16 +108,17 @@ export function TowerCalibrator({ imageDataUrl, config, onSave, onClose }: Props
   const ENEMY_COLOR = "#EF4444";
 
   function towerLabel(idx: number) {
-    const lane = ["B","M","D"][Math.floor(idx / 3)]!;
-    const tier = (idx % 3) + 1;
-    return `${lane}${tier}`;
+    return `${["B","M","D"][Math.floor(idx / 3)]}${(idx % 3) + 1}`;
   }
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#060e1c]">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border/40 shrink-0">
-        <span className="text-sm font-display tracking-wider uppercase text-primary">Tower Calibrator</span>
+        <div>
+          <span className="text-sm font-display tracking-wider uppercase text-primary">Tower Calibrator</span>
+          <p className="text-[11px] text-muted-foreground mt-0.5">Select a slot · Tap map to place · Drag towers to reposition</p>
+        </div>
         <div className="flex items-center gap-2">
           <button onClick={handleReset}
             className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground px-2 py-1 rounded border border-border/30 hover:border-border/60 active:scale-95">
@@ -97,7 +132,7 @@ export function TowerCalibrator({ imageDataUrl, config, onSave, onClose }: Props
       </div>
 
       {/* Tower slot selectors */}
-      <div className="shrink-0 px-3 pt-2.5 pb-2 border-b border-border/30 space-y-2.5">
+      <div className="shrink-0 px-3 pt-2.5 pb-2 border-b border-border/30 space-y-2">
         {(["ally", "enemy"] as const).map(team => (
           <div key={team}>
             <div className="text-[9px] uppercase tracking-widest font-display mb-1.5"
@@ -141,23 +176,23 @@ export function TowerCalibrator({ imageDataUrl, config, onSave, onClose }: Props
           </div>
         ))}
         {selected ? (
-          <p className="text-[10px] text-center text-amber-400/80 animate-pulse">
+          <p className="text-[10px] text-center text-amber-400/80">
             Tap the map to place {selected.team === "ally" ? "Allied" : "Enemy"} {TOWER_LABELS[selected.idx]}
           </p>
         ) : (
           <p className="text-[10px] text-center text-muted-foreground/40">
-            Select a tower slot above, then tap the map
+            Select a tower slot above, then tap the map · T1 = outer (far from base) · T3 = inhibitor (near base)
           </p>
         )}
       </div>
 
       {/* Map image */}
-      <div className="flex-1 overflow-hidden p-3 relative">
+      <div className="flex-1 overflow-hidden p-3">
         <div
           ref={imgRef}
           className={cn("relative w-full h-full", selected && "cursor-crosshair")}
-          onClick={handleImageTap}
-          onTouchStart={handleImageTap}>
+          onClick={handleBgClick}
+          onTouchEnd={handleBgTouchEnd}>
           <img
             src={imageDataUrl}
             alt="Minimap"
@@ -167,28 +202,30 @@ export function TowerCalibrator({ imageDataUrl, config, onSave, onClose }: Props
           {(["ally", "enemy"] as const).map(team =>
             editing[team].map((pos, idx) => {
               if (!pos) return null;
-              const active = selected?.team === team && selected.idx === idx;
+              const isActive = selected?.team === team && selected.idx === idx;
               const color = team === "ally" ? ALLY_COLOR : ENEMY_COLOR;
               return (
                 <div
                   key={`${team}-${idx}`}
-                  className="absolute -translate-x-1/2 -translate-y-1/2 z-10"
+                  className="absolute -translate-x-1/2 -translate-y-1/2 z-10 touch-none"
                   style={{ left: `${pos.x}%`, top: `${pos.y}%` }}>
-                  <button
-                    onClick={ev => clearTower(team, idx, ev)}
-                    title={`${team === "ally" ? "Allied" : "Enemy"} ${TOWER_LABELS[idx]} — tap to clear`}
+                  <div
                     className={cn(
-                      "w-6 h-6 rounded-sm border-2 flex items-center justify-center text-[9px] font-bold transition-all active:scale-90",
-                      active && "scale-125"
+                      "w-7 h-7 rounded-sm border-2 flex flex-col items-center justify-center text-[8px] font-bold cursor-grab active:cursor-grabbing select-none transition-transform",
+                      isActive && "scale-125"
                     )}
                     style={{
-                      background: active ? color + "44" : "rgba(5,12,28,0.85)",
+                      background: isActive ? color + "44" : "rgba(5,12,28,0.85)",
                       borderColor: color,
                       color,
-                      boxShadow: active ? `0 0 8px ${color}66` : undefined,
-                    }}>
+                      boxShadow: isActive ? `0 0 8px ${color}66` : undefined,
+                    }}
+                    onPointerDown={e => onTowerPointerDown(e, team, idx)}
+                    onPointerMove={onTowerPointerMove}
+                    onPointerUp={onTowerPointerUp}
+                    onClick={e => clearTower(team, idx, e)}>
                     {towerLabel(idx)}
-                  </button>
+                  </div>
                 </div>
               );
             })

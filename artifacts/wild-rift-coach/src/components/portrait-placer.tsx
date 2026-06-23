@@ -74,7 +74,7 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose, toDisplay
     dragging.current = null;
     const pos = clientToPercent(e.clientX, e.clientY);
     if (!pos) return;
-    placeAndAdvance(active, pos);
+    place(active, pos);
   };
 
   const handleContainerTouchEnd = (e: React.TouchEvent) => {
@@ -84,22 +84,16 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose, toDisplay
     const t = e.changedTouches[0];
     const pos = clientToPercent(t.clientX, t.clientY);
     if (!pos) return;
-    placeAndAdvance(active, pos);
+    place(active, pos);
   };
 
-  const placeAndAdvance = (slot: Slot, pos: PortraitPos) => {
+  const place = (slot: Slot, pos: PortraitPos) => {
     setCfg(prev => {
       const next = structuredClone(prev);
       if (slot.team === "ally") next.allies[slot.idx] = pos;
       else next.enemies[slot.idx] = pos;
       return next;
     });
-    const maxIdx = slot.team === "ally" ? 3 : 4;
-    if (slot.idx < maxIdx) {
-      setActive({ team: slot.team, idx: slot.idx + 1 });
-    } else if (slot.team === "ally") {
-      setActive({ team: "enemy", idx: 0 });
-    }
   };
 
   // ── Drag a dot ───────────────────────────────────────────────────────────────
@@ -150,7 +144,7 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose, toDisplay
             Place Portraits
           </DialogTitle>
           <p className="text-[11px] text-muted-foreground mt-0.5">
-            Tap to place · Drag dots to reposition · Slider = circle size
+            Select a slot · Tap image to place · Drag dots to reposition
           </p>
         </DialogHeader>
 
