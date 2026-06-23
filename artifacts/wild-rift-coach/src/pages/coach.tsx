@@ -63,7 +63,7 @@ type ObjStatus = "up" | "soon" | null; // null = down
 type BuffHolder = "us" | "them" | null;
 type PinType = "me" | "ally" | "enemy";
 type PlaceMode = PinType | "obj" | null;
-interface ObjPin { id:string; x:number; y:number; objType:ObjType|null; status:ObjStatus }
+interface ObjPin { id:string; x:number; y:number; pos:PosInfo; objType:ObjType|null; status:ObjStatus }
 
 // ─── Position types ────────────────────────────────────────────────────────────
 type LanePos = { kind: "lane"; lane: string; progress: number; category: string };
@@ -730,7 +730,7 @@ export default function CoachPage(){
       setPins(p=>[...p,{id:`ally-${Date.now()}`,type:"ally",x,y,pos,champ:null}]);
     }else if(placeMode==="obj"){
       const id=`obj-${Date.now()}`;
-      setObjPins(p=>[...p,{id,x,y,objType:null,status:null}]);
+      setObjPins(p=>[...p,{id,x,y,pos:classifyPos(x,y,lanePaths,zones),objType:null,status:null}]);
       // Get screen coords for popup
       const rect=minimapDivRef.current!.getBoundingClientRect();
       setQuickObjPickPos({x:rect.left+x/100*rect.width,y:rect.top+y/100*rect.height});
@@ -772,7 +772,7 @@ export default function CoachPage(){
       myLocation:myPin?posLabel(myPin.pos):null,
       allyChampions:allyPins.length?allyPins.map((p,i)=>{const s=pinSlot(i,alliesDown);const l=posLabel(p.pos);return p.champ?`${p.champ}(A${s}) at ${l}`:`A${s} at ${l}`;}).join(", "):null,
       enemyChampions:enemyPins.length?enemyPins.map((p,i)=>{const s=pinSlot(i,enemiesDown);const l=posLabel(p.pos);return p.champ?`${p.champ}(E${s}) at ${l}`:`E${s} at ${l}`;}).join(", "):null,
-      dragonStatus:objPins.length?(()=>{const lines=objPins.map(p=>{const cfg=p.objType?OBJ_CFG[p.objType]:null;const t=cfg?cfg.label:"Unknown objective";const s=p.status==="up"?"Up":p.status==="soon"?"Spawning Soon":"Down";return`${t}: ${s}`;});return`Objectives pinned on map:\n${lines.map(l=>`  - ${l}`).join("\n")}`;})():null,
+      dragonStatus:objPins.length?(()=>{const lines=objPins.map(p=>{const cfg=p.objType?OBJ_CFG[p.objType]:null;const t=cfg?cfg.label:"Unknown objective";const s=p.status==="up"?"Up":p.status==="soon"?"Spawning Soon":"Down";const loc=posLabel(p.pos);return`${t}: ${s} (at ${loc})`;});return`Objectives pinned on map:\n${lines.map(l=>`  - ${l}`).join("\n")}`;})():null,
       elderDragonStatus:null,baronStatus:null,riftHeraldStatus:null,
       goldDiff:null,score:null,
       additionalNotes:(()=>{
