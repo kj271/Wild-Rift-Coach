@@ -21,9 +21,9 @@ type DragTarget =
   | null;
 
 const LANE_CFG: Record<LaneName, { color: string; label: string }> = {
-  baron:  { color: "#60A5FA", label: "Baron" },
+  baron:  { color: "#60A5FA", label: "Top" },
   mid:    { color: "#FBBF24", label: "Mid" },
-  dragon: { color: "#F97316", label: "Dragon" },
+  dragon: { color: "#F97316", label: "Bottom" },
 };
 
 const ZONE_COLORS = [
