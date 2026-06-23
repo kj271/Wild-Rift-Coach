@@ -22,11 +22,12 @@ export function CropCalibrator({ screenshot, current, defaultConfig, title, onSa
   const [zoom, setZoom] = useState(1);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  // containerRef points to the scaled inner div (coordinate reference for drags)
   const containerRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ handle: Handle; sx: number; sy: number; sc: CropConfig } | null>(null);
   const pinch = useRef<{ dist: number; startZoom: number } | null>(null);
 
-  // ── Drag-to-crop ────────────────────────────────────────────────────────────
+  // ── Pointer drag for crop handles ───────────────────────────────────────────
   const startDrag = (e: React.PointerEvent, handle: Handle) => {
     e.preventDefault();
     e.stopPropagation();
@@ -63,7 +64,7 @@ export function CropCalibrator({ screenshot, current, defaultConfig, title, onSa
 
   const onUp = () => { drag.current = null; };
 
-  // ── Pinch-to-zoom ───────────────────────────────────────────────────────────
+  // ── Pinch-to-zoom (touch) ────────────────────────────────────────────────────
   const touchDist = (touches: React.TouchList) => {
     const dx = touches[0].clientX - touches[1].clientX;
     const dy = touches[0].clientY - touches[1].clientY;
@@ -77,33 +78,23 @@ export function CropCalibrator({ screenshot, current, defaultConfig, title, onSa
   }, [zoom]);
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
-    if (e.touches.length === 2 && pinch.current) {
-      e.preventDefault();
-      const ratio = touchDist(e.touches) / pinch.current.dist;
-      setZoom(z => {
-        void z; // use startZoom instead
-        return clamp(pinch.current!.startZoom * ratio, 1, 12);
-      });
-    }
+    if (e.touches.length !== 2 || !pinch.current) return;
+    const ratio = touchDist(e.touches) / pinch.current.dist;
+    const sz = pinch.current.startZoom;
+    setZoom(clamp(Math.round(sz * ratio * 10) / 10, 1, 12));
   }, []);
 
   const onTouchEnd = useCallback(() => { pinch.current = null; }, []);
 
-  // ── Scroll to crop centre when zoom changes ─────────────────────────────────
-  const containerCallback = useCallback((el: HTMLDivElement | null) => {
-    (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
-    if (!el || !scrollRef.current) return;
-    const cx = (cfg.x + cfg.w / 2) / 100;
-    const cy = (cfg.y + cfg.h / 2) / 100;
-    scrollRef.current.scrollLeft = el.scrollWidth * cx - scrollRef.current.clientWidth / 2;
-    scrollRef.current.scrollTop = el.scrollHeight * cy - scrollRef.current.clientHeight / 2;
-  }, [cfg.x, cfg.y, cfg.w, cfg.h]);
+  // ── Zoom buttons ─────────────────────────────────────────────────────────────
+  const zoomIn  = () => setZoom(z => clamp(Math.round((z + 0.5) * 10) / 10, 1, 12));
+  const zoomOut = () => setZoom(z => clamp(Math.round((z - 0.5) * 10) / 10, 1, 12));
 
   const r = cfg.x + cfg.w;
   const b = cfg.y + cfg.h;
 
-  const zoomIn  = () => setZoom(z => Math.min(12, Math.round((z + 0.5) * 10) / 10));
-  const zoomOut = () => setZoom(z => Math.max(1,  Math.round((z - 0.5) * 10) / 10));
+  // Handle style: individual handles block touch so they get pointer events for drag
+  const handleStyle: React.CSSProperties = { touchAction: "none" };
 
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
@@ -113,7 +104,7 @@ export function CropCalibrator({ screenshot, current, defaultConfig, title, onSa
             {title ?? "Crop Area"}
           </DialogTitle>
           <p className="text-[11px] text-muted-foreground mt-0.5">
-            Drag box · drag corners · pinch or use ± to zoom
+            Drag box · drag corners to resize · pinch or ± to zoom · scroll/swipe to pan
           </p>
         </DialogHeader>
 
@@ -124,7 +115,7 @@ export function CropCalibrator({ screenshot, current, defaultConfig, title, onSa
             <ZoomOut className="w-3.5 h-3.5" />
           </button>
           <span className="text-xs font-mono text-muted-foreground flex-1 text-center">
-            {zoom === 1 ? "100%" : `${Math.round(zoom * 100)}% — scroll/drag to pan`}
+            {zoom === 1 ? "100%" : `${Math.round(zoom * 100)}%`}
           </span>
           <button onClick={zoomIn} disabled={zoom >= 12}
             className="w-8 h-8 rounded-lg border border-border/40 flex items-center justify-center text-muted-foreground hover:text-white hover:border-primary/40 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
@@ -132,20 +123,29 @@ export function CropCalibrator({ screenshot, current, defaultConfig, title, onSa
           </button>
         </div>
 
-        {/* Scrollable zoom viewport */}
+        {/*
+          Outer wrapper: overflow-auto so the browser's native scroll handles panning.
+          touchAction is left to the browser default — single-finger swipe = pan scroll.
+          The pinch gesture is detected in onTouchStart/onTouchMove here.
+        */}
         <div
           ref={scrollRef}
           className="mx-3 rounded-lg overflow-auto border border-border/40"
-          style={{ maxHeight: "52vh", touchAction: zoom > 1 ? "pan-x pan-y" : "none" }}
+          style={{ maxHeight: "52vh" }}
           onTouchStart={onTouchStart}
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
         >
-          {/* Scaled inner container — coordinate reference for drags */}
+          {/*
+            Inner container: scaled to zoom level.
+            touchAction NOT set here so the browser can scroll the outer wrapper when
+            the user swipes with one finger. Pointer drag on handles still works because
+            handles call setPointerCapture and have touchAction:"none" on themselves.
+          */}
           <div
-            ref={containerCallback}
+            ref={containerRef}
             className="relative select-none"
-            style={{ width: `${zoom * 100}%`, touchAction: "none" }}
+            style={{ width: `${zoom * 100}%` }}
             onPointerMove={onMove}
             onPointerUp={onUp}
             onPointerCancel={onUp}
@@ -161,18 +161,32 @@ export function CropCalibrator({ screenshot, current, defaultConfig, title, onSa
             </div>
 
             {/* Crop box */}
-            <div className="absolute border-2 border-yellow-400"
-              style={{ left: `${cfg.x}%`, top: `${cfg.y}%`, width: `${cfg.w}%`, height: `${cfg.h}%` }}>
-              <div className="absolute inset-4 cursor-move" onPointerDown={e => startDrag(e, "move")} />
+            <div
+              className="absolute border-2 border-yellow-400"
+              style={{ left: `${cfg.x}%`, top: `${cfg.y}%`, width: `${cfg.w}%`, height: `${cfg.h}%` }}
+            >
+              {/* Centre move handle — touchAction:none so it captures pointer correctly */}
+              <div
+                className="absolute inset-4 cursor-move"
+                style={handleStyle}
+                onPointerDown={e => startDrag(e, "move")}
+              />
+
+              {/* Corner handles */}
               {([
                 ["nw", "top-0 left-0 -translate-x-1/2 -translate-y-1/2 cursor-nwse-resize"],
                 ["ne", "top-0 right-0 translate-x-1/2 -translate-y-1/2 cursor-nesw-resize"],
                 ["sw", "bottom-0 left-0 -translate-x-1/2 translate-y-1/2 cursor-nesw-resize"],
                 ["se", "bottom-0 right-0 translate-x-1/2 translate-y-1/2 cursor-nwse-resize"],
               ] as [Handle, string][]).map(([h, cls]) => (
-                <div key={h} className={`absolute w-6 h-6 bg-yellow-400 rounded-sm shadow-lg ${cls}`}
-                  onPointerDown={e => startDrag(e, h)} />
+                <div key={h}
+                  className={`absolute w-7 h-7 bg-yellow-400 rounded-sm shadow-lg ${cls}`}
+                  style={handleStyle}
+                  onPointerDown={e => startDrag(e, h)}
+                />
               ))}
+
+              {/* Edge midpoints (visual only) */}
               <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-1.5 bg-yellow-400/60 rounded-full pointer-events-none" />
               <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-4 h-1.5 bg-yellow-400/60 rounded-full pointer-events-none" />
               <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-1.5 h-4 bg-yellow-400/60 rounded-full pointer-events-none" />
@@ -181,7 +195,7 @@ export function CropCalibrator({ screenshot, current, defaultConfig, title, onSa
           </div>
         </div>
 
-        {/* Live stats */}
+        {/* Live coordinate readout */}
         <div className="mx-3 mt-2 mb-2 flex gap-4 text-[11px] font-mono text-muted-foreground bg-black/30 rounded-lg px-3 py-2 shrink-0">
           <span>X <span className="text-primary">{cfg.x}%</span></span>
           <span>Y <span className="text-primary">{cfg.y}%</span></span>
@@ -190,8 +204,10 @@ export function CropCalibrator({ screenshot, current, defaultConfig, title, onSa
         </div>
 
         <div className="p-3 border-t border-border/30 flex gap-2 shrink-0">
-          <button onClick={() => setCfg({ ...(defaultConfig ?? DEFAULT_CROP) })}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-white border border-border/30 px-3 py-2 rounded-lg">
+          <button
+            onClick={() => setCfg({ ...(defaultConfig ?? DEFAULT_CROP) })}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-white border border-border/30 px-3 py-2 rounded-lg"
+          >
             <RotateCcw className="w-3 h-3" /> Reset
           </button>
           <Button variant="outline" className="flex-1 h-10" onClick={onClose}>Cancel</Button>

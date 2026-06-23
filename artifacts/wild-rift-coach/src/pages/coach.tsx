@@ -68,6 +68,8 @@ function loadSession(): Record<string, unknown> {
   return _cachedSession!;
 }
 function saveSession(data: Record<string, unknown>) {
+  // Keep module-level cache current so component remounts read latest state (not original mount state)
+  _cachedSession = { ...data };
   // Split images (large) from context (small) so context always saves even if images exceed quota
   const { imageBase64, minimapBase64, ...ctx } = data;
   try { localStorage.setItem(SESSION_KEY, JSON.stringify(ctx)); } catch {}
@@ -162,11 +164,24 @@ function loadImg(src:string):Promise<HTMLImageElement>{
 }
 async function renderAnnotatedMinimap(minimapDataUrl:string,pins:MapPin[],gameTimeCropDataUrl?:string|null):Promise<string>{
   const img=await loadImg(minimapDataUrl);
+  const W=img.naturalWidth*2,H=img.naturalHeight*2;
+
+  // Pre-load timer image so we know its height before creating canvas
+  let timerImg:HTMLImageElement|null=null;
+  if(gameTimeCropDataUrl){try{timerImg=await loadImg(gameTimeCropDataUrl);}catch{}}
+
+  const timerPad=10,timerFs=Math.round(W*0.042);
+  const timerW=Math.round(W*0.7);
+  const timerImgH=timerImg?Math.round(timerW*(timerImg.naturalHeight/timerImg.naturalWidth)):0;
+  const timerStripH=timerImg?timerFs+timerPad*3+timerImgH:0;
+
+  // Canvas = minimap + optional timer strip below
   const canvas=document.createElement("canvas");
-  canvas.width=img.naturalWidth*2;canvas.height=img.naturalHeight*2;
+  canvas.width=W;canvas.height=H+timerStripH;
   const ctx=canvas.getContext("2d")!;
-  ctx.drawImage(img,0,0,canvas.width,canvas.height);
-  const W=canvas.width,H=canvas.height;
+  ctx.drawImage(img,0,0,W,H);
+
+  // Draw pins
   const r=Math.round(W*0.05);
   const allyPins=pins.filter(p=>p.type==="ally");
   const enemyPins=pins.filter(p=>p.type==="enemy");
@@ -191,22 +206,20 @@ async function renderAnnotatedMinimap(minimapDataUrl:string,pins:MapPin[],gameTi
       ctx.fillText(pin.champ,px,py+r+2+Math.round(r*0.42));
     }
   }
-  // Embed game-time crop in bottom-right corner
-  if(gameTimeCropDataUrl){
-    try{
-      const ti=await loadImg(gameTimeCropDataUrl);
-      const tw=Math.round(W*0.40);
-      const th=Math.round(tw*ti.naturalHeight/ti.naturalWidth);
-      const pad=6,fs=Math.round(W*0.038);
-      const tx=W-tw-pad,ty=H-th-pad;
-      ctx.fillStyle="rgba(0,0,0,0.78)";
-      ctx.beginPath();ctx.roundRect(tx-pad,ty-fs-pad*2,tw+pad*2,th+fs+pad*3,5);ctx.fill();
-      ctx.fillStyle="#93c5fd";ctx.font=`bold ${fs}px sans-serif`;
-      ctx.textAlign="left";ctx.textBaseline="top";
-      ctx.fillText("GAME TIME:",tx-pad+4,ty-fs-pad*0.7);
-      ctx.drawImage(ti,tx,ty,tw,th);
-    }catch{}
+
+  // Draw game-time strip BELOW minimap (does not overlap the map)
+  if(timerImg){
+    ctx.fillStyle="#0a111e";
+    ctx.fillRect(0,H,W,timerStripH);
+    ctx.strokeStyle="#1e3a5f";ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(0,H+1);ctx.lineTo(W,H+1);ctx.stroke();
+    ctx.fillStyle="#93c5fd";
+    ctx.font=`bold ${timerFs}px sans-serif`;
+    ctx.textAlign="left";ctx.textBaseline="top";
+    ctx.fillText("GAME TIME:",timerPad,H+timerPad);
+    ctx.drawImage(timerImg,timerPad,H+timerPad+timerFs+timerPad,timerW,timerImgH);
   }
+
   return canvas.toDataURL("image/jpeg",0.92);
 }
 
@@ -556,7 +569,7 @@ export default function CoachPage(){
       const customPrompt=localStorage.getItem("wildrift_system_prompt");
       const payload={
         model,
-        systemPrompt:customPrompt?"(custom — see Settings → AI Instructions)":"(server default)",
+        systemPrompt: customPrompt ?? "(using server default — customise in Settings → AI Instructions)",
         imageBase64:"[NOT sent — only annotated minimap below is sent]",
         minimapBase64:annotated?"[see preview below]":null,
         gameTimeCropEmbedded:!!gameTimeCrop,
