@@ -22,8 +22,8 @@ export const DEFAULT_LANES: LanePaths = {
 export const DEFAULT_ZONES: ZoneData[] = [
   { id: "blue_base",   label: "Blue Base",   points: [{x:0,y:78},{x:18,y:78},{x:18,y:100},{x:0,y:100}] },
   { id: "red_base",    label: "Red Base",    points: [{x:82,y:0},{x:100,y:0},{x:100,y:22},{x:82,y:22}] },
-  { id: "baron_pit",   label: "Baron Pit",   points: [{x:26,y:12},{x:46,y:12},{x:46,y:32},{x:26,y:32}] },
-  { id: "dragon_pit",  label: "Dragon Pit",  points: [{x:50,y:69},{x:70,y:69},{x:70,y:92},{x:50,y:92}] },
+  { id: "baron_pit",   label: "Top Lane Pit",    points: [{x:26,y:12},{x:46,y:12},{x:46,y:32},{x:26,y:32}] },
+  { id: "dragon_pit",  label: "Bottom Lane Pit", points: [{x:50,y:69},{x:70,y:69},{x:70,y:92},{x:50,y:92}] },
   { id: "jungle_blue", label: "Blue Jungle", points: [{x:7,y:36},{x:26,y:24},{x:34,y:38},{x:22,y:60},{x:7,y:60}] },
   { id: "jungle_red",  label: "Red Jungle",  points: [{x:68,y:40},{x:93,y:30},{x:93,y:62},{x:78,y:62},{x:68,y:52}] },
 ];
@@ -155,9 +155,9 @@ export interface TowerConfig {
 }
 
 export const TOWER_LABELS = [
-  "Baron T1","Baron T2","Baron T3",
+  "Top T1","Top T2","Top T3",
   "Mid T1","Mid T2","Mid T3",
-  "Dragon T1","Dragon T2","Dragon T3",
+  "Bottom T1","Bottom T2","Bottom T3",
 ] as const;
 
 const TOWER_CONFIG_KEY = "wildrift_towers_v1";

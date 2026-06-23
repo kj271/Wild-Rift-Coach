@@ -11,7 +11,7 @@ interface Props {
   onClose: () => void;
 }
 
-const LANE_LABELS = ["Baron", "Mid", "Dragon"] as const;
+const LANE_LABELS = ["Top", "Mid", "Bottom"] as const;
 
 function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 
