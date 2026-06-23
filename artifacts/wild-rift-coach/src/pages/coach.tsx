@@ -412,6 +412,91 @@ function ObjControl({label,value,onChange}:{label:string;value:ObjStatus;onChang
 
 interface StreamingMsg{role:"user"|"assistant";content:string;streaming?:boolean}
 
+// ─── QuickChampPicker — bottom sheet after placing a pin ──────────────────────
+function QuickChampPicker({pin,label,onAssign,onRemove,onClose,favorites,onToggleFav}:{
+  pin:MapPin;label:string;
+  onAssign:(c:string|null)=>void;onRemove:()=>void;onClose:()=>void;
+  favorites:string[];onToggleFav:(c:string)=>void;
+}){
+  const[search,setSearch]=useState("");
+  const inputRef=useRef<HTMLInputElement>(null);
+  useEffect(()=>{setTimeout(()=>inputRef.current?.focus(),80);},[]);
+  const q=search.toLowerCase();
+  const words=q.split(/\s+/).filter(Boolean);
+  const filtered=words.length===0?CHAMPIONS:CHAMPIONS.filter(c=>{const t=c.toLowerCase();return words.every(w=>t.includes(w));});
+  const isAlly=pin.type==="ally";
+  return(
+    <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={onClose}>
+      <div className="bg-[#0b1120] border-t border-border/60 rounded-t-2xl max-h-[72vh] flex flex-col shadow-2xl"
+        onClick={e=>e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border/30 shrink-0">
+          <div className="flex items-center gap-2">
+            <span className={cn("text-sm font-display tracking-wider uppercase font-bold",isAlly?"text-sky-400":"text-red-400")}>{label}</span>
+            <span className="text-xs text-muted-foreground">{pin.champ?`— ${pin.champ}`:"— who is this?"}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {pin.champ&&(
+              <button onClick={()=>onAssign(null)}
+                className="text-[10px] text-muted-foreground border border-border/40 px-2 py-1 rounded-md hover:border-border active:scale-95">
+                Clear
+              </button>
+            )}
+            <button onClick={onRemove}
+              className="text-[10px] text-red-400 border border-red-500/40 px-2 py-1 rounded-md hover:bg-red-500/10 active:scale-95">
+              Remove pin
+            </button>
+            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 active:scale-95">
+              <X className="w-4 h-4"/>
+            </button>
+          </div>
+        </div>
+        {/* Search */}
+        <div className="px-3 pt-2.5 pb-2 shrink-0">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"/>
+            <input ref={inputRef} placeholder="Search champion…" value={search} onChange={e=>setSearch(e.target.value)}
+              className="w-full pl-9 pr-4 h-9 rounded-lg bg-black/50 border border-border/40 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/50"/>
+          </div>
+        </div>
+        {/* Favorites row */}
+        {favorites.length>0&&!search&&(
+          <div className="px-3 pb-2 flex flex-wrap gap-1.5 shrink-0">
+            {favorites.map(c=>(
+              <button key={c} onClick={()=>onAssign(c)}
+                className={cn("text-xs px-2.5 py-1 rounded-full border transition-all active:scale-95",
+                  pin.champ===c?"bg-amber-400/25 border-amber-400 text-amber-300":"bg-black/40 border-amber-400/30 text-amber-300/80 hover:border-amber-400/60")}>
+                ⭐ {c}
+              </button>
+            ))}
+          </div>
+        )}
+        {/* Champion grid */}
+        <div className="overflow-y-auto flex-1 px-3 pb-4">
+          <div className="grid grid-cols-4 gap-1.5">
+            {filtered.map(c=>{
+              const sel=pin.champ===c;
+              const isFav=favorites.includes(c);
+              return(
+                <div key={c} className="relative">
+                  <button onClick={()=>onAssign(c)}
+                    className={cn("w-full rounded-md px-1 py-2 text-[11px] font-medium text-center transition-all active:scale-95",
+                      sel?"bg-primary/25 text-primary border border-primary/50":"bg-black/30 text-slate-300 border border-border/30 hover:border-primary/30 hover:text-primary")}>
+                    {c}
+                  </button>
+                  <button onClick={ev=>{ev.stopPropagation();onToggleFav(c);}} className="absolute top-0.5 right-0.5 p-0.5 leading-none">
+                    <Star className={cn("w-2 h-2",isFav?"fill-amber-400 text-amber-400":"text-muted-foreground/30 hover:text-amber-400")}/>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BuffControl({label,value,onChange}:{label:string;value:BuffHolder;onChange:(v:BuffHolder)=>void}){
   const opts=[
     {v:"us"as const,label:"US",a:"bg-emerald-500/25 text-emerald-400 border-emerald-500/60",i:"text-muted-foreground hover:text-emerald-400"},
@@ -489,6 +574,7 @@ export default function CoachPage(){
   const[towersDown,setTowersDown]=useState<{ally:number[];enemy:number[]}>(
     (_sess.towersDown as {ally:number[];enemy:number[]})??{ally:[],enemy:[]}
   );
+  const[quickPickPinId,setQuickPickPinId]=useState<string|null>(null);
   const[contextOpen,setContextOpen]=useState(true);
   const[champPickOpen,setChampPickOpen]=useState(false);
 
@@ -603,10 +689,14 @@ export default function CoachPage(){
       setPins(p=>[...p.filter(pp=>pp.type!=="me"),{id:`me-${Date.now()}`,type:"me",x,y,pos,champ:myChamp}]);
     }else if(placeMode==="ally"){
       if(pins.filter(p=>p.type==="ally").length>=4)return;
-      setPins(p=>[...p,{id:`ally-${Date.now()}`,type:"ally",x,y,pos,champ:null}]);
+      const newId=`ally-${Date.now()}`;
+      setPins(p=>[...p,{id:newId,type:"ally",x,y,pos,champ:null}]);
+      setQuickPickPinId(newId);
     }else{
       if(pins.filter(p=>p.type==="enemy").length>=5)return;
-      setPins(p=>[...p,{id:`enemy-${Date.now()}`,type:"enemy",x,y,pos,champ:null}]);
+      const newId=`enemy-${Date.now()}`;
+      setPins(p=>[...p,{id:newId,type:"enemy",x,y,pos,champ:null}]);
+      setQuickPickPinId(newId);
     }
   },[placeMode,myChamp,pins,lanePaths,zones]);
 
@@ -794,8 +884,8 @@ export default function CoachPage(){
 
   const PLACE_CFG={
     me:   {active:"bg-amber-400/20 border-amber-400 text-amber-400",idle:"border-border/40 text-muted-foreground hover:border-amber-400/40",dot:"bg-amber-400",hint:"Tap anywhere on the minimap to drop YOUR pin — tap pin to remove"},
-    ally: {active:"bg-sky-400/20   border-sky-400   text-sky-400",  idle:"border-border/40 text-muted-foreground hover:border-sky-400/40",  dot:"bg-sky-400",  hint:`Tap to place ally pins (${allyPins.length}/4) — tap pin to remove`},
-    enemy:{active:"bg-red-500/20   border-red-500   text-red-400",  idle:"border-border/40 text-muted-foreground hover:border-red-400/40",  dot:"bg-red-500",  hint:`Tap to place enemy pins (${enemyPins.length}/5) — tap pin to remove`},
+    ally: {active:"bg-sky-400/20   border-sky-400   text-sky-400",  idle:"border-border/40 text-muted-foreground hover:border-sky-400/40",  dot:"bg-sky-400",  hint:`Tap map to place ally pin (${allyPins.length}/4) — tap pin to assign champ`},
+    enemy:{active:"bg-red-500/20   border-red-500   text-red-400",  idle:"border-border/40 text-muted-foreground hover:border-red-400/40",  dot:"bg-red-500",  hint:`Tap map to place enemy pin (${enemyPins.length}/5) — tap pin to assign champ`},
   };
 
   const PIN_BG={me:"bg-amber-400",ally:"bg-sky-400",enemy:"bg-red-500"};
@@ -927,15 +1017,18 @@ export default function CoachPage(){
                 )}
                 {pins.map(pin=>(
                   <div key={pin.id} data-pin="true"
-                    className="absolute -translate-x-1/2 -translate-y-1/2 z-10"
+                    className="absolute -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center"
                     style={{left:`${pin.x}%`,top:`${pin.y}%`}}
-                    onClick={e=>{e.stopPropagation();removePin(pin.id);}}>
+                    onClick={e=>{e.stopPropagation();if(pin.type!=="me")setQuickPickPinId(pin.id);else removePin(pin.id);}}>
                     <div className={cn(
                       "w-8 h-8 rounded-full border-2 flex items-center justify-center",
                       "font-display font-bold text-[11px] cursor-pointer shadow-lg active:scale-90 transition-transform",
                       PIN_BG[pin.type],PIN_BORDER[pin.type],PIN_TEXT[pin.type])}>
                       {pinLabel(pin)}
                     </div>
+                    {pin.champ&&(
+                      <span className="text-[8px] font-medium text-white bg-black/70 px-1 rounded mt-0.5 whitespace-nowrap leading-tight max-w-[60px] text-center truncate">{pin.champ}</span>
+                    )}
                   </div>
                 ))}
                 {/* Tower overlays — tappable on minimap */}
@@ -1405,6 +1498,31 @@ export default function CoachPage(){
         favorites={favorites}
         onToggleFav={toggleFav}
       />
+
+      {/* Quick champ picker — appears after placing ally/enemy pin, or on pin tap */}
+      {quickPickPinId&&(()=>{
+        const pin=pins.find(p=>p.id===quickPickPinId);
+        if(!pin||pin.type==="me")return null;
+        const ap=pins.filter(p=>p.type==="ally");
+        const ep=pins.filter(p=>p.type==="enemy");
+        const lbl=pin.type==="ally"
+          ?`A${pinSlot(ap.indexOf(pin),alliesDown)}`
+          :`E${pinSlot(ep.indexOf(pin),enemiesDown)}`;
+        return(
+          <QuickChampPicker
+            pin={pin}
+            label={lbl}
+            onAssign={champ=>{
+              setPins(prev=>prev.map(p=>p.id===quickPickPinId?{...p,champ}:p));
+              setQuickPickPinId(null);
+            }}
+            onRemove={()=>{removePin(quickPickPinId);setQuickPickPinId(null);}}
+            onClose={()=>setQuickPickPinId(null)}
+            favorites={favorites}
+            onToggleFav={toggleFav}
+          />
+        );
+      })()}
     </div>
   );
 }
