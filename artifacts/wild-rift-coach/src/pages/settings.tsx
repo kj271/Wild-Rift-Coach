@@ -9,8 +9,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronDown, Check, ArrowLeft, Settings2, Download, Upload, RotateCcw } from "lucide-react";
+import { ChevronDown, Check, ArrowLeft, Settings2, Download, Upload, RotateCcw, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const FAV_MODELS_KEY = "wildrift_fav_models";
 
 export default function SettingsPage() {
   const [model, setModel] = useModelStorage();
@@ -21,7 +23,22 @@ export default function SettingsPage() {
   const { prompt, save: savePrompt, reset: resetPrompt, isCustom } = useSystemPrompt();
   const [promptDraft, setPromptDraft] = useState(prompt);
 
+  const [favModels, setFavModels] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem(FAV_MODELS_KEY) ?? "[]"); } catch { return []; }
+  });
+
+  const toggleFavModel = (id: string) => {
+    setFavModels(prev => {
+      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+      localStorage.setItem(FAV_MODELS_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
   const selectedModel = models?.find(m => m.id === model);
+
+  const favList = models?.filter(m => favModels.includes(m.id)) ?? [];
+  const otherList = models?.filter(m => !favModels.includes(m.id)) ?? [];
 
   const exportConfig = () => {
     const data: Record<string, unknown> = {};
@@ -31,10 +48,11 @@ export default function SettingsPage() {
         try { data[key] = JSON.parse(val); } catch { data[key] = val; }
       }
     }
-    // Also include model and custom system prompt
     if (model) data["wildrift_model"] = model;
     const customPrompt = localStorage.getItem("wildrift_system_prompt");
     if (customPrompt) data["wildrift_system_prompt"] = customPrompt;
+    const favs = localStorage.getItem(FAV_MODELS_KEY);
+    if (favs) data[FAV_MODELS_KEY] = JSON.parse(favs);
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -65,6 +83,50 @@ export default function SettingsPage() {
     e.target.value = "";
   };
 
+  const ModelItem = ({ m, isFav }: { m: NonNullable<typeof models>[number]; isFav: boolean }) => (
+    <CommandItem
+      key={m.id}
+      value={`${m.id} ${m.name}`}
+      onSelect={(v) => {
+        const id = v.split(" ")[0];
+        setModel(id === model ? null : id);
+        setOpen(false);
+      }}
+      className="flex items-start justify-between py-3 cursor-pointer group"
+    >
+      <div className="flex items-start gap-2 flex-1 min-w-0">
+        <button
+          onPointerDown={e => { e.stopPropagation(); e.preventDefault(); toggleFavModel(m.id); }}
+          className={cn(
+            "mt-0.5 shrink-0 transition-colors",
+            isFav ? "text-amber-400" : "text-muted-foreground/30 hover:text-amber-400/60"
+          )}
+          title={isFav ? "Remove from favourites" : "Add to favourites"}
+        >
+          <Star className={cn("w-3.5 h-3.5", isFav && "fill-amber-400")} />
+        </button>
+        <div className="flex flex-col gap-1 min-w-0 pr-2">
+          <span className={cn("font-medium", model === m.id ? "text-primary" : "text-foreground")}>
+            {m.name}
+          </span>
+          {m.description && (
+            <span className="text-xs text-muted-foreground line-clamp-2">
+              {m.description}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-col items-end gap-1 shrink-0">
+        <Check className={cn("h-4 w-4 text-primary", model === m.id ? "opacity-100" : "opacity-0")} />
+        {m.pricing && (
+          <span className="text-[10px] text-muted-foreground font-mono">
+            {m.pricing.prompt}
+          </span>
+        )}
+      </div>
+    </CommandItem>
+  );
+
   return (
     <div className="min-h-screen bg-background text-foreground p-4 md:p-6 lg:p-8 flex justify-center">
       <div className="w-full max-w-2xl space-y-6">
@@ -88,14 +150,34 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle className="text-xl">AI Model Selection</CardTitle>
             <CardDescription>
-              Choose the OpenRouter model to power your macro advice.
-              Models with larger context windows are recommended for full game state analysis.
+              Choose the OpenRouter model to power your macro advice. Star models to pin them at the top for quick access.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Favourite quick-picks */}
+            {favList.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {favList.map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => { setModel(model === m.id ? null : m.id); }}
+                    className={cn(
+                      "flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-all active:scale-95",
+                      model === m.id
+                        ? "bg-primary/20 border-primary text-primary"
+                        : "bg-black/30 border-amber-400/30 text-amber-400/80 hover:border-amber-400/60 hover:text-amber-400"
+                    )}
+                  >
+                    <Star className={cn("w-3 h-3", model === m.id ? "fill-primary text-primary" : "fill-amber-400/60")} />
+                    {m.name}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="space-y-2">
               <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                Primary Model
+                {favList.length > 0 ? "All models" : "Select model"}
               </label>
               {isLoading ? (
                 <Skeleton className="h-10 w-full" />
@@ -109,46 +191,34 @@ export default function SettingsPage() {
                       className="w-full justify-between bg-black/40 border-border hover:bg-black/60 hover:text-primary transition-colors"
                     >
                       <span className="truncate">
-                        {selectedModel ? selectedModel.name : "Select a model..."}
+                        {selectedModel ? selectedModel.name : "Search & select a model..."}
                       </span>
                       <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 border-border bg-card/95 backdrop-blur-xl shadow-2xl">
+                  <PopoverContent
+                    className="w-[var(--radix-popover-trigger-width)] p-0 border-border bg-card/95 backdrop-blur-xl shadow-2xl"
+                    align="start"
+                    side="bottom"
+                    avoidCollisions={true}
+                    collisionPadding={16}
+                  >
                     <Command className="bg-transparent">
-                      <CommandInput placeholder="Search models..." className="border-none focus:ring-0" />
-                      <CommandList className="max-h-[300px] overflow-y-auto">
+                      <div className="sticky top-0 z-10 bg-card/95 backdrop-blur border-b border-border/40">
+                        <CommandInput placeholder="Search models..." className="border-none focus:ring-0" />
+                      </div>
+                      <CommandList className="max-h-[min(380px,55vh)] overflow-y-auto overscroll-contain">
                         <CommandEmpty>No model found.</CommandEmpty>
-                        <CommandGroup>
-                          {models?.map((m) => (
-                            <CommandItem
-                              key={m.id}
-                              value={m.id}
-                              onSelect={(currentValue) => {
-                                setModel(currentValue === model ? null : currentValue);
-                                setOpen(false);
-                              }}
-                              className="flex items-start justify-between py-3 cursor-pointer"
-                            >
-                              <div className="flex flex-col gap-1 pr-4">
-                                <span className={cn("font-medium", model === m.id ? "text-primary" : "text-foreground")}>
-                                  {m.name}
-                                </span>
-                                {m.description && (
-                                  <span className="text-xs text-muted-foreground line-clamp-2">
-                                    {m.description}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex flex-col items-end gap-1 shrink-0">
-                                <Check className={cn("h-4 w-4 text-primary", model === m.id ? "opacity-100" : "opacity-0")} />
-                                {m.pricing && (
-                                  <span className="text-[10px] text-muted-foreground font-mono">
-                                    {m.pricing.prompt}
-                                  </span>
-                                )}
-                              </div>
-                            </CommandItem>
+                        {favList.length > 0 && (
+                          <CommandGroup heading="⭐ Favourites">
+                            {favList.map(m => (
+                              <ModelItem key={m.id} m={m} isFav={true} />
+                            ))}
+                          </CommandGroup>
+                        )}
+                        <CommandGroup heading={favList.length > 0 ? "All models" : undefined}>
+                          {otherList.map(m => (
+                            <ModelItem key={m.id} m={m} isFav={false} />
                           ))}
                         </CommandGroup>
                       </CommandList>
@@ -236,7 +306,7 @@ export default function SettingsPage() {
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              Exported file includes: crop calibration, zone polygons, lane waypoints, favourite champions, and selected model.
+              Exported file includes: crop calibration, zone polygons, lane waypoints, favourite champions, favourite models, and selected model.
               It does NOT include game session data (screenshots, pins, advice).
             </p>
           </CardContent>

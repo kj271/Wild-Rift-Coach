@@ -457,6 +457,8 @@ export default function CoachPage(){
   const[showTimerCropEditor,setShowTimerCropEditor]=useState(false);
   const[showPortraitBarEditor,setShowPortraitBarEditor]=useState(false);
   const[showPortraitStripEditor,setShowPortraitStripEditor]=useState(false);
+  const[screenshotCollapsed,setScreenshotCollapsed]=useState(()=>localStorage.getItem("wildrift_screenshot_collapsed")==="true");
+  const toggleScreenshotCollapsed=()=>{const n=!screenshotCollapsed;setScreenshotCollapsed(n);localStorage.setItem("wildrift_screenshot_collapsed",String(n));};
   const[showZoneEditor,setShowZoneEditor]=useState(false);
 
   // Crop images (stored in state only — too large for localStorage)
@@ -826,7 +828,14 @@ export default function CoachPage(){
         {/* ── SCREENSHOT ──────────────────────────────────────────────── */}
         {imageBase64?(
           <div className="flex flex-col gap-1.5">
-            {/* Image with X in top-right corner */}
+            {/* Collapsible header */}
+            <button onClick={toggleScreenshotCollapsed}
+              className="flex items-center justify-between w-full px-3 py-2 rounded-xl border border-border/40 bg-card/30 text-xs font-display tracking-widest uppercase text-muted-foreground active:scale-[0.99]">
+              <span>Screenshot</span>
+              {screenshotCollapsed?<ChevronDown className="w-4 h-4"/>:<ChevronUp className="w-4 h-4"/>}
+            </button>
+            {/* Image + toolbar — hidden when collapsed */}
+            {!screenshotCollapsed&&(<>
             <div className="relative w-full rounded-xl overflow-hidden border border-border/40">
               <img src={imageBase64} alt="Game screenshot" className="w-full h-auto block" draggable={false}/>
               <button
@@ -908,6 +917,7 @@ export default function CoachPage(){
                 <Users className="w-3 h-3"/> Zones
               </button>
             </div>
+            </>)}
           </div>
         ):(
           <div className="w-full h-28 rounded-xl border-2 border-dashed border-border/40 hover:border-primary/30 transition-colors cursor-pointer flex flex-col items-center justify-center gap-2 text-muted-foreground"
@@ -922,8 +932,8 @@ export default function CoachPage(){
         <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
           onChange={e=>{const f=e.target.files?.[0];if(f)handleFile(f);}}/>
 
-        {/* ── MINIMAP TAP PANEL ──────────────────────────────────────── */}
-        {imageBase64&&(
+        {/* ── MINIMAP TAP PANEL + DEAD TRACKER ──────────────────────── */}
+        {imageBase64&&(<>
           <div className="bg-card/40 border border-border/40 rounded-xl overflow-hidden">
             <div className="px-4 py-2.5 border-b border-border/30 flex items-center justify-between">
               <span className="font-display text-xs tracking-widest uppercase text-muted-foreground flex items-center gap-2">
@@ -1016,20 +1026,78 @@ export default function CoachPage(){
                   {allyPins.map((p,i)=>(
                     <span key={p.id} className="flex items-center gap-1.5 text-[10px] text-sky-400 bg-sky-400/10 border border-sky-400/20 rounded-full px-2.5 py-1">
                       <span className="w-2 h-2 rounded-full bg-sky-400"/>
-                      A{i+1}: {posLabel(p.pos)}
+                      A{pinSlot(i,alliesDown)}: {posLabel(p.pos)}
                     </span>
                   ))}
                   {enemyPins.map((p,i)=>(
                     <span key={p.id} className="flex items-center gap-1.5 text-[10px] text-red-400 bg-red-500/10 border border-red-400/20 rounded-full px-2.5 py-1">
                       <span className="w-2 h-2 rounded-full bg-red-500"/>
-                      E{i+1}: {posLabel(p.pos)}
+                      E{pinSlot(i,enemiesDown)}: {posLabel(p.pos)}
                     </span>
                   ))}
                 </div>
               )}
             </div>
           </div>
-        )}
+
+          {/* ── SCORE BAR + PORTRAIT STRIP + DEAD TRACKER ── */}
+
+          <div className="bg-card/40 border border-border/40 rounded-xl overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-border/30">
+              <span className="font-display text-xs tracking-widest uppercase text-muted-foreground">Who's Dead</span>
+            </div>
+            <div className="p-3 space-y-3">
+              {/* Score bar crop */}
+              {gameTimeCrop&&(
+                <div className="rounded-lg overflow-hidden border border-border/20">
+                  <img src={gameTimeCrop} alt="Score bar" className="w-full h-auto block"/>
+                </div>
+              )}
+              {/* Portrait strip crop */}
+              {portraitStripCrop&&(
+                <div className="rounded-lg overflow-hidden border border-border/20">
+                  <img src={portraitStripCrop} alt="Portrait strip" className="w-full h-auto block"/>
+                </div>
+              )}
+              {/* Ally dead toggles */}
+              <div>
+                <span className="text-[10px] uppercase tracking-widest text-sky-400/70 font-display mb-1.5 block">Allies</span>
+                <div className="flex gap-2">
+                  {[1,2,3,4,5].map(n=>{
+                    const dead=alliesDown.includes(n);
+                    return(
+                      <button key={n} onClick={()=>setAlliesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
+                        className={cn("flex-1 py-2 rounded-lg border text-xs font-bold font-display transition-all active:scale-90",
+                          dead
+                            ?"bg-sky-900/60 border-sky-400/60 text-sky-300"
+                            :"bg-black/30 border-border/30 text-muted-foreground/50 hover:border-sky-400/30")}>
+                        {dead?`A${n} ✕`:`A${n}`}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              {/* Enemy dead toggles */}
+              <div>
+                <span className="text-[10px] uppercase tracking-widest text-red-400/70 font-display mb-1.5 block">Enemies</span>
+                <div className="flex gap-2">
+                  {[1,2,3,4,5].map(n=>{
+                    const dead=enemiesDown.includes(n);
+                    return(
+                      <button key={n} onClick={()=>setEnemiesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
+                        className={cn("flex-1 py-2 rounded-lg border text-xs font-bold font-display transition-all active:scale-90",
+                          dead
+                            ?"bg-red-900/60 border-red-400/60 text-red-300"
+                            :"bg-black/30 border-border/30 text-muted-foreground/50 hover:border-red-400/30")}>
+                        {dead?`E${n} ✕`:`E${n}`}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </>)}
 
         {/* ── CONTEXT PANEL ──────────────────────────────────────────── */}
         <div className="bg-card/40 border border-border/40 rounded-xl overflow-hidden">
@@ -1043,21 +1111,6 @@ export default function CoachPage(){
           </button>
           {contextOpen&&(
             <div className="border-t border-border/30 px-4 pb-5 space-y-5">
-              {/* Game time */}
-              <div className="pt-4">
-                <div className="flex justify-between mb-2 items-center">
-                  <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground flex items-center gap-2">
-                    Game Time
-                  </span>
-                  <span className="font-display text-primary font-bold text-base">{fmt(gameTimeSecs)}</span>
-                </div>
-                <input type="range" min={0} max={1800} step={30} value={gameTimeSecs}
-                  onChange={e=>setGameTimeSecs(Number(e.target.value))}
-                  className="w-full accent-primary h-2 rounded-full cursor-pointer"/>
-                <div className="flex justify-between text-[10px] text-muted-foreground/40 mt-1">
-                  <span>0:00</span><span>10:00</span><span>20:00</span><span>30:00</span>
-                </div>
-              </div>
               {/* Role */}
               <div>
                 <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground">My Role</span>
