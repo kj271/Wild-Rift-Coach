@@ -993,6 +993,12 @@ export default function CoachPage(){
                     <Map className="w-3 h-3"/> Edit zones
                   </button>
                 )}
+                {(towersDown.ally.length>0||towersDown.enemy.length>0)&&(
+                  <button onClick={()=>setTowersDown({ally:[],enemy:[]})}
+                    className="text-[10px] text-amber-400/80 hover:text-amber-300 border border-amber-400/30 hover:border-amber-400/60 px-2 py-1 rounded-full transition-colors">
+                    Reset towers
+                  </button>
+                )}
                 {(pins.length>0||objPins.length>0)&&(
                   <button onClick={()=>{setPins([]);setObjPins([]);}}
                     className="text-[10px] text-muted-foreground hover:text-white border border-border/30 px-2 py-1 rounded-full">
@@ -1097,10 +1103,10 @@ export default function CoachPage(){
                         setQuickObjPickPos({x:rect.left+rect.width/2,y:rect.top+rect.height/2});
                         setQuickObjPickId(pin.id);
                       }}>
-                      <div className="rounded-md border-2 flex flex-col items-center justify-center shadow-lg active:scale-90 transition-transform px-1 py-0.5"
-                        style={{background:"rgba(5,12,28,0.88)",borderColor:color,minWidth:"1.6rem"}}>
-                        <span style={{fontSize:"9px",fontWeight:"bold",color,lineHeight:1.1}}>{short}</span>
-                        {pin.status&&<span style={{fontSize:"7px",color:pin.status==="up"?"#22c55e":"#f59e0b",lineHeight:1}}>{pin.status==="up"?"UP":"~"}</span>}
+                      <div className="rounded-md border-2 flex flex-col items-center justify-center shadow-lg active:scale-90 transition-transform px-1.5 py-1"
+                        style={{background:"rgba(5,12,28,0.88)",borderColor:color,minWidth:"2.4rem"}}>
+                        <span style={{fontSize:"12px",fontWeight:"bold",color,lineHeight:1.1}}>{short}</span>
+                        {pin.status&&<span style={{fontSize:"9px",color:pin.status==="up"?"#22c55e":"#f59e0b",lineHeight:1.1}}>{pin.status==="up"?"UP":"~"}</span>}
                       </div>
                     </div>
                   );
@@ -1172,8 +1178,39 @@ export default function CoachPage(){
           {(gameTimeCrop||portraitStripCrop)&&(
             <div className="space-y-2">
               {gameTimeCrop&&(
-                <div className="rounded-xl overflow-hidden border border-border/30">
-                  <img src={gameTimeCrop} alt="Score bar" className="w-full h-auto block"/>
+                <div className="relative rounded-xl overflow-hidden border border-border/30">
+                  <img src={gameTimeCrop} alt="Score bar" className="w-full h-auto block pointer-events-none select-none"/>
+                  {/* Baron buff — left half */}
+                  <button
+                    onClick={()=>setBaronBuff(p=>p===null?"us":p==="us"?"them":null)}
+                    className="absolute inset-y-0 left-0 w-1/2 flex items-center justify-start pl-2 transition-all active:scale-[0.98]"
+                    style={{background:baronBuff?"rgba(168,85,247,0.18)":"transparent"}}>
+                    {baronBuff&&(
+                      <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold"
+                        style={{background:"rgba(168,85,247,0.7)",color:"#fff"}}>
+                        Baron · {baronBuff==="us"?"US":"THEM"}
+                      </span>
+                    )}
+                  </button>
+                  {/* Elder buff — right half */}
+                  <button
+                    onClick={()=>setElderBuff(p=>p===null?"us":p==="us"?"them":null)}
+                    className="absolute inset-y-0 right-0 w-1/2 flex items-center justify-end pr-2 transition-all active:scale-[0.98]"
+                    style={{background:elderBuff?"rgba(16,185,129,0.18)":"transparent"}}>
+                    {elderBuff&&(
+                      <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold"
+                        style={{background:"rgba(16,185,129,0.7)",color:"#fff"}}>
+                        Elder · {elderBuff==="us"?"US":"THEM"}
+                      </span>
+                    )}
+                  </button>
+                  {/* Hint when no buff active */}
+                  {!baronBuff&&!elderBuff&&(
+                    <div className="absolute inset-0 flex items-center justify-between px-2 pointer-events-none">
+                      <span className="text-[8px] text-white/20 font-display">tap for Baron buff</span>
+                      <span className="text-[8px] text-white/20 font-display">tap for Elder buff</span>
+                    </div>
+                  )}
                 </div>
               )}
               {/* Portrait strip with calibrated tap zones overlaid */}
@@ -1353,20 +1390,6 @@ export default function CoachPage(){
                     myChamp?"bg-primary/15 border-primary/50 text-primary":"bg-black/30 border-border/40 text-muted-foreground hover:border-primary/40")}>
                   {myChamp??`${favorites.length>0?"Other champion…":"+ Select champion (optional)"}`}
                 </button>
-              </div>
-              {/* Buffs */}
-              <div>
-                <button className="w-full flex items-center justify-between text-[10px] uppercase tracking-widest font-display text-muted-foreground mb-2"
-                  onClick={()=>setContextOpen(o=>o)}>
-                  <span className="flex items-center gap-2">
-                    Active Buffs <span className="text-muted-foreground/50 normal-case tracking-normal font-normal">(who has it?)</span>
-                    {hasBuffs&&<span className="w-2 h-2 rounded-full bg-emerald-400"/>}
-                  </span>
-                </button>
-                <div className="grid grid-cols-2 gap-2">
-                  <BuffControl label="Baron Buff" value={baronBuff} onChange={setBaronBuff}/>
-                  <BuffControl label="Elder Buff" value={elderBuff} onChange={setElderBuff}/>
-                </div>
               </div>
             </div>
           )}
