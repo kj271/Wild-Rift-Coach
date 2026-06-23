@@ -186,17 +186,17 @@ export function TowerCalibrator({ imageDataUrl, config, onSave, onClose }: Props
         )}
       </div>
 
-      {/* Map image */}
-      <div className="flex-1 overflow-hidden p-3">
+      {/* Map image — no object-contain; div must match the image exactly so % coords are accurate */}
+      <div className="flex-1 overflow-auto p-3">
         <div
           ref={imgRef}
-          className={cn("relative w-full h-full", selected && "cursor-crosshair")}
+          className={cn("relative w-full", selected && "cursor-crosshair")}
           onClick={handleBgClick}
           onTouchEnd={handleBgTouchEnd}>
           <img
             src={imageDataUrl}
             alt="Minimap"
-            className="w-full h-full object-contain pointer-events-none select-none"
+            className="w-full h-auto block pointer-events-none select-none"
             draggable={false}
           />
           {(["ally", "enemy"] as const).map(team =>
