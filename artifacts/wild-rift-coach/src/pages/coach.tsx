@@ -175,6 +175,19 @@ function posLabel(pos:PosInfo):string{
   return pos.zone;
 }
 
+// Returns the slot number for the i-th pin of a given type, skipping slots already
+// reserved by dead portrait markers. e.g. if slot 1 is dead, first placed pin = slot 2.
+function pinSlot(index:number,occupied:number[]):number{
+  let count=0;
+  for(let candidate=1;candidate<=20;candidate++){
+    if(!occupied.includes(candidate)){
+      if(count===index)return candidate;
+      count++;
+    }
+  }
+  return index+1;
+}
+
 // ─── Render annotated minimap onto canvas → base64 ───────────────────────────
 function loadImg(src:string):Promise<HTMLImageElement>{
   return new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=src;});
@@ -184,6 +197,8 @@ async function renderAnnotatedMinimap(
   pins:MapPin[],
   scoreboardCropDataUrl?:string|null,
   portraitStripDataUrl?:string|null,
+  alliesDown?:number[],
+  enemiesDown?:number[],
 ):Promise<string>{
   const img=await loadImg(minimapDataUrl);
   const W=img.naturalWidth*2,H=img.naturalHeight*2;
@@ -211,11 +226,12 @@ async function renderAnnotatedMinimap(
   const r=Math.round(W*0.05);
   const allyPins=pins.filter(p=>p.type==="ally");
   const enemyPins=pins.filter(p=>p.type==="enemy");
+  const aDown=alliesDown??[];const eDown=enemiesDown??[];
   for(const pin of pins){
     const px=pin.x/100*W,py=pin.y/100*H;
     const color=pin.type==="me"?"#FBBF24":pin.type==="ally"?"#38BDF8":"#EF4444";
     const outline=pin.type==="me"?"#92400E":pin.type==="ally"?"#0C4A6E":"#7F1D1D";
-    const label=pin.type==="me"?"ME":pin.type==="ally"?`A${allyPins.indexOf(pin)+1}`:`E${enemyPins.indexOf(pin)+1}`;
+    const label=pin.type==="me"?"ME":pin.type==="ally"?`A${pinSlot(allyPins.indexOf(pin),aDown)}`:`E${pinSlot(enemyPins.indexOf(pin),eDown)}`;
     ctx.shadowColor="rgba(0,0,0,0.8)";ctx.shadowBlur=8;
     ctx.beginPath();ctx.arc(px,py,r,0,Math.PI*2);
     ctx.fillStyle=color+"DD";ctx.fill();ctx.shadowBlur=0;
@@ -618,8 +634,8 @@ export default function CoachPage(){
       gameTime:gameTimeSecs>0?fmt(gameTimeSecs):null,
       myRole:myRole??null,
       myLocation:myPin?posLabel(myPin.pos):null,
-      allyChampions:allyPins.length?allyPins.map((p,i)=>{const l=posLabel(p.pos);return p.champ?`${p.champ}(A${i+1}) at ${l}`:`Ally ${i+1} at ${l}`;}).join(", "):null,
-      enemyChampions:enemyPins.length?enemyPins.map((p,i)=>{const l=posLabel(p.pos);return p.champ?`${p.champ}(E${i+1}) at ${l}`:`Enemy ${i+1} at ${l}`;}).join(", "):null,
+      allyChampions:allyPins.length?allyPins.map((p,i)=>{const s=pinSlot(i,alliesDown);const l=posLabel(p.pos);return p.champ?`${p.champ}(A${s}) at ${l}`:`A${s} at ${l}`;}).join(", "):null,
+      enemyChampions:enemyPins.length?enemyPins.map((p,i)=>{const s=pinSlot(i,enemiesDown);const l=posLabel(p.pos);return p.champ?`${p.champ}(E${s}) at ${l}`:`E${s} at ${l}`;}).join(", "):null,
       dragonStatus:dragon??null,elderDragonStatus:elderDragon??null,baronStatus:baron??null,riftHeraldStatus:herald??null,
       goldDiff:null,score:null,
       additionalNotes:(()=>{
@@ -629,8 +645,8 @@ export default function CoachPage(){
         else if(baronBuff==="them")parts.push("Enemy has Baron Buff");
         if(elderBuff==="us")parts.push("We have Elder Dragon Buff");
         else if(elderBuff==="them")parts.push("Enemy has Elder Dragon Buff");
-        if(alliesDown.length>0)parts.push(`${alliesDown.length} ally/allies currently dead (respawning)`);
-        if(enemiesDown.length>0)parts.push(`${enemiesDown.length} enemy/enemies currently dead (respawning)`);
+        if(alliesDown.length>0)parts.push(`Dead allies: ${alliesDown.sort((a,b)=>a-b).map(n=>`A${n}`).join(", ")}`);
+        if(enemiesDown.length>0)parts.push(`Dead enemies: ${enemiesDown.sort((a,b)=>a-b).map(n=>`E${n}`).join(", ")}`);
         if(userNotes.trim())parts.push(userNotes.trim());
         return parts.length?parts.join(". "):null;
       })(),
@@ -640,8 +656,8 @@ export default function CoachPage(){
   // Always return annotated minimap when available (with pins + game-time crop if present)
   const getAnnotatedMinimap=useCallback(async():Promise<string|null>=>{
     if(!minimapBase64)return null;
-    return renderAnnotatedMinimap(minimapBase64,pins,gameTimeCrop,portraitStripCrop);
-  },[minimapBase64,pins,gameTimeCrop,portraitStripCrop]);
+    return renderAnnotatedMinimap(minimapBase64,pins,gameTimeCrop,portraitStripCrop,alliesDown,enemiesDown);
+  },[minimapBase64,pins,gameTimeCrop,portraitStripCrop,alliesDown,enemiesDown]);
 
   // Persist debug info to sessionStorage so it survives refresh / tab switch
   useEffect(()=>{
@@ -773,7 +789,7 @@ export default function CoachPage(){
   const PIN_BG={me:"bg-amber-400",ally:"bg-sky-400",enemy:"bg-red-500"};
   const PIN_BORDER={me:"border-amber-400",ally:"border-sky-400",enemy:"border-red-500"};
   const PIN_TEXT={me:"text-black",ally:"text-black",enemy:"text-white"};
-  const pinLabel=(pin:MapPin)=>pin.type==="me"?"ME":pin.type==="ally"?`A${allyPins.indexOf(pin)+1}`:`E${enemyPins.indexOf(pin)+1}`;
+  const pinLabel=(pin:MapPin)=>pin.type==="me"?"ME":pin.type==="ally"?`A${pinSlot(allyPins.indexOf(pin),alliesDown)}`:`E${pinSlot(enemyPins.indexOf(pin),enemiesDown)}`;
 
   return(
     <div className="min-h-screen bg-background text-foreground flex flex-col">
