@@ -574,6 +574,14 @@ export default function CoachPage(){
   const[towersDown,setTowersDown]=useState<{ally:number[];enemy:number[]}>(
     (_sess.towersDown as {ally:number[];enemy:number[]})??{ally:[],enemy:[]}
   );
+  const[towerIconSizePct,setTowerIconSizePct]=useState<number>(()=>{
+    try{const v=localStorage.getItem("wildrift_tower_icon_size");return v?parseInt(v,10):6;}catch{return 6;}
+  });
+  const saveTowerIconSize=(v:number)=>{
+    const clamped=Math.max(4,Math.min(14,v));
+    setTowerIconSizePct(clamped);
+    try{localStorage.setItem("wildrift_tower_icon_size",String(clamped));}catch{}
+  };
   const[quickPickPinId,setQuickPickPinId]=useState<string|null>(null);
   const[contextOpen,setContextOpen]=useState(true);
   const[champPickOpen,setChampPickOpen]=useState(false);
@@ -1041,8 +1049,8 @@ export default function CoachPage(){
                         className="absolute -translate-x-1/2 -translate-y-1/2 z-10 rounded-sm border flex items-center justify-center font-bold leading-none active:scale-90 transition-transform"
                         style={{
                           left:`${pos.x}%`,top:`${pos.y}%`,
-                          width:"8%",aspectRatio:"1",
-                          fontSize:"2.8vw",
+                          width:`${towerIconSizePct}%`,aspectRatio:"1",
+                          fontSize:`${towerIconSizePct*0.35}vw`,
                           background:down?"rgba(5,12,28,0.92)":"rgba(5,12,28,0.72)",
                           borderColor:down?"rgba(100,100,100,0.5)":color,
                           color:down?"rgba(100,100,100,0.6)":color,
@@ -1218,6 +1226,14 @@ export default function CoachPage(){
                   onClick={()=>setShowTowerCalibrator(true)}>
                   <Building2 className="w-3 h-3"/> Towers
                 </button>
+                {/* Tower icon size control */}
+                <div className="flex items-center gap-0.5 border border-border/30 rounded-lg overflow-hidden">
+                  <button className="px-2 py-1 text-sm text-muted-foreground hover:text-white hover:bg-white/10 active:scale-95 leading-none"
+                    onClick={()=>saveTowerIconSize(towerIconSizePct-1)}>−</button>
+                  <span className="text-[10px] text-muted-foreground/60 w-6 text-center select-none">{towerIconSizePct}</span>
+                  <button className="px-2 py-1 text-sm text-muted-foreground hover:text-white hover:bg-white/10 active:scale-95 leading-none"
+                    onClick={()=>saveTowerIconSize(towerIconSizePct+1)}>+</button>
+                </div>
               </div>
             </>)}
           </div>

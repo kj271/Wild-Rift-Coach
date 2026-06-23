@@ -83,18 +83,15 @@ export function TowerCalibrator({ imageDataUrl, config, onSave, onClose }: Props
 
   function onTowerPointerUp(e: React.PointerEvent) {
     e.stopPropagation();
-    setTimeout(() => { dragging.current = null; }, 50);
+    dragging.current = null;
   }
 
-  function clearTower(team: "ally" | "enemy", idx: number, e: React.MouseEvent) {
-    e.stopPropagation();
-    if (dragging.current?.moved) return;
+  function clearTowerSlot(team: "ally" | "enemy", idx: number) {
     setEditing(prev => {
       const next: TowerConfig = { ally: [...prev.ally], enemy: [...prev.enemy] };
       next[team][idx] = null;
       return next;
     });
-    setSelected({ team, idx });
   }
 
   function handleReset() {
@@ -153,6 +150,7 @@ export function TowerCalibrator({ imageDataUrl, config, onSave, onClose }: Props
                       return (
                         <button key={idx}
                           onClick={() => setSelected(active ? null : { team, idx })}
+                          onContextMenu={e => { e.preventDefault(); clearTowerSlot(team, idx); }}
                           className={cn(
                             "flex-1 text-[10px] font-bold py-2 rounded border transition-all active:scale-95",
                             active
@@ -175,15 +173,24 @@ export function TowerCalibrator({ imageDataUrl, config, onSave, onClose }: Props
             </div>
           </div>
         ))}
-        {selected ? (
-          <p className="text-[10px] text-center text-amber-400/80">
-            Tap the map to place {selected.team === "ally" ? "Allied" : "Enemy"} {TOWER_LABELS[selected.idx]}
-          </p>
-        ) : (
-          <p className="text-[10px] text-center text-muted-foreground/40">
-            Select a tower slot above, then tap the map · T1 = outer (far from base) · T3 = inhibitor (near base)
-          </p>
-        )}
+        <div className="flex items-center justify-between gap-2">
+          {selected ? (
+            <p className="text-[10px] text-amber-400/80 flex-1">
+              Tap map to place {selected.team === "ally" ? "Allied" : "Enemy"} {TOWER_LABELS[selected.idx]} · Drag placed markers to reposition
+            </p>
+          ) : (
+            <p className="text-[10px] text-muted-foreground/40 flex-1">
+              Select a slot above then tap map · T1=outer · T3=inhibitor · Long-press slot to clear it
+            </p>
+          )}
+          {selected && editing[selected.team][selected.idx] != null && (
+            <button
+              onClick={() => clearTowerSlot(selected.team, selected.idx)}
+              className="shrink-0 text-[10px] text-red-400 border border-red-500/40 px-2 py-1 rounded hover:bg-red-500/10 active:scale-95">
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Map image — constrained by height so it never scrolls on iPad */}
@@ -223,8 +230,7 @@ export function TowerCalibrator({ imageDataUrl, config, onSave, onClose }: Props
                     }}
                     onPointerDown={e => onTowerPointerDown(e, team, idx)}
                     onPointerMove={onTowerPointerMove}
-                    onPointerUp={onTowerPointerUp}
-                    onClick={e => clearTower(team, idx, e)}>
+                    onPointerUp={onTowerPointerUp}>
                     {towerLabel(idx)}
                   </div>
                 </div>
