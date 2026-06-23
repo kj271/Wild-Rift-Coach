@@ -1099,26 +1099,22 @@ export default function CoachPage(){
                 )}
                 {pins.map(pin=>(
                   <div key={pin.id} data-pin="true"
-                    className="absolute -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center"
+                    className="absolute -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center p-2"
                     style={{left:`${pin.x}%`,top:`${pin.y}%`}}
                     onClick={e=>{
                       e.stopPropagation();
-                      if(pin.type!=="me"){
-                        const rect=(e.currentTarget as HTMLElement).getBoundingClientRect();
-                        setQuickPickPos({x:rect.left+rect.width/2,y:rect.top+rect.height/2});
-                        setQuickPickPinId(pin.id);
-                      }else{
-                        removePin(pin.id);
-                      }
+                      const rect=(e.currentTarget as HTMLElement).getBoundingClientRect();
+                      setQuickPickPos({x:rect.left+rect.width/2,y:rect.top+rect.height/2});
+                      setQuickPickPinId(pin.id);
                     }}>
                     <div className={cn(
-                      "w-8 h-8 rounded-full border-2 flex items-center justify-center",
-                      "font-display font-bold text-[11px] cursor-pointer shadow-lg active:scale-90 transition-transform",
+                      "w-11 h-11 rounded-full border-2 flex items-center justify-center",
+                      "font-display font-bold text-[13px] cursor-pointer shadow-lg active:scale-90 transition-transform",
                       PIN_BG[pin.type],PIN_BORDER[pin.type],PIN_TEXT[pin.type])}>
                       {pinLabel(pin)}
                     </div>
                     {pin.champ&&(
-                      <span className="text-[8px] font-medium text-white bg-black/70 px-1 rounded mt-0.5 whitespace-nowrap leading-tight max-w-[60px] text-center truncate">{pin.champ}</span>
+                      <span className="text-[9px] font-medium text-white bg-black/70 px-1 rounded mt-0.5 whitespace-nowrap leading-tight max-w-[64px] text-center truncate">{pin.champ}</span>
                     )}
                   </div>
                 ))}
@@ -1129,7 +1125,7 @@ export default function CoachPage(){
                   const color=cfg?.color??"#888888";
                   return(
                     <div key={pin.id} data-pin="true"
-                      className="absolute -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center cursor-pointer"
+                      className="absolute -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center cursor-pointer p-2"
                       style={{left:`${pin.x}%`,top:`${pin.y}%`}}
                       onClick={e=>{
                         e.stopPropagation();
@@ -1646,10 +1642,10 @@ export default function CoachPage(){
       {/* Quick champ picker — appears after placing ally/enemy pin, or on pin tap */}
       {quickPickPinId&&(()=>{
         const pin=pins.find(p=>p.id===quickPickPinId);
-        if(!pin||pin.type==="me")return null;
+        if(!pin)return null;
         const ap=pins.filter(p=>p.type==="ally");
         const ep=pins.filter(p=>p.type==="enemy");
-        const lbl=pin.type==="ally"
+        const lbl=pin.type==="me"?"ME":pin.type==="ally"
           ?`A${pinSlot(ap.indexOf(pin),alliesDown)}`
           :`E${pinSlot(ep.indexOf(pin),enemiesDown)}`;
         return(
