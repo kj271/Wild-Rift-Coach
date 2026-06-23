@@ -3,13 +3,17 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Wild Rift Macro Coach API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: openrouter
+    description: OpenRouter AI chat operations
+  - name: coach
+    description: Wild Rift macro coaching operations
 paths:
   /healthz:
     get:
@@ -24,6 +28,157 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /coach/analyze:
+    post:
+      operationId: analyzeScreenshot
+      tags: [coach]
+      summary: Analyze a Wild Rift screenshot for macro advice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalyzeInput"
+      responses:
+        "200":
+          description: Macro advice response (SSE stream)
+          content:
+            text/event-stream: {}
+
+  /coach/models:
+    get:
+      operationId: listModels
+      tags: [coach]
+      summary: List available OpenRouter models
+      responses:
+        "200":
+          description: List of available models
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ModelInfo"
+
+  /openrouter/conversations:
+    get:
+      operationId: listOpenrouterConversations
+      tags: [openrouter]
+      summary: List all conversations
+      responses:
+        "200":
+          description: List of conversations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OpenrouterConversation"
+    post:
+      operationId: createOpenrouterConversation
+      tags: [openrouter]
+      summary: Create a new conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenrouterConversationInput"
+      responses:
+        "201":
+          description: Created conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenrouterConversation"
+
+  /openrouter/conversations/{id}:
+    get:
+      operationId: getOpenrouterConversation
+      tags: [openrouter]
+      summary: Get conversation with messages
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Conversation with messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenrouterConversationWithMessages"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenrouterError"
+    delete:
+      operationId: deleteOpenrouterConversation
+      tags: [openrouter]
+      summary: Delete a conversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenrouterError"
+
+  /openrouter/conversations/{id}/messages:
+    get:
+      operationId: listOpenrouterMessages
+      tags: [openrouter]
+      summary: List messages in a conversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OpenrouterMessage"
+    post:
+      operationId: sendOpenrouterMessage
+      tags: [openrouter]
+      summary: Send a message and receive an AI response (SSE stream)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenrouterMessageInput"
+      responses:
+        "200":
+          description: SSE stream of assistant response chunks
+          content:
+            text/event-stream: {}
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +189,164 @@ components:
       required:
         - status
 
+    ModelInfo:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        context_length:
+          type: ["integer", "null"]
+        pricing:
+          type: object
+          properties:
+            prompt:
+              type: string
+            completion:
+              type: string
+          required: [prompt, completion]
+      required:
+        - id
+        - name
+
+    GameContext:
+      type: object
+      properties:
+        gameTime:
+          type: ["string", "null"]
+          description: Current game time (e.g. "8:42")
+        myLocation:
+          type: ["string", "null"]
+          description: Player location on map (e.g. "Mid lane", "Dragon pit", "Jungle")
+        myRole:
+          type: ["string", "null"]
+          description: Player role (e.g. "Mid", "ADC", "Support", "Jungle", "Top")
+        allyChampions:
+          type: ["string", "null"]
+          description: Comma-separated ally champion names
+        enemyChampions:
+          type: ["string", "null"]
+          description: Comma-separated enemy champion names
+        dragonStatus:
+          type: ["string", "null"]
+          description: Dragon status (e.g. "Up", "Down 1:30", "Soul point")
+        baronStatus:
+          type: ["string", "null"]
+          description: Baron status (e.g. "Up", "Down 2:00")
+        riftHeraldStatus:
+          type: ["string", "null"]
+          description: Rift Herald status
+        goldDiff:
+          type: ["string", "null"]
+          description: Gold difference (e.g. "+500", "-1200")
+        score:
+          type: ["string", "null"]
+          description: Kill score (e.g. "8-5")
+        additionalNotes:
+          type: ["string", "null"]
+          description: Any additional context
+
+    AnalyzeInput:
+      type: object
+      properties:
+        imageBase64:
+          type: ["string", "null"]
+          description: Base64 encoded screenshot image
+        model:
+          type: string
+          description: OpenRouter model ID to use
+        context:
+          $ref: "#/components/schemas/GameContext"
+      required:
+        - model
+
+    OpenrouterConversation:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - title
+        - createdAt
+
+    OpenrouterMessage:
+      type: object
+      properties:
+        id:
+          type: integer
+        conversationId:
+          type: integer
+        role:
+          type: string
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - conversationId
+        - role
+        - content
+        - createdAt
+
+    OpenrouterConversationInput:
+      type: object
+      properties:
+        title:
+          type: string
+        model:
+          type: string
+      required:
+        - title
+        - model
+
+    OpenrouterMessageInput:
+      type: object
+      properties:
+        content:
+          type: string
+        model:
+          type: string
+        context:
+          $ref: "#/components/schemas/GameContext"
+      required:
+        - content
+        - model
+
+    OpenrouterConversationWithMessages:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpenrouterMessage"
+      required:
+        - id
+        - title
+        - createdAt
+        - messages
+
+    OpenrouterError:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
