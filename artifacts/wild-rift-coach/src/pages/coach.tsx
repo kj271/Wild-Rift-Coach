@@ -76,35 +76,76 @@ interface ImageSlotState { pins:MapPin[]; benchPins:MapPin[]; objPins:ObjPin[]; 
 // ─── Session persistence ───────────────────────────────────────────────────────
 const SESSION_KEY = "wildrift_session";
 const SESSION_IMG_KEY = "wildrift_session_img";
-const SESSION_QUEUE_KEY = "wildrift_session_queue";
-const SESSION_CROPS_KEY = "wildrift_session_crops";
+const IDB_KEY_QUEUE = "queue";
+const IDB_KEY_IMGS  = "imgs";
+const IDB_KEY_CROPS = "crops";
+
+// ─── IndexedDB helpers — no quota limit, safe for large base64 images ─────────
+function _openIdb(): Promise<IDBDatabase> {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open("wildrift_coach_v1", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("kv");
+    r.onsuccess = () => res(r.result);
+    r.onerror   = () => rej(r.error);
+  });
+}
+async function idbSet(key: string, val: unknown): Promise<void> {
+  try {
+    const db = await _openIdb();
+    await new Promise<void>((res, rej) => {
+      const tx = db.transaction("kv", "readwrite");
+      tx.objectStore("kv").put(val, key);
+      tx.oncomplete = () => res();
+      tx.onerror    = () => rej(tx.error);
+    });
+  } catch {}
+}
+async function idbGet<T>(key: string): Promise<T | undefined> {
+  try {
+    const db = await _openIdb();
+    return new Promise<T | undefined>((res, rej) => {
+      const tx = db.transaction("kv", "readonly");
+      const r2 = tx.objectStore("kv").get(key);
+      r2.onsuccess = () => res(r2.result as T | undefined);
+      r2.onerror   = () => rej(r2.error);
+    });
+  } catch { return undefined; }
+}
+async function idbDel(key: string): Promise<void> {
+  try {
+    const db = await _openIdb();
+    await new Promise<void>((res, rej) => {
+      const tx = db.transaction("kv", "readwrite");
+      tx.objectStore("kv").delete(key);
+      tx.oncomplete = () => res();
+      tx.onerror    = () => rej(tx.error);
+    });
+  } catch {}
+}
 
 let _cachedSession: Record<string, unknown> | null = null;
 function loadSession(): Record<string, unknown> {
   if (_cachedSession !== null) return _cachedSession;
   try {
     const ctx = localStorage.getItem(SESSION_KEY);
-    const img = localStorage.getItem(SESSION_IMG_KEY);
-    const ctxData = ctx ? JSON.parse(ctx) as Record<string, unknown> : {};
-    const imgData = img ? JSON.parse(img) as Record<string, unknown> : {};
-    _cachedSession = { ...ctxData, ...imgData };
+    _cachedSession = ctx ? JSON.parse(ctx) as Record<string, unknown> : {};
   } catch { _cachedSession = {}; }
   return _cachedSession!;
 }
 function saveSession(data: Record<string, unknown>) {
-  // Keep module-level cache current so component remounts read latest state (not original mount state)
   _cachedSession = { ...data };
-  // Split images (large) from context (small) so context always saves even if images exceed quota
-  const { imageBase64, minimapBase64, ...ctx } = data;
+  // Only small text fields go to localStorage — images go to IndexedDB via separate useEffects
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { imageBase64: _ib, minimapBase64: _mb, ...ctx } = data;
   try { localStorage.setItem(SESSION_KEY, JSON.stringify(ctx)); } catch {}
-  try { localStorage.setItem(SESSION_IMG_KEY, JSON.stringify({ imageBase64, minimapBase64 })); } catch {}
 }
 function clearSessionStorage() {
   _cachedSession = null;
   try { localStorage.removeItem(SESSION_KEY); } catch {}
   try { localStorage.removeItem(SESSION_IMG_KEY); } catch {}
-  try { localStorage.removeItem(SESSION_QUEUE_KEY); } catch {}
-  try { sessionStorage.removeItem(SESSION_CROPS_KEY); } catch {}
+  idbDel(IDB_KEY_QUEUE);
+  idbDel(IDB_KEY_IMGS);
+  idbDel(IDB_KEY_CROPS);
 }
 
 // ─── Geometry helpers ─────────────────────────────────────────────────────────
@@ -629,14 +670,16 @@ export default function CoachPage(){
   // Load persisted session once on mount
   const[_sess]=useState(()=>loadSession());
 
-  // Screenshot
-  const[imageBase64,setImageBase64]=useState<string|null>((_sess.imageBase64 as string|null)??null);
-  const[minimapBase64,setMinimapBase64]=useState<string|null>((_sess.minimapBase64 as string|null)??null);
+  // Screenshot — initialized null; images restored from IndexedDB async in mount effect below
+  const[imageBase64,setImageBase64]=useState<string|null>(null);
+  const[minimapBase64,setMinimapBase64]=useState<string|null>(null);
   const[imageQueue,setImageQueue]=useState<string[]>([]);
   const[activeQueueIdx,setActiveQueueIdx]=useState(0);
   const perImageState=useRef<Map<string,ImageSlotState>>(new Map());
   const fileInputRef=useRef<HTMLInputElement>(null);
   const appendFileInputRef=useRef<HTMLInputElement>(null);
+  // Guards IDB save effects from firing before the mount-restore reads complete
+  const idbReady=useRef(false);
 
   // Calibration modals
   const[showCropEditor,setShowCropEditor]=useState(false);
@@ -736,31 +779,42 @@ export default function CoachPage(){
     saveSession({imageBase64,minimapBase64,pins,objPins,myRole,myChamp,baronBuff,elderBuff,alliesDown,enemiesDown,towersDown,gameTimeSecs,advice,userNotes});
   },[imageBase64,minimapBase64,pins,objPins,myRole,myChamp,baronBuff,elderBuff,alliesDown,enemiesDown,gameTimeSecs,advice,userNotes]);
 
-  // Persist full image queue so iOS background-kill can't wipe it
+  // On mount — restore everything from IndexedDB FIRST, then unlock saves
   useEffect(()=>{
-    try{
-      if(imageQueue.length>0)localStorage.setItem(SESSION_QUEUE_KEY,JSON.stringify({imageQueue,activeQueueIdx}));
-      else localStorage.removeItem(SESSION_QUEUE_KEY);
-    }catch{}
-  },[imageQueue,activeQueueIdx]);
-
-  // Persist regeneratable crops to sessionStorage (smaller than full screenshots)
-  useEffect(()=>{
-    try{sessionStorage.setItem(SESSION_CROPS_KEY,JSON.stringify({gameTimeCrop,portraitStripCrop}));}catch{}
-  },[gameTimeCrop,portraitStripCrop]);
-
-  // On mount — restore imageQueue + crops (after iOS/Chrome background kill)
-  useEffect(()=>{
-    try{
-      const qd=localStorage.getItem(SESSION_QUEUE_KEY);
-      if(qd){const{imageQueue:q,activeQueueIdx:idx}=JSON.parse(qd);if(Array.isArray(q)&&q.length){setImageQueue(q);setActiveQueueIdx(idx??0);}}
-    }catch{}
-    try{
-      const cd=sessionStorage.getItem(SESSION_CROPS_KEY);
-      if(cd){const{gameTimeCrop:gtc,portraitStripCrop:psc}=JSON.parse(cd);if(gtc)setGameTimeCrop(gtc);if(psc)setPortraitStripCrop(psc);}
-    }catch{}
+    Promise.all([
+      idbGet<{imageBase64:string|null;minimapBase64:string|null}>(IDB_KEY_IMGS).then(d=>{
+        if(d?.imageBase64)setImageBase64(d.imageBase64);
+        if(d?.minimapBase64)setMinimapBase64(d.minimapBase64);
+      }),
+      idbGet<{imageQueue:string[];activeQueueIdx:number}>(IDB_KEY_QUEUE).then(d=>{
+        if(d&&Array.isArray(d.imageQueue)&&d.imageQueue.length){setImageQueue(d.imageQueue);setActiveQueueIdx(d.activeQueueIdx??0);}
+      }),
+      idbGet<{gameTimeCrop:string|null;portraitStripCrop:string|null}>(IDB_KEY_CROPS).then(d=>{
+        if(d?.gameTimeCrop)setGameTimeCrop(d.gameTimeCrop);
+        if(d?.portraitStripCrop)setPortraitStripCrop(d.portraitStripCrop);
+      }),
+    ]).finally(()=>{ idbReady.current=true; });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
+
+  // Persist active image + minimap to IndexedDB — guarded so initial null state can't overwrite saved data
+  useEffect(()=>{
+    if(!idbReady.current)return;
+    idbSet(IDB_KEY_IMGS,{imageBase64,minimapBase64});
+  },[imageBase64,minimapBase64]);
+
+  // Persist full image queue to IndexedDB
+  useEffect(()=>{
+    if(!idbReady.current)return;
+    if(imageQueue.length>0)idbSet(IDB_KEY_QUEUE,{imageQueue,activeQueueIdx});
+    else idbDel(IDB_KEY_QUEUE);
+  },[imageQueue,activeQueueIdx]);
+
+  // Persist crops to IndexedDB
+  useEffect(()=>{
+    if(!idbReady.current)return;
+    idbSet(IDB_KEY_CROPS,{gameTimeCrop,portraitStripCrop});
+  },[gameTimeCrop,portraitStripCrop]);
 
   const handleClearSession=useCallback(()=>{
     clearSessionStorage();
