@@ -36,7 +36,7 @@ const CHAMPIONS = [
   "Darius","Diana","Dr. Mundo","Draven",
   "Ekko","Elise","Evelynn","Ezreal",
   "Fiddlesticks","Fiora","Fizz",
-  "Galio","Gangplank","Garen","Gnar","Gragas","Graves",
+  "Galio","Gangplank","Garen","Gnar","Gragas","Graves","Gwen",
   "Hecarim","Heimerdinger",
   "Irelia",
   "Janna","Jarvan IV","Jax","Jayce","Jhin","Jinx",
@@ -1267,6 +1267,13 @@ export default function CoachPage(){
                     );
                   })
                 )}
+                {/* Bench drop zone overlay — always inside minimap so pointer capture can reach it */}
+                <div ref={benchRef}
+                  className="absolute bottom-0 inset-x-0 z-20 flex items-center justify-center gap-1.5 py-2 border-t-2 border-dashed bg-black/60"
+                  style={{pointerEvents:"none",borderColor:"rgba(148,163,184,0.25)"}}>
+                  <span className="text-[10px] uppercase tracking-widest font-display"
+                    style={{color:"rgba(148,163,184,0.45)"}}>↓ drag here — not on map</span>
+                </div>
               </div>
 
               {/* Position tags */}
@@ -1292,10 +1299,10 @@ export default function CoachPage(){
                   ))}
                 </div>
               )}
-            {/* ── BENCH: not on map ───────────────────────────────── */}
-            <div ref={benchRef}
-              className={cn("mx-3 mb-3 rounded-lg border-2 border-dashed min-h-[52px] flex flex-wrap gap-2 items-center px-3 py-2 transition-colors",
-                benchPins.length===0?"border-border/25 bg-black/10":"border-border/40 bg-black/20")}>
+            {/* ── BENCH: not on map — chips display ───────────────── */}
+            <div
+              className={cn("mx-3 mb-3 rounded-lg border-2 border-dashed min-h-[44px] flex flex-wrap gap-2 items-center px-3 py-2 transition-colors",
+                benchPins.length===0?"border-border/20 bg-black/5":"border-border/40 bg-black/20")}>
               <span className="text-[10px] text-muted-foreground/50 uppercase tracking-widest shrink-0">Not on map</span>
               {benchPins.length===0&&(
                 <span className="text-[10px] text-muted-foreground/30 italic">drag a pin here</span>
