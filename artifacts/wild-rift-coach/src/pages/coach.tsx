@@ -61,7 +61,7 @@ type Role = typeof ROLES[number];
 type ObjType = "baron" | "dragon" | "rift_herald" | "elder_dragon";
 type ObjStatus = "up" | "soon" | null; // null = down
 type BuffHolder = "us" | "them" | null;
-type PinType = "me" | "ally" | "enemy";
+type PinType = "me" | "ally" | "enemy" | "ally_wave" | "enemy_wave";
 type PlaceMode = PinType | "obj" | null;
 interface ObjPin { id:string; x:number; y:number; pos:PosInfo; objType:ObjType|null; status:ObjStatus }
 
@@ -675,6 +675,9 @@ export default function CoachPage(){
   // Advice
   const[advice,setAdvice]=useState((_sess.advice as string)??'');
   const[isAdvising,setIsAdvising]=useState(false);
+  const[adviceElapsedMs,setAdviceElapsedMs]=useState<number|null>(null);
+  const adviceStartRef=useRef<number>(0);
+  const adviceTimerRef=useRef<ReturnType<typeof setInterval>|null>(null);
   const[debugInfo,setDebugInfo]=useState<{systemPrompt:string;userText:string}|null>(()=>{
     try{const s=sessionStorage.getItem("wr_debug_info");return s?JSON.parse(s):null;}catch{return null;}
   });
@@ -807,10 +810,15 @@ export default function CoachPage(){
     }else if(placeMode==="obj"){
       const id=`obj-${Date.now()}`;
       setObjPins(p=>[...p,{id,x,y,pos:classifyPos(x,y,lanePaths,zones),objType:null,status:null}]);
-      // Get screen coords for popup
       const rect=minimapDivRef.current!.getBoundingClientRect();
       setQuickObjPickPos({x:rect.left+x/100*rect.width,y:rect.top+y/100*rect.height});
       setQuickObjPickId(id);
+    }else if(placeMode==="ally_wave"){
+      if(pins.filter(p=>p.type==="ally_wave").length>=5)return;
+      setPins(p=>[...p,{id:`aw-${Date.now()}`,type:"ally_wave",x,y,pos,champ:null}]);
+    }else if(placeMode==="enemy_wave"){
+      if(pins.filter(p=>p.type==="enemy_wave").length>=5)return;
+      setPins(p=>[...p,{id:`ew-${Date.now()}`,type:"enemy_wave",x,y,pos,champ:null}]);
     }else{
       if(pins.filter(p=>p.type==="enemy").length>=5)return;
       setPins(p=>[...p,{id:`enemy-${Date.now()}`,type:"enemy",x,y,pos,champ:null}]);
@@ -853,6 +861,10 @@ export default function CoachPage(){
       goldDiff:null,score:null,
       additionalNotes:(()=>{
         const parts:string[]=[];
+        const awPins=pins.filter(p=>p.type==="ally_wave");
+        const ewPins=pins.filter(p=>p.type==="enemy_wave");
+        if(awPins.length)parts.push(`Allied minion waves at: ${awPins.map(p=>posLabel(p.pos)).join(", ")}`);
+        if(ewPins.length)parts.push(`Enemy minion waves at: ${ewPins.map(p=>posLabel(p.pos)).join(", ")}`);
         if(myChamp)parts.push(`I am playing ${myChamp}`);
         if(baronBuff==="us")parts.push("We have Baron Buff");
         else if(baronBuff==="them")parts.push("Enemy has Baron Buff");
@@ -897,7 +909,9 @@ export default function CoachPage(){
   // ── Advise ────────────────────────────────────────────────────────────────────
   const getAdvice=async()=>{
     if(!model)return;
-    setIsAdvising(true);setAdvice("");
+    setIsAdvising(true);setAdvice("");setAdviceElapsedMs(null);
+    adviceStartRef.current=Date.now();
+    adviceTimerRef.current=setInterval(()=>setAdviceElapsedMs(Date.now()-adviceStartRef.current),100);
     try{
       const annotated=await getAnnotatedMinimap();
       const ctx=buildContext();
@@ -943,7 +957,11 @@ export default function CoachPage(){
         }
       }
     }catch{setAdvice("Error — check model in Settings and try again.");}
-    finally{setIsAdvising(false);}
+    finally{
+      if(adviceTimerRef.current)clearInterval(adviceTimerRef.current);
+      setAdviceElapsedMs(Date.now()-adviceStartRef.current);
+      setIsAdvising(false);
+    }
   };
 
   // ── Chat ──────────────────────────────────────────────────────────────────────
@@ -994,21 +1012,29 @@ export default function CoachPage(){
   const myPin=pins.find(p=>p.type==="me");
   const allyPins=pins.filter(p=>p.type==="ally");
   const enemyPins=pins.filter(p=>p.type==="enemy");
+  const allyWavePins=pins.filter(p=>p.type==="ally_wave");
+  const enemyWavePins=pins.filter(p=>p.type==="enemy_wave");
   const hasContext=pins.length>0||objPins.length>0||!!myChamp||!!myRole||!!baronBuff||!!elderBuff||gameTimeSecs>0;
   const canAdvise=!!model&&!isAdvising&&(!!imageBase64||hasContext);
   const hasBuffs=baronBuff!==null||elderBuff!==null;
 
   const PLACE_CFG={
-    me:   {active:"bg-amber-400/20  border-amber-400  text-amber-400",idle:"border-border/40 text-muted-foreground hover:border-amber-400/40",dot:"bg-amber-400", hint:"Tap anywhere on the minimap to drop YOUR pin — tap pin to remove"},
-    ally: {active:"bg-sky-400/20    border-sky-400    text-sky-400",  idle:"border-border/40 text-muted-foreground hover:border-sky-400/40",  dot:"bg-sky-400",  hint:`Tap map to place ally pin (${allyPins.length}/4) — tap pin to assign champ`},
-    enemy:{active:"bg-red-500/20    border-red-500    text-red-400",  idle:"border-border/40 text-muted-foreground hover:border-red-400/40",  dot:"bg-red-500",  hint:`Tap map to place enemy pin (${enemyPins.length}/5) — tap pin to assign champ`},
-    obj:  {active:"bg-purple-500/20 border-purple-500 text-purple-400",idle:"border-border/40 text-muted-foreground hover:border-purple-500/40",dot:"bg-purple-400",hint:"Tap map to mark an objective location — then pick type & status"},
+    me:        {active:"bg-amber-400/20  border-amber-400  text-amber-400", idle:"border-border/40 text-muted-foreground hover:border-amber-400/40", dot:"bg-amber-400",  hint:"Tap anywhere on the minimap to drop YOUR pin — tap pin to remove"},
+    ally:      {active:"bg-sky-400/20    border-sky-400    text-sky-400",   idle:"border-border/40 text-muted-foreground hover:border-sky-400/40",   dot:"bg-sky-400",   hint:`Tap map to place ally pin (${allyPins.length}/4) — tap pin to assign champ`},
+    enemy:     {active:"bg-red-500/20    border-red-500    text-red-400",   idle:"border-border/40 text-muted-foreground hover:border-red-400/40",   dot:"bg-red-500",   hint:`Tap map to place enemy pin (${enemyPins.length}/5) — tap pin to assign champ`},
+    obj:       {active:"bg-purple-500/20 border-purple-500 text-purple-400",idle:"border-border/40 text-muted-foreground hover:border-purple-500/40", dot:"bg-purple-400",hint:"Tap map to mark an objective location — then pick type & status"},
+    ally_wave: {active:"bg-green-400/20  border-green-400  text-green-400", idle:"border-border/40 text-muted-foreground hover:border-green-400/40",  dot:"bg-green-400", hint:"Tap map to mark an allied minion wave position — tap pin to remove"},
+    enemy_wave:{active:"bg-orange-400/20 border-orange-400 text-orange-400",idle:"border-border/40 text-muted-foreground hover:border-orange-400/40", dot:"bg-orange-400",hint:"Tap map to mark an enemy minion wave position — tap pin to remove"},
   };
 
-  const PIN_BG={me:"bg-amber-400",ally:"bg-sky-400",enemy:"bg-red-500"};
-  const PIN_BORDER={me:"border-amber-400",ally:"border-sky-400",enemy:"border-red-500"};
-  const PIN_TEXT={me:"text-black",ally:"text-black",enemy:"text-white"};
-  const pinLabel=(pin:MapPin)=>pin.type==="me"?"ME":pin.type==="ally"?`A${pinSlot(allyPins.indexOf(pin),alliesDown)}`:`E${pinSlot(enemyPins.indexOf(pin),enemiesDown)}`;
+  const PIN_BG:Record<PinType,string>={me:"bg-amber-400",ally:"bg-sky-400",enemy:"bg-red-500",ally_wave:"bg-green-400",enemy_wave:"bg-orange-400"};
+  const PIN_BORDER:Record<PinType,string>={me:"border-amber-400",ally:"border-sky-400",enemy:"border-red-500",ally_wave:"border-green-400",enemy_wave:"border-orange-400"};
+  const PIN_TEXT:Record<PinType,string>={me:"text-black",ally:"text-black",enemy:"text-white",ally_wave:"text-black",enemy_wave:"text-black"};
+  const pinLabel=(pin:MapPin)=>
+    pin.type==="me"?"ME":
+    pin.type==="ally"?`A${pinSlot(allyPins.indexOf(pin),alliesDown)}`:
+    pin.type==="enemy"?`E${pinSlot(enemyPins.indexOf(pin),enemiesDown)}`:
+    pin.type==="ally_wave"?`W${allyWavePins.indexOf(pin)+1}`:`W${enemyWavePins.indexOf(pin)+1}`;
 
   return(
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -1136,11 +1162,11 @@ export default function CoachPage(){
 
             <div className="p-3 space-y-3">
               {/* Mode buttons */}
-              <div className="grid grid-cols-4 gap-1.5">
-                {(["me","ally","enemy","obj"] as const).map(type=>{
+              <div className="grid grid-cols-3 gap-1.5">
+                {(["me","ally","enemy","obj","ally_wave","enemy_wave"] as const).map(type=>{
                   const cfg=PLACE_CFG[type];
                   const active=placeMode===type;
-                  const count=type==="me"?(myPin?1:0):type==="ally"?allyPins.length:type==="enemy"?enemyPins.length:objPins.length;
+                  const count=type==="me"?(myPin?1:0):type==="ally"?allyPins.length:type==="enemy"?enemyPins.length:type==="obj"?objPins.length:type==="ally_wave"?allyWavePins.length:enemyWavePins.length;
                   return(
                     <button key={type} onClick={()=>setPlaceMode(p=>p===type?null:type)}
                       className={cn("flex flex-col items-center justify-center gap-0.5 py-2 rounded-lg border text-[10px] font-bold transition-all active:scale-95 font-display bg-black/30",
@@ -1149,7 +1175,9 @@ export default function CoachPage(){
                       {type==="ally"&&<Users className="w-3.5 h-3.5"/>}
                       {type==="enemy"&&<Swords className="w-3.5 h-3.5"/>}
                       {type==="obj"&&<Target className="w-3.5 h-3.5"/>}
-                      <span>{type==="me"?"Me":type==="ally"?"Ally":type==="enemy"?"Enemy":"Obj"}</span>
+                      {type==="ally_wave"&&<span className="text-sm leading-none">≋</span>}
+                      {type==="enemy_wave"&&<span className="text-sm leading-none">≋</span>}
+                      <span>{type==="me"?"Me":type==="ally"?"Ally":type==="enemy"?"Enemy":type==="obj"?"Obj":type==="ally_wave"?"A.Wave":"E.Wave"}</span>
                       {count>0&&<span className={cn("w-3.5 h-3.5 rounded-full text-[8px] font-bold flex items-center justify-center text-black",cfg.dot)}>{count}</span>}
                     </button>
                   );
@@ -1162,6 +1190,8 @@ export default function CoachPage(){
                   placeMode==="me"?"bg-amber-400/10 border-amber-400/40 text-amber-400":
                   placeMode==="ally"?"bg-sky-400/10 border-sky-400/40 text-sky-400":
                   placeMode==="obj"?"bg-purple-500/10 border-purple-500/40 text-purple-400":
+                  placeMode==="ally_wave"?"bg-green-400/10 border-green-400/40 text-green-400":
+                  placeMode==="enemy_wave"?"bg-orange-400/10 border-orange-400/40 text-orange-400":
                   "bg-red-500/10 border-red-500/40 text-red-400")}>
                   {PLACE_CFG[placeMode].hint}
                 </p>
@@ -1655,9 +1685,16 @@ export default function CoachPage(){
         {/* ── ADVICE OUTPUT ──────────────────────────────────────────── */}
         {(advice||isAdvising)&&(
           <div className="bg-card/60 border border-primary/30 rounded-xl overflow-hidden">
-            <div className="px-4 py-2.5 bg-primary/5 border-b border-primary/20 flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-primary animate-pulse"/>
-              <span className="font-display text-xs tracking-widest uppercase text-primary">Tactical Read</span>
+            <div className="px-4 py-2.5 bg-primary/5 border-b border-primary/20 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-primary animate-pulse"/>
+                <span className="font-display text-xs tracking-widest uppercase text-primary">Tactical Read</span>
+              </div>
+              {adviceElapsedMs!==null&&(
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  {isAdvising?`⏱ ${(adviceElapsedMs/1000).toFixed(1)}s…`:`✓ ${(adviceElapsedMs/1000).toFixed(1)}s`}
+                </span>
+              )}
             </div>
             <div className="p-4">
               {advice
