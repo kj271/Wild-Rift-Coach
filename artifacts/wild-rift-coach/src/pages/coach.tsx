@@ -973,17 +973,20 @@ export default function CoachPage(){
                     const n=i+1,dead=alliesDown.includes(n);
                     const sx=((pos.x-portraitStripConfig.x)/portraitStripConfig.w)*100;
                     const sy=((pos.y-portraitStripConfig.y)/portraitStripConfig.h)*100;
-                    const sz=((portraitConfig.sizePct??5.5)/portraitStripConfig.w)*100;
+                    // sizePct is already in strip-relative % (calibrated on strip image)
+                    const sz=portraitConfig.sizePct??5.5;
                     if(sx<-5||sx>105||sy<-5||sy>105)return null;
                     return(
                       <button key={`ps-a${n}`}
                         onClick={()=>setAlliesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
-                        className="absolute rounded-full flex items-center justify-center font-bold leading-none select-none"
+                        className="absolute rounded-full flex items-center justify-center font-black leading-none select-none"
                         style={{left:`${sx}%`,top:`${sy}%`,transform:"translate(-50%,-50%)",width:`${sz}%`,aspectRatio:"1",
-                          background:dead?"rgba(2,6,23,0.88)":"transparent",
-                          border:dead?"2px solid rgba(56,189,248,0.7)":"2px solid transparent",
-                          color:dead?"#7dd3fc":"transparent",fontSize:"9px"}}>
-                        {dead?`A${n} ✕`:""}
+                          background:dead?"rgb(14,116,144)":"transparent",
+                          border:"none",
+                          color:dead?"#fff":"transparent",
+                          fontSize:`${sz*0.38}vw`,
+                          textShadow:dead?"0 1px 3px rgba(0,0,0,0.8)":"none"}}>
+                        {dead?`A${n}`:""}
                       </button>
                     );
                   })}
@@ -992,17 +995,19 @@ export default function CoachPage(){
                     const n=i+1,dead=enemiesDown.includes(n);
                     const sx=((pos.x-portraitStripConfig.x)/portraitStripConfig.w)*100;
                     const sy=((pos.y-portraitStripConfig.y)/portraitStripConfig.h)*100;
-                    const sz=((portraitConfig.sizePct??5.5)/portraitStripConfig.w)*100;
+                    const sz=portraitConfig.sizePct??5.5;
                     if(sx<-5||sx>105||sy<-5||sy>105)return null;
                     return(
                       <button key={`ps-e${n}`}
                         onClick={()=>setEnemiesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
-                        className="absolute rounded-full flex items-center justify-center font-bold leading-none select-none"
+                        className="absolute rounded-full flex items-center justify-center font-black leading-none select-none"
                         style={{left:`${sx}%`,top:`${sy}%`,transform:"translate(-50%,-50%)",width:`${sz}%`,aspectRatio:"1",
-                          background:dead?"rgba(2,6,23,0.88)":"transparent",
-                          border:dead?"2px solid rgba(239,68,68,0.7)":"2px solid transparent",
-                          color:dead?"#fca5a5":"transparent",fontSize:"9px"}}>
-                        {dead?`E${n} ✕`:""}
+                          background:dead?"rgb(185,28,28)":"transparent",
+                          border:"none",
+                          color:dead?"#fff":"transparent",
+                          fontSize:`${sz*0.38}vw`,
+                          textShadow:dead?"0 1px 3px rgba(0,0,0,0.8)":"none"}}>
+                        {dead?`E${n}`:""}
                       </button>
                     );
                   })}

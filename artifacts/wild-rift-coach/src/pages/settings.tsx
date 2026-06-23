@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useListModels, ModelInfo } from "@workspace/api-client-react";
 import { useModelStorage } from "@/hooks/use-model-storage";
@@ -6,67 +6,64 @@ import { ALL_CONFIG_KEYS } from "@/hooks/use-map-config";
 import { useSystemPrompt, DEFAULT_SYSTEM_PROMPT } from "@/hooks/use-system-prompt";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronDown, Check, ArrowLeft, Settings2, Download, Upload, RotateCcw, Star } from "lucide-react";
+import { ChevronDown, Check, ArrowLeft, Settings2, Download, Upload, RotateCcw, Star, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const FAV_MODELS_KEY = "wildrift_fav_models";
 
-interface ModelItemProps {
+interface ModelRowProps {
   m: ModelInfo;
   isFav: boolean;
   isSelected: boolean;
-  onSelect: (id: string) => void;
-  onToggleFav: (id: string) => void;
+  onSelect: () => void;
+  onToggleFav: () => void;
 }
 
-const ModelItem = memo(function ModelItem({ m, isFav, isSelected, onSelect, onToggleFav }: ModelItemProps) {
+function ModelRow({ m, isFav, isSelected, onSelect, onToggleFav }: ModelRowProps) {
   return (
-    <CommandItem
-      value={`${m.id} ${m.name}`}
-      onSelect={() => onSelect(m.id)}
-      className="flex items-start justify-between py-3 cursor-pointer"
+    <div
+      className={cn(
+        "flex items-center gap-0 border-b border-border/20 active:bg-slate-700/40 transition-colors",
+        isSelected && "bg-slate-800/60"
+      )}
+      style={{ minHeight: "60px" }}
     >
-      <div className="flex items-start gap-2 flex-1 min-w-0">
-        <button
-          onPointerDown={e => { e.stopPropagation(); e.preventDefault(); onToggleFav(m.id); }}
-          className={cn(
-            "mt-0.5 shrink-0 transition-colors",
-            isFav ? "text-amber-400" : "text-muted-foreground/30 hover:text-amber-400/60"
-          )}
-          title={isFav ? "Remove from favourites" : "Add to favourites"}
-        >
-          <Star className={cn("w-3.5 h-3.5", isFav && "fill-amber-400")} />
-        </button>
-        <div className="flex flex-col gap-1 min-w-0 pr-2">
-          <span className={cn("font-medium", isSelected ? "text-primary" : "text-foreground")}>
+      {/* Star — large tap area, 56px wide */}
+      <button
+        onClick={e => { e.stopPropagation(); onToggleFav(); }}
+        className="shrink-0 flex items-center justify-center"
+        style={{ width: 56, minHeight: 60 }}
+      >
+        <Star className={cn("w-5 h-5", isFav ? "fill-amber-400 text-amber-400" : "text-muted-foreground/25")} />
+      </button>
+
+      {/* Label — tappable to select */}
+      <div
+        onClick={onSelect}
+        className="flex-1 min-w-0 flex items-center justify-between pr-4 cursor-pointer"
+        style={{ minHeight: 60 }}
+      >
+        <div className="min-w-0">
+          <div className={cn("font-medium text-sm leading-snug", isSelected ? "text-primary" : "text-foreground")}>
             {m.name}
-          </span>
-          {m.description && (
-            <span className="text-xs text-muted-foreground line-clamp-2">
-              {m.description}
-            </span>
+          </div>
+          {m.pricing && (
+            <div className="text-[11px] text-muted-foreground font-mono mt-0.5">{m.pricing.prompt}</div>
           )}
         </div>
+        {isSelected && <Check className="w-5 h-5 text-primary shrink-0 ml-3" />}
       </div>
-      <div className="flex flex-col items-end gap-1 shrink-0">
-        <Check className={cn("h-4 w-4 text-primary", isSelected ? "opacity-100" : "opacity-0")} />
-        {m.pricing && (
-          <span className="text-[10px] text-muted-foreground font-mono">
-            {m.pricing.prompt}
-          </span>
-        )}
-      </div>
-    </CommandItem>
+    </div>
   );
-});
+}
 
 export default function SettingsPage() {
   const [model, setModel] = useModelStorage();
   const { data: models, isLoading } = useListModels();
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const { prompt, save: savePrompt, reset: resetPrompt, isCustom } = useSystemPrompt();
@@ -87,11 +84,22 @@ export default function SettingsPage() {
   const handleSelect = useCallback((id: string) => {
     setModel(id === model ? null : id);
     setOpen(false);
+    setSearch("");
   }, [model, setModel]);
 
   const selectedModel = useMemo(() => models?.find(m => m.id === model), [models, model]);
-  const favList = useMemo(() => models?.filter(m => favModels.includes(m.id)) ?? [], [models, favModels]);
-  const otherList = useMemo(() => models?.filter(m => !favModels.includes(m.id)) ?? [], [models, favModels]);
+
+  const { favList, otherList } = useMemo(() => {
+    const q = search.toLowerCase();
+    const all = models ?? [];
+    const filtered = q ? all.filter(m =>
+      m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q)
+    ) : all;
+    return {
+      favList: filtered.filter(m => favModels.includes(m.id)),
+      otherList: filtered.filter(m => !favModels.includes(m.id)),
+    };
+  }, [models, favModels, search]);
 
   const exportConfig = () => {
     const data: Record<string, unknown> = {};
@@ -164,14 +172,14 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Favourite quick-picks */}
-            {favList.length > 0 && (
+            {favList.length > 0 && !search && (
               <div className="flex flex-wrap gap-2">
-                {favList.map(m => (
+                {(models?.filter(m => favModels.includes(m.id)) ?? []).map(m => (
                   <button
                     key={m.id}
                     onClick={() => { setModel(model === m.id ? null : m.id); }}
                     className={cn(
-                      "flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-all active:scale-95",
+                      "flex items-center gap-1.5 text-xs px-3 py-2 rounded-full border transition-all active:scale-95",
                       model === m.id
                         ? "bg-slate-700 border-slate-400 text-white"
                         : "bg-black/30 border-border/40 text-muted-foreground hover:border-slate-400/60 hover:text-slate-300"
@@ -186,69 +194,95 @@ export default function SettingsPage() {
 
             <div className="space-y-2">
               <label className="text-sm font-medium leading-none">
-                {favList.length > 0 ? "All models" : "Select model"}
+                Select model
               </label>
               {isLoading ? (
-                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-12 w-full" />
               ) : (
                 <>
-                  {/* Trigger button — opens a Dialog so it's never clipped by the keyboard/viewport */}
                   <Button
                     variant="outline"
                     onClick={() => setOpen(true)}
-                    className="w-full justify-between bg-black/40 border-border hover:bg-black/60 hover:text-primary transition-colors"
+                    className="w-full justify-between h-12 bg-black/40 border-border hover:bg-black/60 hover:text-primary transition-colors text-base"
                   >
                     <span className="truncate">
                       {selectedModel ? selectedModel.name : "Search & select a model..."}
                     </span>
-                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    <ChevronDown className="ml-2 h-5 w-5 shrink-0 opacity-50" />
                   </Button>
 
-                  {/* Full-screen-friendly Dialog — never gets clipped on iPad */}
-                  <Dialog open={open} onOpenChange={setOpen}>
-                    <DialogContent className="p-0 gap-0 bg-[#0b1120] border-border max-w-sm w-full max-h-[80vh] flex flex-col">
+                  {/* Dialog — always renders as a centered modal, immune to keyboard/viewport clipping */}
+                  <Dialog open={open} onOpenChange={o => { setOpen(o); if (!o) setSearch(""); }}>
+                    <DialogContent className="p-0 gap-0 bg-[#0b1120] border-border max-w-sm w-full flex flex-col" style={{ maxHeight: "75vh" }}>
                       <DialogHeader className="px-4 py-3 border-b border-border/50 shrink-0">
                         <DialogTitle className="text-sm font-display tracking-wider text-primary uppercase">
                           Select AI Model
                         </DialogTitle>
                       </DialogHeader>
-                      <Command className="bg-transparent flex-1 min-h-0 flex flex-col">
-                        <div className="sticky top-0 z-10 bg-[#0b1120] border-b border-border/40 shrink-0">
-                          <CommandInput placeholder="Search models..." className="border-none focus:ring-0" />
-                        </div>
-                        <CommandList
-                          className="flex-1 min-h-0 overflow-y-scroll overscroll-contain"
-                          style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}
-                        >
-                          <CommandEmpty>No model found.</CommandEmpty>
-                          {favList.length > 0 && (
-                            <CommandGroup heading="⭐ Favourites">
-                              {favList.map(m => (
-                                <ModelItem
-                                  key={m.id}
-                                  m={m}
-                                  isFav={true}
-                                  isSelected={model === m.id}
-                                  onSelect={handleSelect}
-                                  onToggleFav={toggleFavModel}
-                                />
-                              ))}
-                            </CommandGroup>
-                          )}
-                          <CommandGroup heading={favList.length > 0 ? "All models" : undefined}>
+
+                      {/* Search input */}
+                      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/40 shrink-0 bg-[#0b1120]">
+                        <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <input
+                          type="text"
+                          value={search}
+                          onChange={e => setSearch(e.target.value)}
+                          placeholder="Search models..."
+                          className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                        />
+                        {search && (
+                          <button onClick={() => setSearch("")} className="text-muted-foreground text-lg leading-none px-1">×</button>
+                        )}
+                      </div>
+
+                      {/* Model list — plain div, native iOS scroll */}
+                      <div
+                        className="flex-1 min-h-0 overflow-y-auto"
+                        style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}
+                      >
+                        {favList.length === 0 && otherList.length === 0 && (
+                          <p className="text-center text-muted-foreground text-sm py-8">No models found</p>
+                        )}
+                        {favList.length > 0 && (
+                          <>
+                            <div className="px-4 py-2 text-[10px] tracking-widest uppercase text-muted-foreground/60 bg-black/20 sticky top-0">
+                              ⭐ Favourites
+                            </div>
+                            {favList.map(m => (
+                              <ModelRow
+                                key={m.id}
+                                m={m}
+                                isFav={true}
+                                isSelected={model === m.id}
+                                onSelect={() => handleSelect(m.id)}
+                                onToggleFav={() => toggleFavModel(m.id)}
+                              />
+                            ))}
+                          </>
+                        )}
+                        {otherList.length > 0 && (
+                          <>
+                            {favList.length > 0 && (
+                              <div className="px-4 py-2 text-[10px] tracking-widest uppercase text-muted-foreground/60 bg-black/20 sticky top-0">
+                                All models
+                              </div>
+                            )}
                             {otherList.map(m => (
-                              <ModelItem
+                              <ModelRow
                                 key={m.id}
                                 m={m}
                                 isFav={false}
                                 isSelected={model === m.id}
-                                onSelect={handleSelect}
-                                onToggleFav={toggleFavModel}
+                                onSelect={() => handleSelect(m.id)}
+                                onToggleFav={() => toggleFavModel(m.id)}
                               />
                             ))}
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
+                          </>
+                        )}
+                      </div>
                     </DialogContent>
                   </Dialog>
                 </>
