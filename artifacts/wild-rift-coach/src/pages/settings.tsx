@@ -90,11 +90,12 @@ export default function SettingsPage() {
   const selectedModel = useMemo(() => models?.find(m => m.id === model), [models, model]);
 
   const { favList, otherList } = useMemo(() => {
-    const q = search.toLowerCase();
+    const words = search.toLowerCase().split(/\s+/).filter(Boolean);
     const all = models ?? [];
-    const filtered = q ? all.filter(m =>
-      m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q)
-    ) : all;
+    const filtered = words.length === 0 ? all : all.filter(m => {
+      const target = `${m.name} ${m.id}`.toLowerCase();
+      return words.every(w => target.includes(w));
+    });
     return {
       favList: filtered.filter(m => favModels.includes(m.id)),
       otherList: filtered.filter(m => !favModels.includes(m.id)),
