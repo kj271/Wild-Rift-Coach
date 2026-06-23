@@ -183,6 +183,56 @@ router.post("/coach/extract-metadata", async (req, res): Promise<void> => {
   }
 });
 
+router.post("/coach/extract-deaths", async (req, res): Promise<void> => {
+  const { imageBase64 } = req.body as { imageBase64?: string };
+  if (!imageBase64) {
+    res.status(400).json({ error: "imageBase64 required" });
+    return;
+  }
+
+  try {
+    const response = await openrouter.chat.completions.create({
+      model: "google/gemini-2.0-flash-001",
+      max_tokens: 80,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `This is a cropped region from a Wild Rift (League of Legends: Wild Rift) screenshot showing the champion portrait status bar. There are TWO ROWS of 5 champion icons each. The TOP row = ALLY champions (positions 1-5 left to right). The BOTTOM row = ENEMY champions (positions 1-5 left to right). Grey/dark/desaturated portraits = that champion is DEAD. Colorful, bright portraits = alive. Return ONLY valid JSON: {"alliesDown":[1,3],"enemiesDown":[2]} where numbers are positions (1-5) of dead champions. If none are down return {"alliesDown":[],"enemiesDown":[]}. No explanation.`,
+            },
+            {
+              type: "image_url",
+              image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
+            },
+          ],
+        },
+      ],
+      stream: false,
+    });
+
+    const text = response.choices[0]?.message?.content ?? "";
+    const match = text.match(/\{[\s\S]*?\}/);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[0]) as {
+          alliesDown?: unknown;
+          enemiesDown?: unknown;
+        };
+        const toArr = (v: unknown) =>
+          Array.isArray(v) ? (v as number[]).filter((n) => n >= 1 && n <= 5) : [];
+        res.json({ alliesDown: toArr(parsed.alliesDown), enemiesDown: toArr(parsed.enemiesDown) });
+        return;
+      } catch {}
+    }
+    res.json({ alliesDown: [], enemiesDown: [] });
+  } catch (err) {
+    req.log.error({ err }, "Error extracting death status");
+    res.json({ alliesDown: [], enemiesDown: [] });
+  }
+});
+
 router.get("/coach/models", async (req, res): Promise<void> => {
   try {
     const response = await fetch("https://openrouter.ai/api/v1/models", {

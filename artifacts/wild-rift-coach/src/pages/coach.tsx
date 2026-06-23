@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import {
   Target, Settings, AlertCircle, Loader2, Send, Upload,
   MessageSquare, X, Search, UserRound, Users, Swords,
-  ChevronDown, ChevronUp, Sparkles, Crop, Map, Star, RotateCcw, Bug,
+  ChevronDown, ChevronUp, Sparkles, Crop, Map, Star, RotateCcw, Bug, Skull, RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -381,6 +381,9 @@ export default function CoachPage(){
   const[herald,setHerald]=useState<ObjStatus>((_sess.herald as ObjStatus)??null);
   const[baronBuff,setBaronBuff]=useState<BuffHolder>((_sess.baronBuff as BuffHolder)??null);
   const[elderBuff,setElderBuff]=useState<BuffHolder>((_sess.elderBuff as BuffHolder)??null);
+  const[alliesDown,setAlliesDown]=useState<number[]>((_sess.alliesDown as number[])??[]);
+  const[enemiesDown,setEnemiesDown]=useState<number[]>((_sess.enemiesDown as number[])??[]);
+  const[detectingDeaths,setDetectingDeaths]=useState(false);
   const[contextOpen,setContextOpen]=useState(true);
   const[champPickOpen,setChampPickOpen]=useState(false);
 
@@ -406,14 +409,14 @@ export default function CoachPage(){
 
   // ── Persist session to localStorage on every change ───────────────────────────
   useEffect(()=>{
-    saveSession({imageBase64,minimapBase64,pins,myRole,myChamp,dragon,baron,herald,baronBuff,elderBuff,gameTimeSecs,activeConversationId,advice});
-  },[imageBase64,minimapBase64,pins,myRole,myChamp,dragon,baron,herald,baronBuff,elderBuff,gameTimeSecs,activeConversationId,advice]);
+    saveSession({imageBase64,minimapBase64,pins,myRole,myChamp,dragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown,gameTimeSecs,activeConversationId,advice});
+  },[imageBase64,minimapBase64,pins,myRole,myChamp,dragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown,gameTimeSecs,activeConversationId,advice]);
 
   const handleClearSession=useCallback(()=>{
     clearSessionStorage();
     setImageBase64(null);setMinimapBase64(null);setPins([]);setPlaceMode(null);
     setMyRole(null);setMyChamp(null);setDragon(null);setBaron(null);setHerald(null);
-    setBaronBuff(null);setElderBuff(null);
+    setBaronBuff(null);setElderBuff(null);setAlliesDown([]);setEnemiesDown([]);
     setGameTimeSecs(0);setActiveConversationId(null);setAdvice("");setChatMessages([]);
     setDebugPayload(null);
   },[]);
@@ -425,24 +428,48 @@ export default function CoachPage(){
     return m;
   },[cropConfig]);
 
+  // ── Detect dead champions from portrait bar ────────────────────────────────
+  const extractDeaths=useCallback(async(dataUrl:string)=>{
+    setDetectingDeaths(true);
+    try{
+      // Champion portraits are in the top portion: ~13% from left, full width ~28%, top ~15% height
+      const portrait=await cropDataUrl(dataUrl,13,0,28,15);
+      const BASE=import.meta.env.BASE_URL;
+      const res=await fetch(`${BASE}api/coach/extract-deaths`,{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({imageBase64:portrait.split(",")[1]}),
+      });
+      if(res.ok){
+        const d=await res.json() as{alliesDown?:number[];enemiesDown?:number[]};
+        setAlliesDown(d.alliesDown??[]);
+        setEnemiesDown(d.enemiesDown??[]);
+      }
+    }catch{}finally{setDetectingDeaths(false);}
+  },[]);
+
   // ── Process uploaded image ──────────────────────────────────────────────────
   const processImage=useCallback(async(dataUrl:string)=>{
     setImageBase64(dataUrl);setMinimapBase64(null);setPins([]);setPlaceMode(null);
+    setAlliesDown([]);setEnemiesDown([]);
     await recropMinimap(dataUrl);
     setExtracting(true);
     try{
       const strip=await cropDataUrl(dataUrl,28,0,44,13);
       const BASE=import.meta.env.BASE_URL;
-      const res=await fetch(`${BASE}api/coach/extract-metadata`,{
-        method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({imageBase64:strip.split(",")[1]}),
-      });
-      if(res.ok){
-        const d=await res.json() as{gameTime?:string|null};
+      // Run metadata + death detection in parallel
+      const[metaRes]=await Promise.all([
+        fetch(`${BASE}api/coach/extract-metadata`,{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({imageBase64:strip.split(",")[1]}),
+        }),
+        extractDeaths(dataUrl),
+      ]);
+      if(metaRes.ok){
+        const d=await metaRes.json() as{gameTime?:string|null};
         if(d.gameTime){const s=timeToSecs(d.gameTime);if(s>0&&s<=1800)setGameTimeSecs(s);}
       }
     }catch{}finally{setExtracting(false);}
-  },[recropMinimap]);
+  },[recropMinimap,extractDeaths]);
 
   const handleFile=(file:File)=>{
     const reader=new FileReader();
@@ -501,10 +528,12 @@ export default function CoachPage(){
         else if(baronBuff==="them")parts.push("Enemy has Baron Buff");
         if(elderBuff==="us")parts.push("We have Elder Dragon Buff");
         else if(elderBuff==="them")parts.push("Enemy has Elder Dragon Buff");
+        if(alliesDown.length>0)parts.push(`Ally slot(s) ${alliesDown.sort().join(",")} are dead/respawning`);
+        if(enemiesDown.length>0)parts.push(`Enemy slot(s) ${enemiesDown.sort().join(",")} are dead/respawning — good window to act`);
         return parts.length?parts.join(". "):null;
       })(),
     };
-  },[pins,gameTimeSecs,myRole,myChamp,dragon,baron,herald,baronBuff,elderBuff]);
+  },[pins,gameTimeSecs,myRole,myChamp,dragon,baron,herald,baronBuff,elderBuff,alliesDown,enemiesDown]);
 
   const getAnnotatedMinimap=useCallback(async():Promise<string|null>=>{
     if(!minimapBase64||pins.length===0)return null;
@@ -859,6 +888,64 @@ export default function CoachPage(){
                   {myChamp??`${favorites.length>0?"Other champion…":"+ Select champion (optional)"}`}
                 </button>
               </div>
+              {/* Who's Down */}
+              {imageBase64&&(
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground flex items-center gap-1.5">
+                      <Skull className="w-3 h-3"/>
+                      Who&rsquo;s Down
+                      {(alliesDown.length>0||enemiesDown.length>0)&&(
+                        <span className="text-[9px] normal-case tracking-normal font-normal text-red-400">
+                          — {[alliesDown.length>0&&`${alliesDown.length} ally`,enemiesDown.length>0&&`${enemiesDown.length} enemy`].filter(Boolean).join(", ")} down
+                        </span>
+                      )}
+                    </span>
+                    <button onClick={()=>extractDeaths(imageBase64)} disabled={detectingDeaths}
+                      className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary border border-border/30 hover:border-primary/40 px-2 py-1 rounded-full transition-colors disabled:opacity-40">
+                      <RefreshCw className={cn("w-2.5 h-2.5",detectingDeaths&&"animate-spin")}/>
+                      {detectingDeaths?"Scanning…":"Re-scan"}
+                    </button>
+                  </div>
+                  {/* Ally row */}
+                  <div className="space-y-1.5">
+                    <div className="flex gap-1.5 items-center">
+                      <span className="text-[9px] font-display uppercase tracking-widest text-sky-400/70 w-10 shrink-0">Ally</span>
+                      {[1,2,3,4,5].map(n=>{
+                        const dead=alliesDown.includes(n);
+                        return(
+                          <button key={n} onClick={()=>setAlliesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
+                            className={cn("flex-1 h-8 rounded-lg border text-[10px] font-bold transition-all active:scale-95 font-display",
+                              dead?"bg-slate-800/80 border-slate-600/50 text-slate-500 line-through"
+                              :"bg-sky-400/10 border-sky-400/30 text-sky-300 hover:bg-sky-400/20")}>
+                            {dead?<span className="flex items-center justify-center"><Skull className="w-3 h-3 text-slate-500"/></span>:`A${n}`}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {/* Enemy row */}
+                    <div className="flex gap-1.5 items-center">
+                      <span className="text-[9px] font-display uppercase tracking-widest text-red-400/70 w-10 shrink-0">Enemy</span>
+                      {[1,2,3,4,5].map(n=>{
+                        const dead=enemiesDown.includes(n);
+                        return(
+                          <button key={n} onClick={()=>setEnemiesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
+                            className={cn("flex-1 h-8 rounded-lg border text-[10px] font-bold transition-all active:scale-95 font-display",
+                              dead?"bg-slate-800/80 border-slate-600/50 text-slate-500 line-through"
+                              :"bg-red-500/10 border-red-400/30 text-red-300 hover:bg-red-500/20")}>
+                            {dead?<span className="flex items-center justify-center"><Skull className="w-3 h-3 text-slate-500"/></span>:`E${n}`}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  {detectingDeaths&&(
+                    <p className="text-[10px] text-primary/60 mt-1.5 flex items-center gap-1">
+                      <Sparkles className="w-2.5 h-2.5 animate-pulse"/>Scanning portrait bar for grey icons…
+                    </p>
+                  )}
+                </div>
+              )}
               {/* Objectives */}
               <div>
                 <span className="text-[10px] uppercase tracking-widest font-display text-muted-foreground">Objectives</span>
