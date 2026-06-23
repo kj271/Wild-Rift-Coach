@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Link } from "wouter";
 import { useModelStorage } from "@/hooks/use-model-storage";
-import { useCropConfig, useTimerCropConfig, useLanePaths, useZones, useFavoriteChamps, LanePaths, ZoneData, Point } from "@/hooks/use-map-config";
+import { useCropConfig, useTimerCropConfig, usePortraitBarConfig, DEFAULT_PORTRAIT_BAR, useLanePaths, useZones, useFavoriteChamps, LanePaths, ZoneData, Point } from "@/hooks/use-map-config";
 import { CropCalibrator } from "@/components/crop-calibrator";
 import { ZoneEditor } from "@/components/zone-editor";
 import {
@@ -198,7 +198,7 @@ async function renderAnnotatedMinimap(minimapDataUrl:string,pins:MapPin[],gameTi
       const tw=Math.round(W*0.40);
       const th=Math.round(tw*ti.naturalHeight/ti.naturalWidth);
       const pad=6,fs=Math.round(W*0.038);
-      const tx=pad,ty=H-th-pad;
+      const tx=W-tw-pad,ty=H-th-pad;
       ctx.fillStyle="rgba(0,0,0,0.78)";
       ctx.beginPath();ctx.roundRect(tx-pad,ty-fs-pad*2,tw+pad*2,th+fs+pad*3,5);ctx.fill();
       ctx.fillStyle="#93c5fd";ctx.font=`bold ${fs}px sans-serif`;
@@ -372,6 +372,7 @@ export default function CoachPage(){
   const[model]=useModelStorage();
   const{config:cropConfig,save:saveCrop}=useCropConfig();
   const{config:timerCropConfig,save:saveTimerCrop}=useTimerCropConfig();
+  const{config:portraitBarConfig,save:savePortraitBar}=usePortraitBarConfig();
   const{paths:lanePaths,save:saveLanes}=useLanePaths();
   const{zones,save:saveZones}=useZones();
   const{favorites,toggle:toggleFav}=useFavoriteChamps();
@@ -387,6 +388,7 @@ export default function CoachPage(){
   // Calibration modals
   const[showCropEditor,setShowCropEditor]=useState(false);
   const[showTimerCropEditor,setShowTimerCropEditor]=useState(false);
+  const[showPortraitBarEditor,setShowPortraitBarEditor]=useState(false);
   const[showZoneEditor,setShowZoneEditor]=useState(false);
 
   // Game-time crop image (stored separately, lost on reload — too large for localStorage)
@@ -415,6 +417,7 @@ export default function CoachPage(){
   const[advice,setAdvice]=useState((_sess.advice as string)??'');
   const[isAdvising,setIsAdvising]=useState(false);
   const[debugPayload,setDebugPayload]=useState<Record<string,unknown>|null>(null);
+  const[debugMinimapUrl,setDebugMinimapUrl]=useState<string|null>(null);
   const[showDebug,setShowDebug]=useState(false);
 
   // Chat
@@ -461,7 +464,7 @@ export default function CoachPage(){
       const strip=await cropDataUrl(dataUrl,timerCropConfig.x,timerCropConfig.y,timerCropConfig.w,timerCropConfig.h);
       setGameTimeCrop(strip);
     }catch{}
-  },[recropMinimap,model,timerCropConfig]);
+  },[recropMinimap,timerCropConfig]);
 
   const handleFile=(file:File)=>{
     const reader=new FileReader();
@@ -550,14 +553,17 @@ export default function CoachPage(){
     try{
       const annotated=await getAnnotatedMinimap();
       const ctx=buildContext();
+      const customPrompt=localStorage.getItem("wildrift_system_prompt");
       const payload={
         model,
-        imageBase64:"[not sent — only annotated minimap is sent to save tokens]",
-        minimapBase64:annotated?"[annotated minimap with game-time crop — base64 omitted]":null,
+        systemPrompt:customPrompt?"(custom — see Settings → AI Instructions)":"(server default)",
+        imageBase64:"[NOT sent — only annotated minimap below is sent]",
+        minimapBase64:annotated?"[see preview below]":null,
+        gameTimeCropEmbedded:!!gameTimeCrop,
         context:ctx,
-        _chatNote:"Follow-up chat messages send ONLY text context. No images are resent.",
       };
       setDebugPayload(payload);
+      setDebugMinimapUrl(annotated);
       const BASE=import.meta.env.BASE_URL;
       const res=await fetch(`${BASE}api/coach/analyze`,{
         method:"POST",headers:{"Content-Type":"application/json"},
@@ -692,7 +698,10 @@ export default function CoachPage(){
             <img src={imageBase64} alt="Game screenshot" className="w-full h-auto block" draggable={false}/>
 
             {/* ── Portrait-bar tap overlay (who's down) ── */}
-            <div className="absolute top-0 left-0 right-0 flex" style={{height:"14%"}}>
+            <div className="absolute flex" style={{
+              left:`${portraitBarConfig.x}%`,top:`${portraitBarConfig.y}%`,
+              width:`${portraitBarConfig.w}%`,height:`${portraitBarConfig.h}%`,
+            }}>
               {[1,2,3,4,5].map(n=>{
                 const dead=alliesDown.includes(n);
                 return(
@@ -718,20 +727,25 @@ export default function CoachPage(){
             </div>
 
             <div className="absolute top-2 right-2 flex gap-1.5">
-              <button className="bg-black/70 border border-white/20 text-white text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 active:scale-95"
+              <button className="bg-black/70 border border-white/20 text-white text-xs px-2 py-1.5 rounded-lg flex items-center gap-1 active:scale-95"
                 onClick={()=>fileInputRef.current?.click()}>
                 <Upload className="w-3 h-3"/> Replace
               </button>
               <button
-                className="bg-black/70 border border-amber-400/40 text-amber-400 text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 active:scale-95"
+                className="bg-black/70 border border-amber-400/40 text-amber-400 text-xs px-2 py-1.5 rounded-lg flex items-center gap-1 active:scale-95"
                 onClick={()=>setShowCropEditor(true)} title="Set minimap crop area">
                 <Crop className="w-3 h-3"/> Map
               </button>
               <button
-                className={cn("bg-black/70 text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 active:scale-95 border",
+                className={cn("bg-black/70 text-xs px-2 py-1.5 rounded-lg flex items-center gap-1 active:scale-95 border",
                   gameTimeCrop?"border-primary/50 text-primary":"border-primary/30 text-primary/60")}
                 onClick={()=>setShowTimerCropEditor(true)} title="Set game-timer crop area">
                 <Clock className="w-3 h-3"/> Timer
+              </button>
+              <button
+                className="bg-black/70 border border-sky-400/40 text-sky-400 text-xs px-2 py-1.5 rounded-lg flex items-center gap-1 active:scale-95"
+                onClick={()=>setShowPortraitBarEditor(true)} title="Set portrait bar position">
+                <Users className="w-3 h-3"/> Portraits
               </button>
               <button className="w-8 h-8 rounded-full bg-black/70 border border-white/20 flex items-center justify-center text-white active:scale-95"
                 onClick={()=>{setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setAlliesDown([]);setEnemiesDown([]);setPins([]);}}>
@@ -982,11 +996,20 @@ export default function CoachPage(){
               {showDebug?<ChevronUp className="w-3 h-3"/>:<ChevronDown className="w-3 h-3"/>}
             </button>
             {showDebug&&(
-              <div className="border-t border-border/30 p-3">
-                <p className="text-[10px] text-muted-foreground/60 mb-2">Everything sent to the AI on the last Advise Me call. Chat follow-ups send only text — no images are resent.</p>
-                <pre className="text-[10px] text-slate-400 whitespace-pre-wrap overflow-auto max-h-72 bg-black/30 rounded-lg p-3">
+              <div className="border-t border-border/30 p-3 space-y-3">
+                <p className="text-[10px] text-muted-foreground/60">Everything sent to the AI on the last Advise Me call. This is the complete picture — nothing is hidden.</p>
+                <pre className="text-[10px] text-slate-400 whitespace-pre-wrap overflow-auto max-h-48 bg-black/30 rounded-lg p-3">
                   {JSON.stringify(debugPayload,null,2)}
                 </pre>
+                {debugMinimapUrl&&(
+                  <div>
+                    <p className="text-[10px] text-muted-foreground/60 mb-1.5">Actual minimap image sent to AI (with pins + game-time crop bottom-right):</p>
+                    <img src={debugMinimapUrl} alt="Minimap sent to AI" className="w-full rounded-lg border border-border/30"/>
+                  </div>
+                )}
+                {!debugMinimapUrl&&(
+                  <p className="text-[10px] text-amber-400/70">⚠ No minimap image was sent — upload a screenshot and set the minimap crop area.</p>
+                )}
               </div>
             )}
           </div>
@@ -1064,8 +1087,19 @@ export default function CoachPage(){
         <CropCalibrator
           screenshot={imageBase64}
           current={timerCropConfig}
+          title="Timer Crop — select the game clock area"
           onSave={handleSaveTimerCrop}
           onClose={()=>setShowTimerCropEditor(false)}
+        />
+      )}
+      {showPortraitBarEditor&&imageBase64&&(
+        <CropCalibrator
+          screenshot={imageBase64}
+          current={portraitBarConfig}
+          defaultConfig={DEFAULT_PORTRAIT_BAR}
+          title="Portrait Bar — drag box over ally + enemy portraits"
+          onSave={cfg=>{savePortraitBar(cfg);}}
+          onClose={()=>setShowPortraitBarEditor(false)}
         />
       )}
       {showZoneEditor&&minimapBase64&&(

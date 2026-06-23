@@ -58,6 +58,15 @@ function migrateZones(raw: unknown[]): ZoneData[] {
 
 export const DEFAULT_TIMER_CROP: CropConfig = { x: 28, y: 0, w: 44, h: 13 };
 
+const PORTRAIT_BAR_KEY = "wildrift_portrait_bar";
+export const DEFAULT_PORTRAIT_BAR: CropConfig = { x: 0, y: 0, w: 100, h: 14 };
+
+export function usePortraitBarConfig() {
+  const [config, setConfig] = useState<CropConfig>(() => load(PORTRAIT_BAR_KEY, DEFAULT_PORTRAIT_BAR));
+  const save = useCallback((c: CropConfig) => { setConfig(c); localStorage.setItem(PORTRAIT_BAR_KEY, JSON.stringify(c)); }, []);
+  return { config, save } as const;
+}
+
 export function useCropConfig() {
   const [config, setConfig] = useState<CropConfig>(() => load(CROP_KEY, DEFAULT_CROP));
   const save = useCallback((c: CropConfig) => { setConfig(c); localStorage.setItem(CROP_KEY, JSON.stringify(c)); }, []);
@@ -101,4 +110,4 @@ export function useFavoriteChamps() {
   return { favorites, toggle } as const;
 }
 
-export const ALL_CONFIG_KEYS = [CROP_KEY, TIMER_CROP_KEY, LANES_KEY, ZONES_KEY, FAVORITES_KEY] as const;
+export const ALL_CONFIG_KEYS = [CROP_KEY, TIMER_CROP_KEY, PORTRAIT_BAR_KEY, LANES_KEY, ZONES_KEY, FAVORITES_KEY] as const;
