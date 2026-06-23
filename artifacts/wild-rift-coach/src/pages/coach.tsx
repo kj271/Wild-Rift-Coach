@@ -681,8 +681,8 @@ export default function CoachPage(){
 
   // ── Persist session to localStorage on every change ───────────────────────────
   useEffect(()=>{
-    saveSession({imageBase64,minimapBase64,pins,objPins,myRole,myChamp,baronBuff,elderBuff,alliesDown,enemiesDown,towersDown,gameTimeSecs,activeConversationId,advice,userNotes});
-  },[imageBase64,minimapBase64,pins,objPins,myRole,myChamp,baronBuff,elderBuff,alliesDown,enemiesDown,gameTimeSecs,activeConversationId,advice,userNotes]);
+    saveSession({imageBase64,minimapBase64,pins,objPins,myRole,myChamp,baronBuff,elderBuff,alliesDown,enemiesDown,towersDown,gameTimeSecs,advice,userNotes});
+  },[imageBase64,minimapBase64,pins,objPins,myRole,myChamp,baronBuff,elderBuff,alliesDown,enemiesDown,gameTimeSecs,advice,userNotes]);
 
   const handleClearSession=useCallback(()=>{
     clearSessionStorage();
