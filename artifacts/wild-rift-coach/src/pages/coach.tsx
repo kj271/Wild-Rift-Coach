@@ -826,6 +826,19 @@ export default function CoachPage(){
     setImageQueue([]);setActiveQueueIdx(0);setBenchPins([]);
   },[]);
 
+  // Quick reset — clears screenshot + pins + advice but keeps role & champion
+  const handleQuickReset=useCallback(()=>{
+    idbDel(IDB_KEY_IMGS);idbDel(IDB_KEY_QUEUE);idbDel(IDB_KEY_CROPS);
+    setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setPortraitStripCrop(null);
+    setPins([]);setBenchPins([]);setObjPins([]);setPlaceMode(null);
+    setBaronBuff(null);setElderBuff(null);setAlliesDown([]);setEnemiesDown([]);setTowersDown({ally:[],enemy:[]});
+    setUserNotes('');setGameTimeSecs(0);setActiveConversationId(null);setAdvice("");setChatMessages([]);
+    setDebugInfo(null);setDebugMinimapUrl(null);
+    setImageQueue([]);setActiveQueueIdx(0);
+    perImageState.current.clear();
+    // myRole and myChamp intentionally kept
+  },[]);
+
   // ── Re-crop minimap with current config ──────────────────────────────────────
   const recropMinimap=useCallback(async(dataUrl:string,cfg=cropConfig)=>{
     const m=await cropDataUrl(dataUrl,cfg.x,cfg.y,cfg.w,cfg.h);
@@ -1163,10 +1176,16 @@ export default function CoachPage(){
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
           <h1 className="font-display text-lg font-bold tracking-tight">MACRO<span className="text-primary">COACH</span></h1>
           <div className="flex items-center gap-1">
+            <button onClick={handleQuickReset}
+              title="Quick reset — clears pics & advice, keeps role & champion"
+              className="h-9 px-2.5 flex items-center gap-1.5 rounded-lg text-xs font-display font-bold tracking-wide text-muted-foreground hover:text-amber-400 hover:bg-amber-400/10 transition-colors border border-transparent hover:border-amber-400/20">
+              <RotateCcw className="w-3.5 h-3.5"/>
+              NEW GAME
+            </button>
             <button onClick={handleClearSession}
-              title="Clear session (start fresh)"
+              title="Full reset — clears everything including role & champion"
               className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-colors">
-              <RotateCcw className="w-4 h-4"/>
+              <RotateCcw className="w-4 h-4 opacity-40"/>
             </button>
             <Link href="/settings">
               <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-white">
