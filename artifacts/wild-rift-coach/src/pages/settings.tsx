@@ -31,7 +31,10 @@ export default function SettingsPage() {
         try { data[key] = JSON.parse(val); } catch { data[key] = val; }
       }
     }
+    // Also include model and custom system prompt
     if (model) data["wildrift_model"] = model;
+    const customPrompt = localStorage.getItem("wildrift_system_prompt");
+    if (customPrompt) data["wildrift_system_prompt"] = customPrompt;
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
