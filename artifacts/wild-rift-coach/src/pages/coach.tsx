@@ -1103,7 +1103,7 @@ export default function CoachPage(){
                   <button
                     className="absolute top-1 right-1 z-20 w-11 h-11 rounded-full bg-black/75 border border-white/30 flex items-center justify-center text-white hover:bg-black/95 active:scale-95"
                     title="Clear image & upload new screenshot"
-                    onClick={e=>{e.stopPropagation();setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setPortraitStripCrop(null);setAlliesDown([]);setEnemiesDown([]);setPins([]);setTimeout(()=>fileInputRef.current?.click(),50);}}>
+                    onClick={e=>{e.stopPropagation();setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setPortraitStripCrop(null);setAlliesDown([]);setEnemiesDown([]);setTimeout(()=>fileInputRef.current?.click(),50);}}>
                     <X className="w-5 h-5"/>
                   </button>
                 )}
