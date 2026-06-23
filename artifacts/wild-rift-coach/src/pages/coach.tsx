@@ -722,12 +722,9 @@ export default function CoachPage(){
   },[cropConfig]);
 
   // ── Process uploaded image ──────────────────────────────────────────────────
-  const processImage=useCallback(async(dataUrl:string,restore?:ImageSlotState)=>{
+  const processImage=useCallback(async(dataUrl:string)=>{
     setImageBase64(dataUrl);setMinimapBase64(null);setPlaceMode(null);
     setGameTimeCrop(null);setPortraitStripCrop(null);
-    setPins(restore?.pins??[]);setBenchPins(restore?.benchPins??[]);setObjPins(restore?.objPins??[]);
-    setAlliesDown(restore?.alliesDown??[]);setEnemiesDown(restore?.enemiesDown??[]);
-    setTowersDown(restore?.towersDown??{ally:[],enemy:[]});
     setAdvice("");setChatMessages([]);setActiveConversationId(null);
     await recropMinimap(dataUrl);
     try{
@@ -740,6 +737,15 @@ export default function CoachPage(){
     }catch{}
   },[recropMinimap,timerCropConfig,portraitStripConfig]);
 
+  const clearPinState=()=>{setPins([]);setBenchPins([]);setObjPins([]);setAlliesDown([]);setEnemiesDown([]);setTowersDown({ally:[],enemy:[]});};
+  const applySlotState=(s:ImageSlotState|undefined)=>{
+    setPins(s?.pins??[]);setBenchPins(s?.benchPins??[]);setObjPins(s?.objPins??[]);
+    setAlliesDown(s?.alliesDown??[]);setEnemiesDown(s?.enemiesDown??[]);setTowersDown(s?.towersDown??{ally:[],enemy:[]});
+  };
+  const saveCurrentSlot=(url:string)=>{
+    perImageState.current.set(url,{pins,benchPins,objPins,alliesDown,enemiesDown,towersDown});
+  };
+
   const handleFiles=(files:FileList|File[])=>{
     const arr=Array.from(files);
     if(!arr.length)return;
@@ -747,8 +753,10 @@ export default function CoachPage(){
     Promise.all(readers).then(dataUrls=>{
       const valid=dataUrls.filter(Boolean);
       if(!valid.length)return;
+      perImageState.current.clear();
       setImageQueue(valid);
       setActiveQueueIdx(0);
+      clearPinState();
       processImage(valid[0]!);
     });
   };
@@ -1085,10 +1093,10 @@ export default function CoachPage(){
                   <div key={i} className="relative shrink-0">
                     <button onClick={()=>{
                         if(i===activeQueueIdx)return;
-                        // Save current image's state before switching
-                        perImageState.current.set(imageQueue[activeQueueIdx]!,{pins,benchPins,objPins,alliesDown,enemiesDown,towersDown});
+                        saveCurrentSlot(imageQueue[activeQueueIdx]!);
                         setActiveQueueIdx(i);
-                        processImage(img,perImageState.current.get(img));
+                        applySlotState(perImageState.current.get(img));
+                        processImage(img);
                       }}
                       className={cn("w-14 h-14 rounded-lg overflow-hidden border-2 active:scale-95 transition-all block",
                         i===activeQueueIdx?"border-primary":"border-border/30 opacity-50")}>
@@ -1097,13 +1105,26 @@ export default function CoachPage(){
                     <button
                       onClick={()=>{
                         const next=imageQueue.filter((_,j)=>j!==i);
-                        // Save state of the image being deleted (preserve in case user re-adds)
-                        // If deleting the active image, save state first then switch
-                        if(i===activeQueueIdx&&next.length>0){
-                          perImageState.current.set(imageQueue[i]!,{pins,benchPins,objPins,alliesDown,enemiesDown,towersDown});
+                        if(next.length===0){
+                          perImageState.current.clear();
+                          setImageQueue([]);setActiveQueueIdx(0);
+                          setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setPortraitStripCrop(null);
+                          clearPinState();
+                        } else {
+                          const newIdx=i>=next.length?next.length-1:i===activeQueueIdx?Math.min(i,next.length-1):activeQueueIdx>i?activeQueueIdx-1:activeQueueIdx;
+                          if(i===activeQueueIdx){
+                            // Deleting the active image — switch to newIdx
+                            setImageQueue(next);setActiveQueueIdx(newIdx);
+                            applySlotState(perImageState.current.get(next[newIdx]!));
+                            processImage(next[newIdx]!);
+                          } else {
+                            // Deleting a non-active image — save active state so index shift doesn't lose it
+                            saveCurrentSlot(imageQueue[activeQueueIdx]!);
+                            setImageQueue(next);setActiveQueueIdx(newIdx);
+                            // Active image didn't change visually, restore its state (same data)
+                            applySlotState(perImageState.current.get(imageQueue[activeQueueIdx]!));
+                          }
                         }
-                        if(next.length===0){perImageState.current.clear();setImageQueue([]);setActiveQueueIdx(0);setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setPortraitStripCrop(null);}
-                        else{const newIdx=i>=next.length?next.length-1:i===activeQueueIdx?Math.min(i,next.length-1):activeQueueIdx>i?activeQueueIdx-1:activeQueueIdx;setImageQueue(next);setActiveQueueIdx(newIdx);if(i===activeQueueIdx)processImage(next[newIdx]!,perImageState.current.get(next[newIdx]!));}
                       }}
                       className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-black/90 border border-border/60 flex items-center justify-center text-xs font-bold text-white hover:bg-red-600 active:scale-90 transition-all touch-manipulation">
                       ×
