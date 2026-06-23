@@ -9,20 +9,20 @@ interface Props {
   config: TowerConfig;
   onSave: (c: TowerConfig) => void;
   onClose: () => void;
-  iconSize: number;
-  onIconSizeChange: (s: number) => void;
 }
 
 const LANE_LABELS = ["Baron", "Mid", "Dragon"] as const;
 
 function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 
-export function TowerCalibrator({ imageDataUrl, config, onSave, onClose, iconSize, onIconSizeChange }: Props) {
+export function TowerCalibrator({ imageDataUrl, config, onSave, onClose }: Props) {
   const [editing, setEditing] = useState<TowerConfig>({
     ally:  config.ally.map(p => p ? { ...p } : null),
     enemy: config.enemy.map(p => p ? { ...p } : null),
   });
   const [selected, setSelected] = useState<{ team: "ally" | "enemy"; idx: number } | null>(null);
+  const [markerPx, setMarkerPx] = useState(28);
+  const changeMarker = (delta: number) => setMarkerPx(v => Math.max(16, Math.min(56, v + delta)));
   const imgRef = useRef<HTMLDivElement>(null);
   const dragging = useRef<{ team: "ally" | "enemy"; idx: number; moved: boolean } | null>(null);
 
@@ -119,13 +119,13 @@ export function TowerCalibrator({ imageDataUrl, config, onSave, onClose, iconSiz
           <p className="text-[11px] text-muted-foreground mt-0.5">Select a slot · Tap map to place · Drag towers to reposition</p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Icon size control */}
+          {/* Calibrator marker size — only affects this view */}
           <div className="flex items-center gap-0.5 border border-border/30 rounded overflow-hidden text-muted-foreground">
             <button className="px-2 py-1 text-sm hover:text-white hover:bg-white/10 active:scale-95 leading-none"
-              onClick={() => onIconSizeChange(iconSize - 1)}>−</button>
-            <span className="text-[10px] w-5 text-center select-none">{iconSize}</span>
+              onClick={() => changeMarker(-4)}>−</button>
+            <span className="text-[10px] w-7 text-center select-none">{markerPx}px</span>
             <button className="px-2 py-1 text-sm hover:text-white hover:bg-white/10 active:scale-95 leading-none"
-              onClick={() => onIconSizeChange(iconSize + 1)}>+</button>
+              onClick={() => changeMarker(4)}>+</button>
           </div>
           <button onClick={handleReset}
             className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground px-2 py-1 rounded border border-border/30 hover:border-border/60 active:scale-95">
@@ -233,8 +233,8 @@ export function TowerCalibrator({ imageDataUrl, config, onSave, onClose, iconSiz
                       isActive && "scale-125"
                     )}
                     style={{
-                      width: `${iconSize}%`, aspectRatio: "1",
-                      fontSize: `${iconSize * 0.13}vw`,
+                      width: markerPx, height: markerPx,
+                      fontSize: markerPx * 0.38,
                       background: isActive ? color + "44" : "rgba(5,12,28,0.88)",
                       borderColor: color,
                       color,

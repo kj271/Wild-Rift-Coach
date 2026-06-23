@@ -412,73 +412,83 @@ function ObjControl({label,value,onChange}:{label:string;value:ObjStatus;onChang
 
 interface StreamingMsg{role:"user"|"assistant";content:string;streaming?:boolean}
 
-// ─── QuickChampPicker — compact bottom sheet ──────────────────────────────────
-function QuickChampPicker({pin,label,onAssign,onRemove,onClose,favorites,onToggleFav}:{
-  pin:MapPin;label:string;
+// ─── QuickChampPicker — small floating popup anchored near the pin ─────────────
+function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,favorites,onToggleFav}:{
+  pin:MapPin;label:string;pos:{x:number;y:number};
   onAssign:(c:string|null)=>void;onRemove:()=>void;onClose:()=>void;
   favorites:string[];onToggleFav:(c:string)=>void;
 }){
   const[search,setSearch]=useState("");
   const inputRef=useRef<HTMLInputElement>(null);
-  useEffect(()=>{setTimeout(()=>inputRef.current?.focus(),80);},[]);
+  const popupRef=useRef<HTMLDivElement>(null);
+  useEffect(()=>{setTimeout(()=>inputRef.current?.focus(),60);},[]);
+
+  // Clamp popup so it stays on screen (popup is ~220×300)
+  const PW=224,PH=300;
+  const left=Math.max(6,Math.min(pos.x-PW/2,window.innerWidth-PW-6));
+  const top=pos.y+20+PH>window.innerHeight?pos.y-PH-20:pos.y+20;
+
   const words=search.toLowerCase().split(/\s+/).filter(Boolean);
   const filtered=words.length===0?CHAMPIONS:CHAMPIONS.filter(c=>{const t=c.toLowerCase();return words.every(w=>t.includes(w));});
   const isAlly=pin.type==="ally";
-  const accentCls=isAlly?"text-sky-400":"text-red-400";
+  const accent=isAlly?"#38BDF8":"#EF4444";
   return(
-    <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={onClose}>
-      <div className="bg-[#0b1120] border-t border-border/50 rounded-t-xl max-h-[48vh] flex flex-col shadow-2xl"
-        onClick={e=>e.stopPropagation()}>
-        {/* Compact header + search row */}
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-border/30 shrink-0">
-          <span className={cn("text-xs font-display tracking-wider uppercase font-bold shrink-0",accentCls)}>{label}</span>
-          {pin.champ&&<span className="text-[10px] text-muted-foreground shrink-0 hidden sm:block">{pin.champ}</span>}
-          <div className="relative flex-1">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none"/>
-            <input ref={inputRef} placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)}
-              className="w-full pl-7 pr-2 h-7 rounded bg-black/60 border border-border/40 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/50"/>
+    <>
+      {/* Backdrop — tap to close */}
+      <div className="fixed inset-0 z-40" onClick={onClose}/>
+      {/* Popup card */}
+      <div ref={popupRef}
+        className="fixed z-50 flex flex-col bg-[#0d1526] border border-border/60 rounded-xl shadow-2xl overflow-hidden"
+        style={{left,top,width:PW,maxHeight:PH}}>
+        {/* Header */}
+        <div className="flex items-center gap-1.5 px-2.5 pt-2 pb-1.5 border-b border-border/30 shrink-0">
+          <span className="text-[11px] font-display font-bold uppercase tracking-wider" style={{color:accent}}>{label}</span>
+          {pin.champ&&<span className="text-[9px] text-muted-foreground flex-1 truncate">{pin.champ}</span>}
+          {!pin.champ&&<span className="flex-1"/>}
+          {pin.champ&&<button onClick={()=>onAssign(null)} className="text-[8px] text-muted-foreground border border-border/30 px-1 py-0.5 rounded active:scale-95 shrink-0">✕</button>}
+          <button onClick={onRemove} className="text-[8px] text-red-400 border border-red-500/30 px-1 py-0.5 rounded active:scale-95 shrink-0">del</button>
+        </div>
+        {/* Search */}
+        <div className="px-2 py-1.5 shrink-0">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none"/>
+            <input ref={inputRef} placeholder="Search champion…" value={search} onChange={e=>setSearch(e.target.value)}
+              className="w-full pl-6 pr-2 h-6 rounded bg-black/60 border border-border/30 text-[11px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/50"/>
           </div>
-          {pin.champ&&<button onClick={()=>onAssign(null)} className="shrink-0 text-[9px] text-muted-foreground border border-border/30 px-1.5 py-0.5 rounded active:scale-95">✕</button>}
-          <button onClick={onRemove} className="shrink-0 text-[9px] text-red-400 border border-red-500/30 px-1.5 py-0.5 rounded active:scale-95">del</button>
-          <button onClick={onClose} className="shrink-0 w-6 h-6 flex items-center justify-center rounded hover:bg-white/10 active:scale-95 text-muted-foreground">
-            <X className="w-3.5 h-3.5"/>
-          </button>
         </div>
         {/* Favorites strip */}
         {favorites.length>0&&!search&&(
-          <div className="px-2 py-1.5 flex gap-1 overflow-x-auto shrink-0 border-b border-border/20">
+          <div className="px-2 pb-1 flex gap-1 overflow-x-auto shrink-0">
             {favorites.map(c=>(
               <button key={c} onClick={()=>onAssign(c)}
-                className={cn("shrink-0 text-[9px] px-2 py-0.5 rounded-full border transition-all active:scale-95",
-                  pin.champ===c?"bg-amber-400/25 border-amber-400 text-amber-300":"border-amber-400/30 text-amber-300/70 hover:border-amber-400/60")}>
-                ⭐ {c}
+                className={cn("shrink-0 text-[8px] px-1.5 py-0.5 rounded-full border active:scale-95",
+                  pin.champ===c?"bg-amber-400/25 border-amber-400 text-amber-300":"border-amber-400/30 text-amber-300/70")}>
+                ★ {c}
               </button>
             ))}
           </div>
         )}
-        {/* Compact champion grid */}
-        <div className="overflow-y-auto flex-1 p-2">
-          <div className="grid grid-cols-5 gap-1">
-            {filtered.map(c=>{
-              const sel=pin.champ===c;
-              const isFav=favorites.includes(c);
-              return(
-                <div key={c} className="relative">
-                  <button onClick={()=>onAssign(c)}
-                    className={cn("w-full rounded px-0.5 py-1.5 text-[10px] font-medium text-center transition-all active:scale-95 leading-tight",
-                      sel?"bg-primary/30 text-primary border border-primary/50":"bg-black/30 text-slate-400 border border-border/20 hover:border-primary/30 hover:text-slate-200")}>
-                    {c}
-                  </button>
-                  <button onClick={ev=>{ev.stopPropagation();onToggleFav(c);}} className="absolute top-0.5 right-0.5">
-                    <Star className={cn("w-1.5 h-1.5",isFav?"fill-amber-400 text-amber-400":"text-muted-foreground/20 hover:text-amber-400")}/>
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+        {/* List */}
+        <div className="overflow-y-auto flex-1 px-2 pb-2">
+          {filtered.map(c=>{
+            const sel=pin.champ===c;
+            const isFav=favorites.includes(c);
+            return(
+              <div key={c} className="flex items-center gap-1 group">
+                <button onClick={()=>onAssign(c)}
+                  className={cn("flex-1 text-left px-2 py-1 text-[11px] rounded transition-all active:scale-[.97]",
+                    sel?"bg-primary/20 text-primary":"text-slate-300 hover:bg-white/5 hover:text-white")}>
+                  {c}
+                </button>
+                <button onClick={ev=>{ev.stopPropagation();onToggleFav(c);}} className="opacity-0 group-hover:opacity-100 px-1">
+                  <Star className={cn("w-2.5 h-2.5",isFav?"fill-amber-400 text-amber-400":"text-muted-foreground/40")}/>
+                </button>
+              </div>
+            );
+          })}
         </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -568,6 +578,7 @@ export default function CoachPage(){
     try{localStorage.setItem("wildrift_tower_icon_size",String(clamped));}catch{}
   };
   const[quickPickPinId,setQuickPickPinId]=useState<string|null>(null);
+  const[quickPickPos,setQuickPickPos]=useState<{x:number;y:number}>({x:0,y:0});
   const[contextOpen,setContextOpen]=useState(true);
   const[champPickOpen,setChampPickOpen]=useState(false);
 
@@ -1008,7 +1019,16 @@ export default function CoachPage(){
                   <div key={pin.id} data-pin="true"
                     className="absolute -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center"
                     style={{left:`${pin.x}%`,top:`${pin.y}%`}}
-                    onClick={e=>{e.stopPropagation();if(pin.type!=="me")setQuickPickPinId(pin.id);else removePin(pin.id);}}>
+                    onClick={e=>{
+                      e.stopPropagation();
+                      if(pin.type!=="me"){
+                        const rect=(e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setQuickPickPos({x:rect.left+rect.width/2,y:rect.top+rect.height/2});
+                        setQuickPickPinId(pin.id);
+                      }else{
+                        removePin(pin.id);
+                      }
+                    }}>
                     <div className={cn(
                       "w-8 h-8 rounded-full border-2 flex items-center justify-center",
                       "font-display font-bold text-[11px] cursor-pointer shadow-lg active:scale-90 transition-transform",
@@ -1211,6 +1231,14 @@ export default function CoachPage(){
                   onClick={()=>setShowTowerCalibrator(true)}>
                   <Building2 className="w-3 h-3"/> Towers
                 </button>
+                {/* Main map tower icon size */}
+                <div className="flex items-center gap-0.5 border border-border/30 rounded-lg overflow-hidden">
+                  <button className="px-1.5 py-1 text-sm text-muted-foreground hover:text-white hover:bg-white/10 active:scale-95 leading-none"
+                    onClick={()=>saveTowerIconSize(towerIconSizePct-1)}>−</button>
+                  <span className="text-[9px] text-muted-foreground/50 w-5 text-center select-none">{towerIconSizePct}</span>
+                  <button className="px-1.5 py-1 text-sm text-muted-foreground hover:text-white hover:bg-white/10 active:scale-95 leading-none"
+                    onClick={()=>saveTowerIconSize(towerIconSizePct+1)}>+</button>
+                </div>
               </div>
             </>)}
           </div>
@@ -1476,8 +1504,6 @@ export default function CoachPage(){
           config={towerConfig}
           onSave={saveTowerConfig}
           onClose={()=>setShowTowerCalibrator(false)}
-          iconSize={towerIconSizePct}
-          onIconSizeChange={saveTowerIconSize}
         />
       )}
 
@@ -1503,6 +1529,7 @@ export default function CoachPage(){
           <QuickChampPicker
             pin={pin}
             label={lbl}
+            pos={quickPickPos}
             onAssign={champ=>{
               setPins(prev=>prev.map(p=>p.id===quickPickPinId?{...p,champ}:p));
               setQuickPickPinId(null);
