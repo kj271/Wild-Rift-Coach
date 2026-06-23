@@ -194,7 +194,7 @@ export function PortraitPlacer({ screenshot, current, onSave, onClose, toDisplay
           </button>
           <div className="flex-1 flex items-center gap-1.5 ml-2">
             <span className="text-[10px] text-muted-foreground whitespace-nowrap">Circle size</span>
-            <input type="range" min={2} max={14} step={0.5}
+            <input type="range" min={2} max={30} step={0.5}
               value={cfg.sizePct}
               onChange={e => setCfg(p => ({ ...p, sizePct: parseFloat(e.target.value) }))}
               className="flex-1 accent-primary h-1"/>

@@ -902,10 +902,10 @@ export default function CoachPage(){
                 {/* X button — top-right corner — clears image and triggers new upload */}
                 {minimapBase64&&(
                   <button
-                    className="absolute top-2 right-2 z-20 w-7 h-7 rounded-full bg-black/70 border border-white/30 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/90 active:scale-95"
+                    className="absolute top-1 right-1 z-20 w-11 h-11 rounded-full bg-black/75 border border-white/30 flex items-center justify-center text-white hover:bg-black/95 active:scale-95"
                     title="Clear image & upload new screenshot"
                     onClick={e=>{e.stopPropagation();setImageBase64(null);setMinimapBase64(null);setGameTimeCrop(null);setPortraitStripCrop(null);setAlliesDown([]);setEnemiesDown([]);setPins([]);setTimeout(()=>fileInputRef.current?.click(),50);}}>
-                    <X className="w-3.5 h-3.5"/>
+                    <X className="w-5 h-5"/>
                   </button>
                 )}
                 {minimapBase64?(
@@ -973,19 +973,17 @@ export default function CoachPage(){
                     const n=i+1,dead=alliesDown.includes(n);
                     const sx=((pos.x-portraitStripConfig.x)/portraitStripConfig.w)*100;
                     const sy=((pos.y-portraitStripConfig.y)/portraitStripConfig.h)*100;
-                    // sizePct is already in strip-relative % (calibrated on strip image)
                     const sz=portraitConfig.sizePct??5.5;
                     if(sx<-5||sx>105||sy<-5||sy>105)return null;
                     return(
                       <button key={`ps-a${n}`}
                         onClick={()=>setAlliesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
-                        className="absolute rounded-full flex items-center justify-center font-black leading-none select-none"
+                        className="absolute rounded-full flex items-center justify-center font-bold leading-none select-none"
                         style={{left:`${sx}%`,top:`${sy}%`,transform:"translate(-50%,-50%)",width:`${sz}%`,aspectRatio:"1",
-                          background:dead?"rgb(14,116,144)":"transparent",
-                          border:"none",
-                          color:dead?"#fff":"transparent",
-                          fontSize:`${sz*0.38}vw`,
-                          textShadow:dead?"0 1px 3px rgba(0,0,0,0.8)":"none"}}>
+                          background:dead?"rgba(2,6,23,0.85)":"transparent",
+                          border:dead?"2px solid rgba(56,189,248,0.7)":"2px solid transparent",
+                          color:dead?"#7dd3fc":"transparent",
+                          fontSize:`${sz*0.13}vw`}}>
                         {dead?`A${n}`:""}
                       </button>
                     );
@@ -1000,13 +998,12 @@ export default function CoachPage(){
                     return(
                       <button key={`ps-e${n}`}
                         onClick={()=>setEnemiesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
-                        className="absolute rounded-full flex items-center justify-center font-black leading-none select-none"
+                        className="absolute rounded-full flex items-center justify-center font-bold leading-none select-none"
                         style={{left:`${sx}%`,top:`${sy}%`,transform:"translate(-50%,-50%)",width:`${sz}%`,aspectRatio:"1",
-                          background:dead?"rgb(185,28,28)":"transparent",
-                          border:"none",
-                          color:dead?"#fff":"transparent",
-                          fontSize:`${sz*0.38}vw`,
-                          textShadow:dead?"0 1px 3px rgba(0,0,0,0.8)":"none"}}>
+                          background:dead?"rgba(2,6,23,0.85)":"transparent",
+                          border:dead?"2px solid rgba(239,68,68,0.7)":"2px solid transparent",
+                          color:dead?"#fca5a5":"transparent",
+                          fontSize:`${sz*0.13}vw`}}>
                         {dead?`E${n}`:""}
                       </button>
                     );
@@ -1026,10 +1023,10 @@ export default function CoachPage(){
             {!screenshotCollapsed&&(<>
               <div className="relative w-full rounded-xl overflow-hidden border border-border/40">
                 <img src={imageBase64!} alt="Game screenshot" className="w-full h-auto block" draggable={false}/>
-                {/* Portrait tap zones on full screenshot */}
+                {/* Portrait tap zones on full screenshot — size is strip-relative, convert to full-image % */}
                 {portraitConfig.allies.map((pos,i)=>{
                   const n=i+1,dead=alliesDown.includes(n);
-                  const sz=`${portraitConfig.sizePct??5.5}%`;
+                  const sz=`${((portraitConfig.sizePct??5.5)*portraitStripConfig.w)/100}%`;
                   return(
                     <button key={`fa${n}`}
                       onClick={()=>setAlliesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
@@ -1044,7 +1041,7 @@ export default function CoachPage(){
                 })}
                 {portraitConfig.enemies.map((pos,i)=>{
                   const n=i+1,dead=enemiesDown.includes(n);
-                  const sz=`${portraitConfig.sizePct??5.5}%`;
+                  const sz=`${((portraitConfig.sizePct??5.5)*portraitStripConfig.w)/100}%`;
                   return(
                     <button key={`fe${n}`}
                       onClick={()=>setEnemiesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
