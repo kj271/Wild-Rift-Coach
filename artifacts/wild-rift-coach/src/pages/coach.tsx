@@ -412,7 +412,7 @@ function ObjControl({label,value,onChange}:{label:string;value:ObjStatus;onChang
 
 interface StreamingMsg{role:"user"|"assistant";content:string;streaming?:boolean}
 
-// ─── QuickChampPicker — bottom sheet after placing a pin ──────────────────────
+// ─── QuickChampPicker — compact bottom sheet ──────────────────────────────────
 function QuickChampPicker({pin,label,onAssign,onRemove,onClose,favorites,onToggleFav}:{
   pin:MapPin;label:string;
   onAssign:(c:string|null)=>void;onRemove:()=>void;onClose:()=>void;
@@ -421,71 +421,56 @@ function QuickChampPicker({pin,label,onAssign,onRemove,onClose,favorites,onToggl
   const[search,setSearch]=useState("");
   const inputRef=useRef<HTMLInputElement>(null);
   useEffect(()=>{setTimeout(()=>inputRef.current?.focus(),80);},[]);
-  const q=search.toLowerCase();
-  const words=q.split(/\s+/).filter(Boolean);
+  const words=search.toLowerCase().split(/\s+/).filter(Boolean);
   const filtered=words.length===0?CHAMPIONS:CHAMPIONS.filter(c=>{const t=c.toLowerCase();return words.every(w=>t.includes(w));});
   const isAlly=pin.type==="ally";
+  const accentCls=isAlly?"text-sky-400":"text-red-400";
   return(
     <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={onClose}>
-      <div className="bg-[#0b1120] border-t border-border/60 rounded-t-2xl max-h-[72vh] flex flex-col shadow-2xl"
+      <div className="bg-[#0b1120] border-t border-border/50 rounded-t-xl max-h-[48vh] flex flex-col shadow-2xl"
         onClick={e=>e.stopPropagation()}>
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border/30 shrink-0">
-          <div className="flex items-center gap-2">
-            <span className={cn("text-sm font-display tracking-wider uppercase font-bold",isAlly?"text-sky-400":"text-red-400")}>{label}</span>
-            <span className="text-xs text-muted-foreground">{pin.champ?`— ${pin.champ}`:"— who is this?"}</span>
+        {/* Compact header + search row */}
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-border/30 shrink-0">
+          <span className={cn("text-xs font-display tracking-wider uppercase font-bold shrink-0",accentCls)}>{label}</span>
+          {pin.champ&&<span className="text-[10px] text-muted-foreground shrink-0 hidden sm:block">{pin.champ}</span>}
+          <div className="relative flex-1">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none"/>
+            <input ref={inputRef} placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)}
+              className="w-full pl-7 pr-2 h-7 rounded bg-black/60 border border-border/40 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/50"/>
           </div>
-          <div className="flex items-center gap-1.5">
-            {pin.champ&&(
-              <button onClick={()=>onAssign(null)}
-                className="text-[10px] text-muted-foreground border border-border/40 px-2 py-1 rounded-md hover:border-border active:scale-95">
-                Clear
-              </button>
-            )}
-            <button onClick={onRemove}
-              className="text-[10px] text-red-400 border border-red-500/40 px-2 py-1 rounded-md hover:bg-red-500/10 active:scale-95">
-              Remove pin
-            </button>
-            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 active:scale-95">
-              <X className="w-4 h-4"/>
-            </button>
-          </div>
+          {pin.champ&&<button onClick={()=>onAssign(null)} className="shrink-0 text-[9px] text-muted-foreground border border-border/30 px-1.5 py-0.5 rounded active:scale-95">✕</button>}
+          <button onClick={onRemove} className="shrink-0 text-[9px] text-red-400 border border-red-500/30 px-1.5 py-0.5 rounded active:scale-95">del</button>
+          <button onClick={onClose} className="shrink-0 w-6 h-6 flex items-center justify-center rounded hover:bg-white/10 active:scale-95 text-muted-foreground">
+            <X className="w-3.5 h-3.5"/>
+          </button>
         </div>
-        {/* Search */}
-        <div className="px-3 pt-2.5 pb-2 shrink-0">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"/>
-            <input ref={inputRef} placeholder="Search champion…" value={search} onChange={e=>setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 h-9 rounded-lg bg-black/50 border border-border/40 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/50"/>
-          </div>
-        </div>
-        {/* Favorites row */}
+        {/* Favorites strip */}
         {favorites.length>0&&!search&&(
-          <div className="px-3 pb-2 flex flex-wrap gap-1.5 shrink-0">
+          <div className="px-2 py-1.5 flex gap-1 overflow-x-auto shrink-0 border-b border-border/20">
             {favorites.map(c=>(
               <button key={c} onClick={()=>onAssign(c)}
-                className={cn("text-xs px-2.5 py-1 rounded-full border transition-all active:scale-95",
-                  pin.champ===c?"bg-amber-400/25 border-amber-400 text-amber-300":"bg-black/40 border-amber-400/30 text-amber-300/80 hover:border-amber-400/60")}>
+                className={cn("shrink-0 text-[9px] px-2 py-0.5 rounded-full border transition-all active:scale-95",
+                  pin.champ===c?"bg-amber-400/25 border-amber-400 text-amber-300":"border-amber-400/30 text-amber-300/70 hover:border-amber-400/60")}>
                 ⭐ {c}
               </button>
             ))}
           </div>
         )}
-        {/* Champion grid */}
-        <div className="overflow-y-auto flex-1 px-3 pb-4">
-          <div className="grid grid-cols-4 gap-1.5">
+        {/* Compact champion grid */}
+        <div className="overflow-y-auto flex-1 p-2">
+          <div className="grid grid-cols-5 gap-1">
             {filtered.map(c=>{
               const sel=pin.champ===c;
               const isFav=favorites.includes(c);
               return(
                 <div key={c} className="relative">
                   <button onClick={()=>onAssign(c)}
-                    className={cn("w-full rounded-md px-1 py-2 text-[11px] font-medium text-center transition-all active:scale-95",
-                      sel?"bg-primary/25 text-primary border border-primary/50":"bg-black/30 text-slate-300 border border-border/30 hover:border-primary/30 hover:text-primary")}>
+                    className={cn("w-full rounded px-0.5 py-1.5 text-[10px] font-medium text-center transition-all active:scale-95 leading-tight",
+                      sel?"bg-primary/30 text-primary border border-primary/50":"bg-black/30 text-slate-400 border border-border/20 hover:border-primary/30 hover:text-slate-200")}>
                     {c}
                   </button>
-                  <button onClick={ev=>{ev.stopPropagation();onToggleFav(c);}} className="absolute top-0.5 right-0.5 p-0.5 leading-none">
-                    <Star className={cn("w-2 h-2",isFav?"fill-amber-400 text-amber-400":"text-muted-foreground/30 hover:text-amber-400")}/>
+                  <button onClick={ev=>{ev.stopPropagation();onToggleFav(c);}} className="absolute top-0.5 right-0.5">
+                    <Star className={cn("w-1.5 h-1.5",isFav?"fill-amber-400 text-amber-400":"text-muted-foreground/20 hover:text-amber-400")}/>
                   </button>
                 </div>
               );
@@ -1226,14 +1211,6 @@ export default function CoachPage(){
                   onClick={()=>setShowTowerCalibrator(true)}>
                   <Building2 className="w-3 h-3"/> Towers
                 </button>
-                {/* Tower icon size control */}
-                <div className="flex items-center gap-0.5 border border-border/30 rounded-lg overflow-hidden">
-                  <button className="px-2 py-1 text-sm text-muted-foreground hover:text-white hover:bg-white/10 active:scale-95 leading-none"
-                    onClick={()=>saveTowerIconSize(towerIconSizePct-1)}>−</button>
-                  <span className="text-[10px] text-muted-foreground/60 w-6 text-center select-none">{towerIconSizePct}</span>
-                  <button className="px-2 py-1 text-sm text-muted-foreground hover:text-white hover:bg-white/10 active:scale-95 leading-none"
-                    onClick={()=>saveTowerIconSize(towerIconSizePct+1)}>+</button>
-                </div>
               </div>
             </>)}
           </div>
@@ -1499,6 +1476,8 @@ export default function CoachPage(){
           config={towerConfig}
           onSave={saveTowerConfig}
           onClose={()=>setShowTowerCalibrator(false)}
+          iconSize={towerIconSizePct}
+          onIconSizeChange={saveTowerIconSize}
         />
       )}
 
