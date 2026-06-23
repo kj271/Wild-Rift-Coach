@@ -232,12 +232,13 @@ async function renderAnnotatedMinimap(
   const ctx=canvas.getContext("2d")!;
   ctx.drawImage(img,0,0,W,H);
 
-  // Draw pins
+  // Draw champion/me pins (skip wave pins — drawn separately below)
   const r=Math.round(W*0.05);
   const allyPins=pins.filter(p=>p.type==="ally");
   const enemyPins=pins.filter(p=>p.type==="enemy");
   const aDown=alliesDown??[];const eDown=enemiesDown??[];
   for(const pin of pins){
+    if(pin.type==="ally_wave"||pin.type==="enemy_wave")continue;
     const px=pin.x/100*W,py=pin.y/100*H;
     const color=pin.type==="me"?"#FBBF24":pin.type==="ally"?"#38BDF8":"#EF4444";
     const outline=pin.type==="me"?"#92400E":pin.type==="ally"?"#0C4A6E":"#7F1D1D";
@@ -257,6 +258,29 @@ async function renderAnnotatedMinimap(
       ctx.fillStyle="#fff";ctx.font=`${Math.round(r*0.72)}px sans-serif`;
       ctx.fillText(pin.champ,px,py+r+2+Math.round(r*0.42));
     }
+  }
+
+  // Draw wave pins (diamond shape, labelled AW1/EW1 etc.)
+  const wr=Math.round(W*0.038);
+  const allyWavePins=pins.filter(p=>p.type==="ally_wave");
+  const enemyWavePins=pins.filter(p=>p.type==="enemy_wave");
+  for(const pin of [...allyWavePins,...enemyWavePins]){
+    const isAlly=pin.type==="ally_wave";
+    const wavePinsOfType=isAlly?allyWavePins:enemyWavePins;
+    const idx=wavePinsOfType.indexOf(pin)+1;
+    const wLabel=isAlly?`AW${idx}`:`EW${idx}`;
+    const wColor=isAlly?"#4ade80":"#fb923c";
+    const wOutline=isAlly?"#14532d":"#7c2d12";
+    const px=pin.x/100*W,py=pin.y/100*H;
+    // Diamond shape
+    ctx.shadowColor="rgba(0,0,0,0.8)";ctx.shadowBlur=6;
+    ctx.beginPath();ctx.moveTo(px,py-wr);ctx.lineTo(px+wr,py);ctx.lineTo(px,py+wr);ctx.lineTo(px-wr,py);ctx.closePath();
+    ctx.fillStyle=wColor+"CC";ctx.fill();ctx.shadowBlur=0;
+    ctx.strokeStyle=wOutline;ctx.lineWidth=Math.max(1.5,wr*0.18);ctx.stroke();
+    ctx.fillStyle="#000";
+    ctx.font=`bold ${Math.round(wr*0.9)}px sans-serif`;
+    ctx.textAlign="center";ctx.textBaseline="middle";
+    ctx.fillText(wLabel,px,py);
   }
 
   // Draw objective pins
