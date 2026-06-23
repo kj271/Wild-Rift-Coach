@@ -43,7 +43,7 @@ const CHAMPIONS = [
   "Kai'Sa","Karma","Kassadin","Katarina","Kayle","Kayn","Kennen","Kha'Zix","Kog'Maw",
   "LeBlanc","Lee Sin","Leona","Lissandra","Lucian","Lulu","Lux",
   "Malphite","Malzahar","Master Yi","Mel","Miss Fortune","Morgana",
-  "Nami","Nasus","Nautilus","Norra","Nunu",
+  "Nami","Nasus","Nautilus","Nilah","Norra","Nunu",
   "Olaf","Orianna",
   "Pantheon",
   "Quinn",
