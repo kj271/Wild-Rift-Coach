@@ -19,8 +19,7 @@ Format your response in clear sections:
 IMAGE ANALYSIS — READ THE IMAGE, NOT JUST THE TEXT:
 - You will receive a minimap image. Study it carefully alongside the text context — do not rely on text alone
 - Look at actual pin positions on the image to understand where champions are on the map
-- Check for destroyed towers (missing tower icons), objective timers, and any visual information the image provides
-- The image is your primary source for spatial awareness; the text context fills in details the image cannot show
+- Read all visual information the image provides alongside the text context
 
 MINIMAP READING:
 - Yellow pin = the player asking for advice (ME)
