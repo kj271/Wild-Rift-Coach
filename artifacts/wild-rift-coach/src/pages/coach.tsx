@@ -1131,9 +1131,10 @@ export default function CoachPage(){
                 </p>
               )}
 
-              {/* Minimap with free-tap */}
+              {/* Minimap + off-map sidebar */}
+              <div className="flex gap-2 items-stretch">
               <div ref={minimapDivRef}
-                className={cn("relative w-full rounded-lg overflow-hidden border border-border/30",
+                className={cn("relative flex-1 rounded-lg overflow-hidden border border-border/30",
                   placeMode?"cursor-crosshair":"cursor-default")}
                 onClick={handleMinimapTap}
                 onTouchStart={handleMinimapTap}>
@@ -1267,13 +1268,26 @@ export default function CoachPage(){
                     );
                   })
                 )}
-                {/* Bench drop zone overlay — always inside minimap so pointer capture can reach it */}
-                <div ref={benchRef}
-                  className="absolute bottom-0 inset-x-0 z-20 flex items-center justify-center gap-1.5 py-2 border-t-2 border-dashed bg-black/60"
-                  style={{pointerEvents:"none",borderColor:"rgba(148,163,184,0.25)"}}>
-                  <span className="text-[10px] uppercase tracking-widest font-display"
-                    style={{color:"rgba(148,163,184,0.45)"}}>↓ drag here — not on map</span>
+              </div>
+              {/* Off-map sidebar — drag pins here */}
+              <div ref={benchRef}
+                className="w-14 shrink-0 flex flex-col items-center rounded-lg border-2 border-dashed border-border/30 bg-black/20 overflow-hidden">
+                <span className="text-[8px] uppercase tracking-widest text-muted-foreground/40 font-display py-2 text-center leading-tight">Off<br/>map</span>
+                <div className="flex-1 w-full flex flex-col items-center gap-1.5 px-1 pb-2 overflow-y-auto">
+                  {benchPins.map(p=>{
+                    const color=p.type==="ally"?"#38BDF8":p.type==="enemy"?"#EF4444":"#FBBF24";
+                    const label=p.champ?p.champ.split(" ")[0]??"?":(p.type==="ally"?"Ally":"Enemy");
+                    return(
+                      <button key={p.id} title={`Tap to put ${label} back on map`}
+                        onClick={()=>{setPins(prev=>[...prev,{...p,x:50,y:50}]);setBenchPins(b=>b.filter(bp=>bp.id!==p.id));}}
+                        className="w-full rounded-md border px-0.5 py-1.5 text-[8px] font-bold text-center active:scale-95 transition-all touch-manipulation leading-tight"
+                        style={{background:"rgba(5,12,28,0.85)",borderColor:color,color}}>
+                        {label}
+                      </button>
+                    );
+                  })}
                 </div>
+              </div>
               </div>
 
               {/* Position tags */}
@@ -1299,31 +1313,6 @@ export default function CoachPage(){
                   ))}
                 </div>
               )}
-            {/* ── BENCH: not on map — chips display ───────────────── */}
-            <div
-              className={cn("mx-3 mb-3 rounded-lg border-2 border-dashed min-h-[44px] flex flex-wrap gap-2 items-center px-3 py-2 transition-colors",
-                benchPins.length===0?"border-border/20 bg-black/5":"border-border/40 bg-black/20")}>
-              <span className="text-[10px] text-muted-foreground/50 uppercase tracking-widest shrink-0">Not on map</span>
-              {benchPins.length===0&&(
-                <span className="text-[10px] text-muted-foreground/30 italic">drag a pin here</span>
-              )}
-              {benchPins.map(p=>{
-                const color=p.type==="ally"?"#38BDF8":p.type==="enemy"?"#EF4444":"#FBBF24";
-                const label=p.champ??(p.type==="ally"?"Ally":"Enemy");
-                return(
-                  <button key={p.id} title="Tap to put back on map"
-                    onClick={()=>{
-                      setPins(prev=>[...prev,{...p,x:50,y:50}]);
-                      setBenchPins(b=>b.filter(bp=>bp.id!==p.id));
-                    }}
-                    className="flex items-center gap-1.5 text-[11px] font-semibold rounded-full px-3 py-1.5 active:scale-95 transition-all touch-manipulation border"
-                    style={{background:"rgba(5,12,28,0.85)",borderColor:color,color}}>
-                    {label}
-                    <span className="text-[9px] opacity-60">↩</span>
-                  </button>
-                );
-              })}
-            </div>
             </div>
           </div>
 
