@@ -623,8 +623,10 @@ export default function CoachPage(){
 
   // Pins
   const[pins,setPins]=useState<MapPin[]>((_sess.pins as MapPin[])??[]);
+  const[benchPins,setBenchPins]=useState<MapPin[]>([]);
   const[placeMode,setPlaceMode]=useState<PlaceMode>(null);
   const minimapDivRef=useRef<HTMLDivElement>(null);
+  const benchRef=useRef<HTMLDivElement>(null);
   const pinDragActive=useRef<{id:string;kind:"champ"|"obj"}|null>(null);
   const pinDragMoved=useRef(false);
   const handlePinPointerMove=useCallback((e:React.PointerEvent,id:string,kind:"champ"|"obj")=>{
@@ -707,7 +709,7 @@ export default function CoachPage(){
     setBaronBuff(null);setElderBuff(null);setAlliesDown([]);setEnemiesDown([]);setTowersDown({ally:[],enemy:[]});
     setUserNotes('');setGameTimeSecs(0);setActiveConversationId(null);setAdvice("");setChatMessages([]);
     setDebugInfo(null);setDebugMinimapUrl(null);setPortraitStripCrop(null);
-    setImageQueue([]);setActiveQueueIdx(0);
+    setImageQueue([]);setActiveQueueIdx(0);setBenchPins([]);
   },[]);
 
   // ── Re-crop minimap with current config ──────────────────────────────────────
@@ -849,6 +851,7 @@ export default function CoachPage(){
         const enemyTowersDown=towersDown.enemy.map(i=>TOWER_LABELS[i]).filter(Boolean);
         if(allyTowersDown.length>0)parts.push(`Our destroyed towers: ${allyTowersDown.join(", ")}`);
         if(enemyTowersDown.length>0)parts.push(`Enemy destroyed towers: ${enemyTowersDown.join(", ")}`);
+        if(benchPins.length>0){const names=benchPins.map(p=>p.champ||(p.type==="ally"?"an ally":"an enemy")).join(", ");parts.push(`Not visible on map: ${names}`);}
         if(userNotes.trim())parts.push(userNotes.trim());
         return parts.length?parts.join(". "):null;
       })(),
@@ -1160,7 +1163,20 @@ export default function CoachPage(){
                       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
                     }}
                     onPointerMove={e=>handlePinPointerMove(e,pin.id,"champ")}
-                    onPointerUp={e=>{e.stopPropagation();pinDragActive.current=null;}}
+                    onPointerUp={e=>{
+                      e.stopPropagation();
+                      if(pinDragMoved.current&&benchRef.current){
+                        const r=benchRef.current.getBoundingClientRect();
+                        if(e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom){
+                          setBenchPins(b=>[...b.filter(p=>p.id!==pin.id),pin]);
+                          setPins(p=>p.filter(pp=>pp.id!==pin.id));
+                          pinDragMoved.current=false;
+                          pinDragActive.current=null;
+                          return;
+                        }
+                      }
+                      pinDragActive.current=null;
+                    }}
                     onClick={e=>{
                       e.stopPropagation();
                       if(pinDragMoved.current){pinDragMoved.current=false;return;}
@@ -1275,6 +1291,31 @@ export default function CoachPage(){
                   ))}
                 </div>
               )}
+            {/* ── BENCH: not on map ───────────────────────────────── */}
+            <div ref={benchRef}
+              className={cn("mx-3 mb-3 rounded-lg border-2 border-dashed min-h-[52px] flex flex-wrap gap-2 items-center px-3 py-2 transition-colors",
+                benchPins.length===0?"border-border/25 bg-black/10":"border-border/40 bg-black/20")}>
+              <span className="text-[10px] text-muted-foreground/50 uppercase tracking-widest shrink-0">Not on map</span>
+              {benchPins.length===0&&(
+                <span className="text-[10px] text-muted-foreground/30 italic">drag a pin here</span>
+              )}
+              {benchPins.map(p=>{
+                const color=p.type==="ally"?"#38BDF8":p.type==="enemy"?"#EF4444":"#FBBF24";
+                const label=p.champ??(p.type==="ally"?"Ally":"Enemy");
+                return(
+                  <button key={p.id} title="Tap to put back on map"
+                    onClick={()=>{
+                      setPins(prev=>[...prev,{...p,x:50,y:50}]);
+                      setBenchPins(b=>b.filter(bp=>bp.id!==p.id));
+                    }}
+                    className="flex items-center gap-1.5 text-[11px] font-semibold rounded-full px-3 py-1.5 active:scale-95 transition-all touch-manipulation border"
+                    style={{background:"rgba(5,12,28,0.85)",borderColor:color,color}}>
+                    {label}
+                    <span className="text-[9px] opacity-60">↩</span>
+                  </button>
+                );
+              })}
+            </div>
             </div>
           </div>
 
