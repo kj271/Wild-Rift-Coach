@@ -603,6 +603,8 @@ export default function CoachPage(){
   // Screenshot
   const[imageBase64,setImageBase64]=useState<string|null>((_sess.imageBase64 as string|null)??null);
   const[minimapBase64,setMinimapBase64]=useState<string|null>((_sess.minimapBase64 as string|null)??null);
+  const[imageQueue,setImageQueue]=useState<string[]>([]);
+  const[activeQueueIdx,setActiveQueueIdx]=useState(0);
   const fileInputRef=useRef<HTMLInputElement>(null);
 
   // Calibration modals
@@ -705,6 +707,7 @@ export default function CoachPage(){
     setBaronBuff(null);setElderBuff(null);setAlliesDown([]);setEnemiesDown([]);setTowersDown({ally:[],enemy:[]});
     setUserNotes('');setGameTimeSecs(0);setActiveConversationId(null);setAdvice("");setChatMessages([]);
     setDebugInfo(null);setDebugMinimapUrl(null);setPortraitStripCrop(null);
+    setImageQueue([]);setActiveQueueIdx(0);
   },[]);
 
   // ── Re-crop minimap with current config ──────────────────────────────────────
@@ -730,10 +733,17 @@ export default function CoachPage(){
     }catch{}
   },[recropMinimap,timerCropConfig,portraitStripConfig]);
 
-  const handleFile=(file:File)=>{
-    const reader=new FileReader();
-    reader.onload=e=>{const r=e.target?.result as string;if(r)processImage(r);};
-    reader.readAsDataURL(file);
+  const handleFiles=(files:FileList|File[])=>{
+    const arr=Array.from(files);
+    if(!arr.length)return;
+    const readers=arr.map(f=>new Promise<string>(res=>{const r=new FileReader();r.onload=e=>res(e.target?.result as string);r.readAsDataURL(f);}));
+    Promise.all(readers).then(dataUrls=>{
+      const valid=dataUrls.filter(Boolean);
+      if(!valid.length)return;
+      setImageQueue(valid);
+      setActiveQueueIdx(0);
+      processImage(valid[0]!);
+    });
   };
 
   // ── Save crop config and immediately re-crop if we have a screenshot ────────
@@ -1021,14 +1031,15 @@ export default function CoachPage(){
           <div className="w-full h-28 rounded-xl border-2 border-dashed border-border/40 hover:border-primary/30 transition-colors cursor-pointer flex flex-col items-center justify-center gap-2 text-muted-foreground"
             onClick={()=>fileInputRef.current?.click()}
             onDragOver={e=>e.preventDefault()}
-            onDrop={e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f)handleFile(f);}}>
+            onDrop={e=>{e.preventDefault();if(e.dataTransfer.files.length)handleFiles(e.dataTransfer.files);}}>
             <Upload className="w-5 h-5"/>
-            <span className="text-sm">Upload screenshot</span>
-            <span className="text-xs text-muted-foreground/50">Minimap auto-crops · timer auto-reads</span>
+            <span className="text-sm">Upload screenshot(s)</span>
+            <span className="text-xs text-muted-foreground/50">Tap or drop — select multiple for same match</span>
           </div>
         )}
-        <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
-          onChange={e=>{const f=e.target.files?.[0];if(f)handleFile(f);}}/>
+        <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden"
+          onChange={e=>{if(e.target.files?.length)handleFiles(e.target.files);e.target.value="";}}/>
+
 
         {/* ── MINIMAP TAP PANEL + DEAD TRACKER ──────────────────────── */}
         {imageBase64&&(<>
@@ -1058,6 +1069,19 @@ export default function CoachPage(){
                 )}
               </div>
             </div>
+
+            {/* Batch thumbnail strip */}
+            {imageQueue.length>1&&(
+              <div className="flex gap-2 px-3 py-2 border-b border-border/30 overflow-x-auto">
+                {imageQueue.map((img,i)=>(
+                  <button key={i} onClick={()=>{setActiveQueueIdx(i);processImage(img);}}
+                    className={cn("shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 active:scale-95 transition-all",
+                      i===activeQueueIdx?"border-primary":"border-border/30 opacity-50")}>
+                    <img src={img} alt={`Screenshot ${i+1}`} className="w-full h-full object-cover"/>
+                  </button>
+                ))}
+              </div>
+            )}
 
             <div className="p-3 space-y-3">
               {/* Mode buttons */}
