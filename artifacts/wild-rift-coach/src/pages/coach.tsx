@@ -936,10 +936,11 @@ export default function CoachPage(){
     const x=Math.max(0,Math.min(100,(cx-rect.left)/rect.width*100));
     const y=Math.max(0,Math.min(100,(cy-rect.top)/rect.height*100));
     const pos=classifyPos(x,y,lanePaths,zones);
+    const totalOfType=(t:PinType)=>[...pins,...benchPins].filter(p=>p.type===t).length;
     if(placeMode==="me"){
       setPins(p=>[...p.filter(pp=>pp.type!=="me"),{id:`me-${Date.now()}`,type:"me",x,y,pos,champ:myChamp}]);
     }else if(placeMode==="ally"){
-      if(pins.filter(p=>p.type==="ally").length>=4)return;
+      if(totalOfType("ally")>=4)return;
       setPins(p=>[...p,{id:`ally-${Date.now()}`,type:"ally",x,y,pos,champ:null}]);
     }else if(placeMode==="obj"){
       const id=`obj-${Date.now()}`;
@@ -948,16 +949,16 @@ export default function CoachPage(){
       setQuickObjPickPos({x:rect.left+x/100*rect.width,y:rect.top+y/100*rect.height});
       setQuickObjPickId(id);
     }else if(placeMode==="ally_wave"){
-      if(pins.filter(p=>p.type==="ally_wave").length>=5)return;
+      if(totalOfType("ally_wave")>=5)return;
       setPins(p=>[...p,{id:`aw-${Date.now()}`,type:"ally_wave",x,y,pos,champ:null}]);
     }else if(placeMode==="enemy_wave"){
-      if(pins.filter(p=>p.type==="enemy_wave").length>=5)return;
+      if(totalOfType("enemy_wave")>=5)return;
       setPins(p=>[...p,{id:`ew-${Date.now()}`,type:"enemy_wave",x,y,pos,champ:null}]);
     }else{
-      if(pins.filter(p=>p.type==="enemy").length>=5)return;
+      if(totalOfType("enemy")>=5)return;
       setPins(p=>[...p,{id:`enemy-${Date.now()}`,type:"enemy",x,y,pos,champ:null}]);
     }
-  },[placeMode,myChamp,pins,lanePaths,zones]);
+  },[placeMode,myChamp,pins,benchPins,lanePaths,zones]);
 
   const removePin=(id:string)=>setPins(p=>p.filter(pp=>pp.id!==id));
 
