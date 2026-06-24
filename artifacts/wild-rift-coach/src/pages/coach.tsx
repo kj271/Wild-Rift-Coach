@@ -1262,8 +1262,8 @@ export default function CoachPage(){
                     <button onClick={()=>{
                         if(i===activeQueueIdx)return;
                         saveCurrentSlot(imageQueue[activeQueueIdx]!);
-                        // First visit: carry forward pins but reset dead tracker per user request
-                        const restore=perImageState.current.get(img)??{pins,benchPins,objPins,alliesDown:[],enemiesDown:[],towersDown:{ally:[],enemy:[]}};
+                        // First visit: carry forward pins + towers, reset dead tracker only
+                        const restore=perImageState.current.get(img)??{pins,benchPins,objPins,alliesDown:[],enemiesDown:[],towersDown};
                         setActiveQueueIdx(i);
                         applySlotState(restore);
                         processImage(img);
@@ -1283,8 +1283,8 @@ export default function CoachPage(){
                         } else {
                           const newIdx=i>=next.length?next.length-1:i===activeQueueIdx?Math.min(i,next.length-1):activeQueueIdx>i?activeQueueIdx-1:activeQueueIdx;
                           if(i===activeQueueIdx){
-                            // Deleting the active image — carry forward pins but reset dead tracker
-                            const restore=perImageState.current.get(next[newIdx]!)??{pins,benchPins,objPins,alliesDown:[],enemiesDown:[],towersDown:{ally:[],enemy:[]}};
+                            // Deleting the active image — carry forward pins + towers, reset dead tracker only
+                            const restore=perImageState.current.get(next[newIdx]!)??{pins,benchPins,objPins,alliesDown:[],enemiesDown:[],towersDown};
                             setImageQueue(next);setActiveQueueIdx(newIdx);
                             applySlotState(restore);
                             processImage(next[newIdx]!);
