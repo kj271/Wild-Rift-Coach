@@ -4,11 +4,12 @@ import { useListModels, ModelInfo } from "@workspace/api-client-react";
 import { useModelStorage } from "@/hooks/use-model-storage";
 import { ALL_CONFIG_KEYS } from "@/hooks/use-map-config";
 import { useSystemPrompt, DEFAULT_SYSTEM_PROMPT } from "@/hooks/use-system-prompt";
+import { exportPortraitDb, importPortraitDb } from "@/lib/champion-detection";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronDown, Check, ArrowLeft, Settings2, Download, Upload, RotateCcw, Star, Search } from "lucide-react";
+import { ChevronDown, Check, ArrowLeft, Settings2, Download, Upload, RotateCcw, Star, Search, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const FAV_MODELS_KEY = "wildrift_fav_models";
@@ -66,6 +67,9 @@ export default function SettingsPage() {
   const [search, setSearch] = useState("");
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
+  const [portraitMsg, setPortraitMsg] = useState<string | null>(null);
+  const [portraitBusy, setPortraitBusy] = useState(false);
+  const portraitImportRef = useRef<HTMLInputElement>(null);
   const { prompt, save: savePrompt, reset: resetPrompt, isCustom } = useSystemPrompt();
   const [promptDraft, setPromptDraft] = useState(prompt);
 
@@ -143,6 +147,41 @@ export default function SettingsPage() {
     };
     reader.readAsText(file);
     e.target.value = "";
+  };
+
+  const handleExportPortraits = async () => {
+    setPortraitBusy(true);
+    setPortraitMsg(null);
+    try {
+      const count = await exportPortraitDb();
+      setPortraitMsg(count === 0 ? "⚠ No portraits saved yet" : `✓ Exported ${count} portrait${count !== 1 ? "s" : ""}`);
+    } catch {
+      setPortraitMsg("✗ Export failed");
+    } finally {
+      setPortraitBusy(false);
+      setTimeout(() => setPortraitMsg(null), 4000);
+    }
+  };
+
+  const handleImportPortraits = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setPortraitBusy(true);
+    setPortraitMsg(null);
+    try {
+      let progress = "";
+      const count = await importPortraitDb(file, (done, total) => {
+        progress = `Importing… ${done}/${total}`;
+        setPortraitMsg(progress);
+      });
+      setPortraitMsg(`✓ Imported ${count} portrait${count !== 1 ? "s" : ""} — ready to use`);
+    } catch {
+      setPortraitMsg("✗ Invalid portrait DB file");
+    } finally {
+      setPortraitBusy(false);
+      setTimeout(() => setPortraitMsg(null), 5000);
+    }
   };
 
   return (
@@ -369,7 +408,54 @@ export default function SettingsPage() {
             )}
             <p className="text-xs text-muted-foreground">
               Exported file includes: crop calibration, zone polygons, lane waypoints, tower config, dead-slot zones, portrait detection crop, objective pit config, favourite champions, favourite models, and selected model.
-              It does <strong className="text-white/60">not</strong> include the champion portrait database (stored in IndexedDB — device-only) or active game session data.
+              Champion portrait database is backed up separately below.
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* ── Portrait Database ── */}
+        <Card className="border-border bg-card/50 backdrop-blur-sm shadow-xl shadow-black/20">
+          <CardHeader>
+            <CardTitle className="text-xl">Champion Portrait Database</CardTitle>
+            <CardDescription>
+              Back up or restore the on-device portrait database used for automatic champion detection.
+              Keep a copy so you don't have to re-train on a new device.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex gap-3">
+              <Button
+                onClick={handleExportPortraits}
+                disabled={portraitBusy}
+                className="flex items-center gap-2 flex-1"
+              >
+                {portraitBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                Export Portraits
+              </Button>
+              <Button
+                variant="outline"
+                disabled={portraitBusy}
+                className="flex items-center gap-2 flex-1"
+                onClick={() => portraitImportRef.current?.click()}
+              >
+                {portraitBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                Import Portraits
+              </Button>
+              <input ref={portraitImportRef} type="file" accept=".json" className="hidden" onChange={handleImportPortraits} />
+            </div>
+            {portraitMsg && (
+              <p className={cn(
+                "text-sm font-medium",
+                portraitMsg.startsWith("✓") ? "text-emerald-400" :
+                portraitMsg.startsWith("⚠") ? "text-amber-400" :
+                portraitMsg.startsWith("Importing") ? "text-sky-400" : "text-destructive"
+              )}>
+                {portraitMsg}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Exported as <code className="font-mono text-white/40">wr-portraits-YYYY-MM-DD.json</code>.
+              Importing <strong className="text-white/60">adds</strong> to your existing portraits — it does not replace them.
             </p>
           </CardContent>
         </Card>

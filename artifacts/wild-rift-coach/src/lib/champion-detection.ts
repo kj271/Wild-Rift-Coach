@@ -106,6 +106,60 @@ async function _savePortraitEntry(entry: Omit<PortraitDbEntry, "id">): Promise<v
   });
 }
 
+// Serialisable form of a portrait entry (Float32Array → number[])
+interface PortraitDbEntryJson {
+  champName: string;
+  sig: number[];
+  cropDataUrl: string;
+  ts: number;
+  cropPct?: number;
+}
+
+/** Download all portrait entries as a JSON file. */
+export async function exportPortraitDb(): Promise<number> {
+  const entries = await getAllPortraitEntries();
+  const payload: PortraitDbEntryJson[] = entries.map(e => ({
+    champName: e.champName,
+    sig: Array.from(e.sig),
+    cropDataUrl: e.cropDataUrl,
+    ts: e.ts,
+    cropPct: e.cropPct,
+  }));
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `wr-portraits-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  return entries.length;
+}
+
+/** Import portrait entries from a JSON file produced by exportPortraitDb.
+ *  Returns the number of entries written. */
+export async function importPortraitDb(
+  file: File,
+  onProgress?: (done: number, total: number) => void,
+): Promise<number> {
+  const text = await file.text();
+  const raw = JSON.parse(text) as unknown;
+  if (!Array.isArray(raw)) throw new Error("Invalid portrait DB file");
+  const entries = raw as PortraitDbEntryJson[];
+  let count = 0;
+  for (const e of entries) {
+    await _savePortraitEntry({
+      champName: e.champName,
+      sig: new Float32Array(e.sig),
+      cropDataUrl: e.cropDataUrl,
+      ts: e.ts,
+      cropPct: e.cropPct,
+    });
+    count++;
+    onProgress?.(count, entries.length);
+  }
+  return count;
+}
+
 /**
  * Crop a square patch from the minimap centred on (xPct, yPct).
  * cropSizePct controls how wide the crop is as a % of the minimap width.
