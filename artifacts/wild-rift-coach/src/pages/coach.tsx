@@ -46,7 +46,7 @@ const CHAMPIONS = [
   "LeBlanc","Lee Sin","Leona","Lillia","Lissandra","Lucian","Lulu","Lux",
   "Malphite","Malzahar","Master Yi","Mel","Miss Fortune","Morgana",
   "Nami","Nasus","Nautilus","Nilah","Norra","Nunu",
-  "Olaf","Orianna",
+  "Olaf","Orianna","Ornn",
   "Pantheon",
   "Quinn",
   "Rakan","Rammus","Renekton","Rengar","Riven","Ryze",
@@ -794,10 +794,10 @@ function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,recent}:{
         {(recent??[]).length>0&&!search&&(
           <div className="px-3 pb-1 shrink-0">
             <p className="text-[9px] uppercase tracking-widest text-sky-400/60 mb-1.5 font-display">Recent</p>
-            <div className="flex gap-1.5 overflow-x-auto">
+            <div className="flex flex-wrap gap-1.5">
               {(recent??[]).map(c=>(
                 <button key={c} onClick={()=>onAssign(c,saveToDb)}
-                  className={cn("shrink-0 text-xs px-2.5 py-1 rounded-full border active:scale-95",
+                  className={cn("text-xs px-2.5 py-1 rounded-full border active:scale-95",
                     pin.champ===c?"bg-sky-400/25 border-sky-400 text-sky-300":"border-sky-400/20 text-sky-300/60 hover:border-sky-400/50")}>
                   {c}
                 </button>
@@ -2035,8 +2035,8 @@ export default function CoachPage(){
                     Reset towers
                   </button>
                 )}
-                {(pins.length>0||objPins.length>0)&&(
-                  <button onClick={()=>{setPins([]);setObjPins([]);setTowersDown({ally:[],enemy:[]});}}
+                {(pins.length>0||objPins.length>0||imageQueue.length>0)&&(
+                  <button onClick={()=>{setPins([]);setObjPins([]);setTowersDown({ally:[],enemy:[]});setImageQueue([]);setActiveQueueIdx(0);setMinimapBase64(null);}}
                     className="text-[10px] text-muted-foreground hover:text-white border border-border/30 px-2 py-1 rounded-full">
                     Clear all
                   </button>

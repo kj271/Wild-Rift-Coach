@@ -59,7 +59,7 @@ function sigFromUrlMultiScale(url: string): Promise<Float32Array[]> {
         full.width = 48; full.height = 48;
         full.getContext("2d")!.drawImage(img, 0, 0, 48, 48);
         const sigs: Float32Array[] = [];
-        for (const scale of [0.55, 0.75, 1.0]) {
+        for (const scale of [0.3, 0.45, 0.6, 0.8, 1.0]) {
           const inner = Math.round(48 * scale);
           const off   = Math.round((48 - inner) / 2);
           const c = document.createElement("canvas");
@@ -959,12 +959,16 @@ export function detectDeadBySlotBoxes(
         const x1 = Math.round(Math.min(W, (box.x + box.w) * W / 100));
         const y0 = Math.round(Math.max(0, box.y * H / 100));
         const y1 = Math.round(Math.min(H, (box.y + box.h) * H / 100));
+        // Only scan the bottom 28% of the slot box — that's where the health/death
+        // bar lives. Scanning the full box falsely triggers on red champion portraits
+        // (e.g. Kayn in Rhaast form, Darius, etc.).
+        const barY0 = Math.round(y0 + (y1 - y0) * 0.72);
         let count = 0;
-        for (let y = y0; y < y1; y++) {
+        for (let y = barY0; y < y1; y++) {
           for (let x = x0; x < x1; x++) {
             const idx = (y * W + x) * 4;
             const r = data[idx], g = data[idx + 1], b = data[idx + 2];
-            if (r > 190 && g < 90 && b < 90 && r > g * 2.5) count++;
+            if (r > 190 && g < 80 && b < 80 && r > g * 2.8) count++;
           }
         }
         return count;
