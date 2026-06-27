@@ -28,7 +28,7 @@ import {
   Database, Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { detectMapCircles, loadDetectConfig, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, detectTowerStatus, detectMinionWavesInLanes, detectDeadBySlotBoxes, SlotBox, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
+import { detectMapCircles, loadDetectConfig, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, invalidateSigCache, prewarmChampSigs, detectTowerStatus, detectMinionWavesInLanes, detectDeadBySlotBoxes, SlotBox, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
 
 // ─── Champions ────────────────────────────────────────────────────────────────
 const CHAMPIONS = [
@@ -2762,6 +2762,7 @@ export default function CoachPage(){
                                 className="absolute top-0 right-0 w-5 h-5 flex items-center justify-center bg-black/80 rounded-bl rounded-tr border-b border-l border-red-800/60 active:bg-red-900/80"
                                 onClick={()=>{
                                   if(!e.id)return;
+                                  invalidateSigCache(e.id);
                                   deletePortraitEntry(e.id).then(loadPortraitDb).catch(()=>{});
                                 }}
                                 title="Delete"
@@ -2793,6 +2794,7 @@ export default function CoachPage(){
                   className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 px-3 py-1.5 rounded border border-red-800/50 hover:border-red-600/50 transition-colors"
                   onClick={()=>{
                     if(!window.confirm("Delete ALL saved portraits?"))return;
+                    portraitDbEntries.filter(e=>e.id!=null).forEach(e=>invalidateSigCache(e.id!));
                     Promise.all(portraitDbEntries.filter(e=>e.id!=null).map(e=>deletePortraitEntry(e.id!))).then(loadPortraitDb).catch(()=>{});
                   }}
                 >

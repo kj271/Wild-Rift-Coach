@@ -3,11 +3,15 @@
 // ── Colour signature helpers ──────────────────────────────────────────────────
 const SIG_N = 12;
 const _CX = SIG_N / 2, _CY = SIG_N / 2;
-const _R2 = (SIG_N / 2 - 0.5) ** 2;
+// Use 72% of inscribed circle radius — excludes the coloured ring border so only
+// the portrait interior pixels contribute to the matching signature.
+const _SIG_R = SIG_N * 0.36;
+const _R2 = _SIG_R ** 2;
 
 /**
- * Colour signature with circular mask.
- * Out-of-circle pixels → neutral grey (0.5) so background contributes 0 to distance.
+ * Colour signature with tight circular mask.
+ * Only the inner 72% of the inscribed circle (portrait interior) contributes.
+ * Out-of-circle pixels → neutral grey (0.5) so they contribute 0 to distance.
  */
 function _sig(data: Uint8ClampedArray): Float32Array {
   const s = new Float32Array(SIG_N * SIG_N * 3);
@@ -25,6 +29,38 @@ function _sig(data: Uint8ClampedArray): Float32Array {
     }
   }
   return s;
+}
+
+/**
+ * Apply a circular mask to a canvas in-place.
+ * Pixels outside `radius` from the centre are replaced with neutral dark grey
+ * so they contribute 0 to the colour signature (same as _sig's neutral 0.5).
+ * The image is composited onto a solid dark-navy background so the JPEG doesn't
+ * encode grey as compressed-white artefacts.
+ */
+function _applyCircularMaskToCanvas(
+  off: HTMLCanvasElement,
+  radius: number,
+): HTMLCanvasElement {
+  const size = off.width; // square canvas
+  const ctx  = off.getContext("2d")!;
+
+  // Use destination-in to clip to circle, then overlay on dark bg
+  ctx.save();
+  ctx.globalCompositeOperation = "destination-in";
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Composite the clipped portrait onto a solid dark-navy background
+  const bg = document.createElement("canvas");
+  bg.width = size; bg.height = size;
+  const bgCtx = bg.getContext("2d")!;
+  bgCtx.fillStyle = "#0a0a1a";
+  bgCtx.fillRect(0, 0, size, size);
+  bgCtx.drawImage(off, 0, 0);
+  return bg;
 }
 
 function sigFromUrl(url: string): Promise<Float32Array | null> {
@@ -181,7 +217,9 @@ export function cropMinimapPortrait(
       const c = document.createElement("canvas");
       c.width = 48; c.height = 48;
       c.getContext("2d")!.drawImage(img, cx - halfPx, cy - halfPx, halfPx * 2, halfPx * 2, 0, 0, 48, 48);
-      resolve(c.toDataURL("image/jpeg", 0.85));
+      // Mask out the ring border — only the portrait interior is saved
+      const masked = _applyCircularMaskToCanvas(c, 48 * 0.72);
+      resolve(masked.toDataURL("image/jpeg", 0.85));
     };
     img.onerror = () => resolve(null);
     img.src = minimapDataUrl;
@@ -206,6 +244,19 @@ export async function saveChampPortrait(
   await _savePortraitEntry({ champName, sig, cropDataUrl, ts: Date.now(), cropPct: cropSizePct });
 }
 
+/**
+ * In-memory cache: entry id → fresh sig derived from cropDataUrl using the
+ * current _sig function. Re-deriving on every call ensures old entries (saved
+ * with a looser ring mask) are re-evaluated against the same mask as detection
+ * crops, so stored sig values are never used directly.
+ */
+const _freshSigCache = new Map<number, Float32Array>();
+
+/** Invalidate a specific entry from the fresh-sig cache (e.g. after deletion). */
+export function invalidateSigCache(id: number): void {
+  _freshSigCache.delete(id);
+}
+
 /** Match a portrait crop against the personal DB. */
 export async function matchPersonalDb(
   cropDataUrl: string,
@@ -215,8 +266,22 @@ export async function matchPersonalDb(
   const sig = await sigFromUrl(cropDataUrl);
   if (!sig) return null;
 
+  // Re-derive sigs from stored images using the current (tighter) mask.
+  // This ensures old entries saved with a looser ring mask are re-evaluated
+  // consistently with fresh detection crops. Results are cached in memory.
+  const freshEntries = await Promise.all(
+    entries.map(async e => {
+      let fresh = _freshSigCache.get(e.id!);
+      if (!fresh) {
+        fresh = (await sigFromUrl(e.cropDataUrl)) ?? e.sig;
+        _freshSigCache.set(e.id!, fresh);
+      }
+      return { ...e, sig: fresh };
+    }),
+  );
+
   let best: { name: string; id: number; d: number } | null = null;
-  for (const e of entries) {
+  for (const e of freshEntries) {
     const d = dist(sig, e.sig);
     if (!best || d < best.d) best = { name: e.champName, id: e.id!, d };
   }
@@ -571,7 +636,9 @@ function cropBlobPortrait(canvas: HTMLCanvasElement, blob: Blob, cropSizePct: nu
   const off = document.createElement("canvas");
   off.width = 48; off.height = 48;
   off.getContext("2d")!.drawImage(canvas, cx - halfPx, cy - halfPx, halfPx * 2, halfPx * 2, 0, 0, 48, 48);
-  return off.toDataURL("image/jpeg", 0.8);
+  // Mask out the ring border — only the portrait interior contributes to sig
+  const masked = _applyCircularMaskToCanvas(off, 48 * 0.72);
+  return masked.toDataURL("image/jpeg", 0.8);
 }
 
 // ── Main circle detection ─────────────────────────────────────────────────────
