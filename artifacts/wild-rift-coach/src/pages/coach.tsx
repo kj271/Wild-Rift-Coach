@@ -58,6 +58,20 @@ const CHAMPIONS = [
   "Yasuo","Yone","Yuumi",
   "Zac","Zed","Ziggs","Zilean","Zoe","Zyra",
 ].sort();
+
+// ─── Recently used champions ──────────────────────────────────────────────────
+const RECENT_CHAMPS_KEY = "wr_recent_champs";
+const MAX_RECENT_CHAMPS = 10;
+function _loadRecentChamps(): string[] {
+  try { return JSON.parse(localStorage.getItem(RECENT_CHAMPS_KEY) ?? "[]"); } catch { return []; }
+}
+function _addRecentChamp(name: string): string[] {
+  const prev = _loadRecentChamps();
+  const next = [name, ...prev.filter(c => c !== name)].slice(0, MAX_RECENT_CHAMPS);
+  localStorage.setItem(RECENT_CHAMPS_KEY, JSON.stringify(next));
+  return next;
+}
+
 const ROLES = ["Top","Jungle","Mid","ADC","Support"] as const;
 type Role = typeof ROLES[number];
 type ObjType = "baron" | "infernal" | "mountain" | "ocean" | "ice" | "elder_dragon" | "rift_herald";
@@ -724,10 +738,10 @@ function QuickObjPicker({pin,pos,onUpdate,onRemove,onClose}:{
 }
 
 // ─── QuickChampPicker — small floating popup anchored near the pin ─────────────
-function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,favorites,onToggleFav}:{
+function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,favorites,onToggleFav,recent}:{
   pin:MapPin;label:string;pos:{x:number;y:number};
   onAssign:(c:string|null)=>void;onRemove:()=>void;onClose:()=>void;
-  favorites:string[];onToggleFav:(c:string)=>void;
+  favorites:string[];onToggleFav:(c:string)=>void;recent?:string[];
 }){
   const[search,setSearch]=useState("");
   const inputRef=useRef<HTMLInputElement>(null);
@@ -768,6 +782,21 @@ function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,favorites,onT
               className="w-full pl-9 pr-3 h-10 rounded-lg bg-black/60 border border-border/30 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/50"/>
           </div>
         </div>
+        {/* Recent champs strip */}
+        {(recent??[]).length>0&&!search&&(
+          <div className="px-3 pb-1 shrink-0">
+            <p className="text-[9px] uppercase tracking-widest text-sky-400/60 mb-1.5 font-display">Recent</p>
+            <div className="flex gap-1.5 overflow-x-auto">
+              {(recent??[]).map(c=>(
+                <button key={c} onClick={()=>onAssign(c)}
+                  className={cn("shrink-0 text-xs px-2.5 py-1 rounded-full border active:scale-95",
+                    pin.champ===c?"bg-sky-400/25 border-sky-400 text-sky-300":"border-sky-400/20 text-sky-300/60 hover:border-sky-400/50")}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {/* Favorites strip */}
         {favorites.length>0&&!search&&(
           <div className="px-3 pb-1.5 flex gap-1.5 overflow-x-auto shrink-0">
@@ -886,6 +915,8 @@ export default function CoachPage(){
   const stripDetectImgRef=useRef<HTMLDivElement>(null);
   const[detectingChamps,setDetectingChamps]=useState(false);
   const[autoDetectStrip,setAutoDetectStrip]=useState(()=>localStorage.getItem("wr_auto_detect_strip")!=="false");
+  const[recentChamps,setRecentChamps]=useState<string[]>(_loadRecentChamps);
+  const trackRecentChamp=useCallback((name:string)=>{setRecentChamps(_addRecentChamp(name));},[]);
 
   // Portrait database viewer + crop-size calibration
   const[showPortraitDb,setShowPortraitDb]=useState(false);
@@ -1438,18 +1469,17 @@ export default function CoachPage(){
         else if(baronBuff==="them")parts.push("Enemy has Baron Buff");
         if(elderBuff==="us")parts.push("We have Elder Dragon Buff");
         else if(elderBuff==="them")parts.push("Enemy has Elder Dragon Buff");
-        if(alliesDown.length>0)parts.push(`Dead allies: ${alliesDown.sort((a,b)=>a-b).map(n=>`A${n}`).join(", ")}`);
-        if(enemiesDown.length>0)parts.push(`Dead enemies: ${enemiesDown.sort((a,b)=>a-b).map(n=>`E${n}`).join(", ")}`);
+        if(alliesDown.length>0)parts.push(`Dead allies: ${alliesDown.sort((a,b)=>a-b).map(n=>{const c=detectedStripAllies[n-1];return c?`${c}(A${n})`:`A${n}`;}).join(", ")}`);
+        if(enemiesDown.length>0)parts.push(`Dead enemies: ${enemiesDown.sort((a,b)=>a-b).map(n=>{const c=detectedStripEnemies[n-1];return c?`${c}(E${n})`:`E${n}`;}).join(", ")}`);
         const allyTowersDown=towersDown.ally.map(i=>TOWER_LABELS[i]).filter(Boolean);
         const enemyTowersDown=towersDown.enemy.map(i=>TOWER_LABELS[i]).filter(Boolean);
         if(allyTowersDown.length>0)parts.push(`Our destroyed towers: ${allyTowersDown.join(", ")}`);
         if(enemyTowersDown.length>0)parts.push(`Enemy destroyed towers: ${enemyTowersDown.join(", ")}`);
-        if(benchPins.length>0){const names=benchPins.map(p=>p.champ||(p.type==="ally"?"an ally":"an enemy")).join(", ");parts.push(`Not visible on map: ${names}`);}
         if(userNotes.trim())parts.push(userNotes.trim());
         return parts.length?parts.join(". "):null;
       })(),
     };
-  },[pins,objPins,gameTimeSecs,myRole,myChamp,baronBuff,elderBuff,alliesDown,enemiesDown,towersDown,userNotes]);
+  },[pins,objPins,gameTimeSecs,myRole,myChamp,baronBuff,elderBuff,alliesDown,enemiesDown,towersDown,userNotes,detectedStripAllies,detectedStripEnemies]);
 
   // Always return annotated minimap when available (with pins + game-time crop if present)
   const getAnnotatedMinimap=useCallback(async():Promise<string|null>=>{
@@ -1707,8 +1737,8 @@ export default function CoachPage(){
                           cropDataUrl(img,timerCropConfig.x,timerCropConfig.y,timerCropConfig.w,timerCropConfig.h).then(setGameTimeCrop).catch(()=>{});
                           cropDataUrl(img,portraitStripConfig.x,portraitStripConfig.y,portraitStripConfig.w,portraitStripConfig.h).then(setPortraitStripCrop).catch(()=>{});
                         }else{
-                          // First visit: carry forward manual pins + towers, run fresh auto-detection
-                          applySlotState({pins:pins.filter(p=>!p.auto),benchPins,objPins:objPins.filter(p=>!p.id.startsWith("obj-auto-")),alliesDown:[],enemiesDown:[],towersDown});
+                          // First visit: clear everything and run fresh auto-detection
+                          clearPinState();
                           processImage(img);
                         }
                       }}
@@ -1737,7 +1767,7 @@ export default function CoachPage(){
                               cropDataUrl(nextUrl,timerCropConfig.x,timerCropConfig.y,timerCropConfig.w,timerCropConfig.h).then(setGameTimeCrop).catch(()=>{});
                               cropDataUrl(nextUrl,portraitStripConfig.x,portraitStripConfig.y,portraitStripConfig.w,portraitStripConfig.h).then(setPortraitStripCrop).catch(()=>{});
                             }else{
-                              applySlotState({pins:pins.filter(p=>!p.auto),benchPins,objPins:objPins.filter(p=>!p.id.startsWith("obj-auto-")),alliesDown:[],enemiesDown:[],towersDown});
+                              clearPinState();
                               processImage(nextUrl);
                             }
                           } else {
@@ -1940,10 +1970,23 @@ export default function CoachPage(){
                         title={`${team==="ally"?"Allied":"Enemy"} ${TOWER_LABELS[idx]}${down?" (destroyed)":""}`}
                         onClick={e=>{
                           e.stopPropagation();
-                          setTowersDown(prev=>({
-                            ...prev,
-                            [team]:down?prev[team].filter(i=>i!==idx):[...prev[team],idx],
-                          }));
+                          setTowersDown(prev=>{
+                            const lane=Math.floor(idx/3);
+                            const tier=idx%3;
+                            const next=new Set(prev[team]);
+                            if(down){
+                              // Un-marking: also un-mark later towers that couldn't be up without this one
+                              next.delete(idx);
+                              if(tier===0){next.delete(lane*3+1);next.delete(lane*3+2);}
+                              else if(tier===1){next.delete(lane*3+2);}
+                            } else {
+                              // Marking down: also mark earlier towers that must have fallen first
+                              next.add(idx);
+                              if(tier===2){next.add(lane*3);next.add(lane*3+1);}
+                              else if(tier===1){next.add(lane*3);}
+                            }
+                            return {...prev,[team]:Array.from(next).sort((a,b)=>a-b)};
+                          });
                         }}>
                         {`${lane}${tier}`}
                       </button>
@@ -2684,6 +2727,7 @@ export default function CoachPage(){
             onAssign={champ=>{
               const pin=pins.find(p=>p.id===quickPickPinId);
               setPins(prev=>prev.map(p=>p.id===quickPickPinId?{...p,champ}:p));
+              if(champ)trackRecentChamp(champ);
               // Save portrait crop → personal database for future auto-matching
               if(pin&&minimapBase64&&champ){
                 saveChampPortrait(champ,minimapBase64,pin.x,pin.y,portraitCropPct).catch(()=>{});
@@ -2694,6 +2738,7 @@ export default function CoachPage(){
             onClose={()=>setQuickPickPinId(null)}
             favorites={favorites}
             onToggleFav={toggleFav}
+            recent={recentChamps}
           />
         );
       })()}
@@ -2728,10 +2773,34 @@ export default function CoachPage(){
               value={deadStripSearch}
               onChange={e=>setDeadStripSearch(e.target.value)}
               className="w-full bg-white/5 border border-border/40 rounded-lg px-3 py-1.5 text-xs text-white placeholder-white/30 outline-none focus:border-sky-500/50"/>
-            <div className="max-h-52 overflow-y-auto grid grid-cols-3 gap-1">
+            {/* Recent champs quick row */}
+            {recentChamps.length>0&&!deadStripSearch&&(
+              <div className="space-y-1">
+                <p className="text-[9px] uppercase tracking-widest text-sky-400/60 font-display">Recent</p>
+                <div className="flex flex-wrap gap-1">
+                  {recentChamps.map(c=>(
+                    <button key={c}
+                      onClick={()=>{
+                        trackRecentChamp(c);
+                        if(deadStripPick.team==="ally"){
+                          setDetectedStripAllies(prev=>{const n=[...prev];n[deadStripPick.slotN-1]=c;return n;});
+                        }else{
+                          setDetectedStripEnemies(prev=>{const n=[...prev];n[deadStripPick.slotN-1]=c;return n;});
+                        }
+                        setDeadStripPick(null);setDeadStripSearch("");
+                      }}
+                      className="text-[9px] px-2 py-1 rounded-full border border-sky-400/30 text-sky-300/70 hover:bg-sky-400/10 hover:text-sky-300">
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="max-h-40 overflow-y-auto grid grid-cols-3 gap-1">
               {CHAMPIONS.filter(c=>!deadStripSearch||c.toLowerCase().includes(deadStripSearch.toLowerCase())).map(c=>(
                 <button key={c}
                   onClick={()=>{
+                    trackRecentChamp(c);
                     if(deadStripPick.team==="ally"){
                       setDetectedStripAllies(prev=>{const n=[...prev];n[deadStripPick.slotN-1]=c;return n;});
                     }else{
