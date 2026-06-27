@@ -304,7 +304,7 @@ function detectObjColors(
           // Skip grey/desaturated pixels — grey icon = objective is DOWN
           if(saturation(r,g,b)<0.25)continue;
           const dr=r-rgb.r,dg=g-rgb.g,db=b-rgb.b;
-          if(Math.sqrt(dr*dr+dg*dg+db*db)<50)count++;
+          if(Math.sqrt(dr*dr+dg*dg+db*db)<38)count++;
         }
         return count;
       };
@@ -1211,13 +1211,16 @@ export default function CoachPage(){
           const newPins:ObjPin[]=[];
           ([zoneA,zoneB] as const).forEach((detected,zi)=>{
             if(!detected.length)return;
+            const id=detected[0];
+            // Skip stale localStorage keys (e.g. "cloud","chemtech") that are no longer valid ObjTypes
+            if(!(id in OBJ_CFG))return;
             const zone=objPitConfig.zones[zi as 0|1];
             const cx=zone.x+zone.w/2,cy=zone.y+zone.h/2;
-            const objType=detected[0] as ObjType;
             newPins.push({id:`obj-auto-${ts}-${zi}`,x:cx,y:cy,
-              pos:classifyPos(cx,cy,lanePaths,zones),objType,status:"up"});
+              pos:classifyPos(cx,cy,lanePaths,zones),objType:id as ObjType,status:"up"});
           });
-          if(newPins.length)setObjPins(prev=>[...prev.filter(p=>!p.id.startsWith("obj-auto-")),...newPins]);
+          // Always replace old auto-pins (even if newPins is empty — clears stale pins on re-detect)
+          setObjPins(prev=>[...prev.filter(p=>!p.id.startsWith("obj-auto-")),...newPins]);
         })
         .catch(()=>{});
 
