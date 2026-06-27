@@ -181,4 +181,8 @@ export function useTowerConfig() {
   return { config, save } as const;
 }
 
-export const ALL_CONFIG_KEYS = [CROP_KEY, TIMER_CROP_KEY, PORTRAIT_STRIP_KEY, PORTRAIT_BAR_KEY, PORTRAIT_CONFIG_KEY, LANES_KEY, ZONES_KEY, FAVORITES_KEY, TOWER_CONFIG_KEY] as const;
+export const ALL_CONFIG_KEYS = [
+  CROP_KEY, TIMER_CROP_KEY, PORTRAIT_STRIP_KEY, PORTRAIT_BAR_KEY, PORTRAIT_CONFIG_KEY,
+  LANES_KEY, ZONES_KEY, FAVORITES_KEY, TOWER_CONFIG_KEY,
+  "wr_dead_slot_boxes", "wr_obj_pit_config", "wr_strip_detect_config",
+] as const;

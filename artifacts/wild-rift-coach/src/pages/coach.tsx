@@ -2151,8 +2151,10 @@ export default function CoachPage(){
                       {detectedStripAllies.map((c,i)=>c&&(
                         <span key={`da${i}`} className="text-[9px] px-1.5 py-0.5 rounded-md bg-sky-900/40 border border-sky-700/40 text-sky-300 font-medium">{c}</span>
                       ))}
-                      <button onClick={()=>setShowStripDetectCalib(true)} className="text-[9px] text-white/25 hover:text-white/55 px-1 transition-colors" title="Calibrate portrait detection areas">⚙</button>
                     </div>
+                  )}
+                  {!detectingChamps&&(
+                    <button onClick={()=>setShowStripDetectCalib(true)} className="text-[9px] text-white/20 hover:text-white/50 self-start transition-colors" title="Calibrate portrait crop detection areas">⚙ Portrait detection</button>
                   )}
                   {!detectingChamps&&detectedStripEnemies.some(Boolean)&&(
                     <div className="flex flex-wrap items-center gap-1">

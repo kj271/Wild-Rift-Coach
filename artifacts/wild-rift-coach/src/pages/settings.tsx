@@ -368,8 +368,8 @@ export default function SettingsPage() {
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              Exported file includes: crop calibration, zone polygons, lane waypoints, favourite champions, favourite models, and selected model.
-              It does NOT include game session data (screenshots, pins, advice).
+              Exported file includes: crop calibration, zone polygons, lane waypoints, tower config, dead-slot zones, portrait detection crop, objective pit config, favourite champions, favourite models, and selected model.
+              It does <strong className="text-white/60">not</strong> include the champion portrait database (stored in IndexedDB — device-only) or active game session data.
             </p>
           </CardContent>
         </Card>
