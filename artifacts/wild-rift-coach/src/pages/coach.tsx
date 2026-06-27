@@ -42,7 +42,7 @@ const CHAMPIONS = [
   "Hecarim","Heimerdinger",
   "Irelia",
   "Janna","Jarvan IV","Jax","Jayce","Jhin","Jinx",
-  "K'Sante","Kai'Sa","Karma","Kassadin","Katarina","Kayle","Kayn","Kennen","Kha'Zix","Kog'Maw",
+  "K'Sante","Kai'Sa","Kalista","Karma","Kassadin","Katarina","Kayle","Kayn","Kennen","Kha'Zix","Kog'Maw",
   "LeBlanc","Lee Sin","Leona","Lillia","Lissandra","Lucian","Lulu","Lux",
   "Malphite","Malzahar","Master Yi","Mel","Miss Fortune","Morgana",
   "Nami","Nasus","Nautilus","Nilah","Norra","Nunu",
