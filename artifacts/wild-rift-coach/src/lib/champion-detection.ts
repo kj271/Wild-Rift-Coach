@@ -227,6 +227,40 @@ export async function matchPersonalDb(
   return { name: best.name, id: best.id, confidence: +(1 - best.d / THRESHOLD).toFixed(2) };
 }
 
+// ── Adjustable detection config ───────────────────────────────────────────────
+export interface DetectConfig {
+  /** Min R value for enemy ring pixels. Default 130. Lower = catches dimmer reds. */
+  redBright: number;
+  /** r/g ratio threshold. Default 1.5. Lower = catches more orange-ish reds. */
+  redRatio: number;
+  /** Min B value for ally ring pixels. Default 110. */
+  blueBright: number;
+  /** b/g ratio threshold. Default 1.08. */
+  blueRatio: number;
+  /**
+   * Enemy ring interior solid-ratio cap. Default 0.60.
+   * Champions with red portraits (Irelia, Darius…) have team-coloured interiors
+   * so this must be higher than the ally threshold (0.38). Raise if enemies are
+   * missed; lower if wards/minions get falsely detected as champions.
+   */
+  enemyRingThreshold: number;
+}
+export const DEFAULT_DETECT_CFG: DetectConfig = {
+  redBright: 130, redRatio: 1.5,
+  blueBright: 110, blueRatio: 1.08,
+  enemyRingThreshold: 0.60,
+};
+const DETECT_CFG_KEY = "wr_detect_cfg";
+export function loadDetectConfig(): DetectConfig {
+  try {
+    const raw = localStorage.getItem(DETECT_CFG_KEY);
+    return raw ? { ...DEFAULT_DETECT_CFG, ...JSON.parse(raw) } : { ...DEFAULT_DETECT_CFG };
+  } catch { return { ...DEFAULT_DETECT_CFG }; }
+}
+export function saveDetectConfig(cfg: DetectConfig): void {
+  localStorage.setItem(DETECT_CFG_KEY, JSON.stringify(cfg));
+}
+
 // ── Blob detection ────────────────────────────────────────────────────────────
 interface Blob {
   cx: number; cy: number;
@@ -252,6 +286,7 @@ function findBlobs(
   maxBBoxPct: number,
   solid = false,
   aspectMin = 0.45,
+  ringThreshold = 0.38,
 ): Blob[] {
   const visited = new Uint8Array(W * H);
   const out: Blob[] = [];
@@ -319,7 +354,7 @@ function findBlobs(
       // solid=false (champion ring): reject if interior IS team-coloured (ward/minion)
       // solid=true  (minion fill):   reject if interior is NOT team-coloured (ring)
       const solidRatio = intTotal > 0 ? intColor / intTotal : 0;
-      if (!solid && solidRatio > 0.38) continue;
+      if (!solid && solidRatio > ringThreshold) continue;
       if (solid  && solidRatio < 0.15) continue; // loosened: catch shallow-filled minion shapes
 
       out.push({
@@ -562,6 +597,7 @@ export interface MapDetectionResult {
 export function detectMapCircles(
   minimapDataUrl: string,
   cropSizePct = 12,
+  cfg?: Partial<DetectConfig>,
 ): Promise<MapDetectionResult> {
   return new Promise(resolve => {
     const img = new Image();
@@ -572,6 +608,14 @@ export function detectMapCircles(
       const ctx = c.getContext("2d")!;
       ctx.drawImage(img, 0, 0);
       const px = ctx.getImageData(0, 0, W, H).data;
+
+      const config = { ...DEFAULT_DETECT_CFG, ...cfg };
+
+      // Per-config color testers (replace module-level isBlue/isRed for this call)
+      const _isBlue = (r: number, g: number, b: number) =>
+        b > config.blueBright && r < 180 && b > r * config.blueRatio && b > g * config.blueRatio;
+      const _isRed = (r: number, g: number, b: number) =>
+        r > config.redBright && g < 120 && b < 115 && r > g * config.redRatio;
 
       const MIN_BBOX = 6;  // % — for allies/me; ring-shape filter handles wards
       const MAX_BBOX = 22; // % — filters base structures and large patches
@@ -586,7 +630,8 @@ export function detectMapCircles(
         .sort((a, b) => b.pixels - a.pixels);
       const me = greens[0] ? pt(greens[0].cx, greens[0].cy) : null;
 
-      const blues = findBlobs(px, W, H, isBlue, MIN_BBOX, MAX_BBOX)
+      // Ally ring threshold stays conservative (0.38) so blue wards are filtered out
+      const blues = findBlobs(px, W, H, _isBlue, MIN_BBOX, MAX_BBOX, false, 0.45, 0.38)
         .sort((a, b) => b.pixels - a.pixels)
         .slice(0, 4);
       const allies: DetectedCircle[] = blues.map(b => ({
@@ -596,7 +641,9 @@ export function detectMapCircles(
 
       // Enemy detection: lower min bbox + relaxed aspect (0.35) to catch
       // partial arcs when circles cluster near each other.
-      const rawReds = findBlobs(px, W, H, isRed, MIN_BBOX_ENEMY, MAX_BBOX, false, 0.35)
+      // Higher ring threshold (config.enemyRingThreshold) so champions with red
+      // portraits (Irelia, Darius…) aren't incorrectly rejected as solid blobs.
+      const rawReds = findBlobs(px, W, H, _isRed, MIN_BBOX_ENEMY, MAX_BBOX, false, 0.35, config.enemyRingThreshold)
         .sort((a, b) => b.pixels - a.pixels);
 
       // Split large merged blobs into N evenly-spaced pins along their longer axis.

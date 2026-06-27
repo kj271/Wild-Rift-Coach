@@ -4,7 +4,7 @@ import { useListModels, ModelInfo } from "@workspace/api-client-react";
 import { useModelStorage } from "@/hooks/use-model-storage";
 import { ALL_CONFIG_KEYS } from "@/hooks/use-map-config";
 import { useSystemPrompt, DEFAULT_SYSTEM_PROMPT } from "@/hooks/use-system-prompt";
-import { exportPortraitDb, importPortraitDb } from "@/lib/champion-detection";
+import { exportPortraitDb, importPortraitDb, DetectConfig, DEFAULT_DETECT_CFG, loadDetectConfig, saveDetectConfig } from "@/lib/champion-detection";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -72,6 +72,27 @@ export default function SettingsPage() {
   const portraitImportRef = useRef<HTMLInputElement>(null);
   const { prompt, save: savePrompt, reset: resetPrompt, isCustom } = useSystemPrompt();
   const [promptDraft, setPromptDraft] = useState(prompt);
+
+  const [detectCfg, setDetectCfg] = useState<DetectConfig>(() => loadDetectConfig());
+  const [detectSaved, setDetectSaved] = useState(false);
+
+  const updateDetect = useCallback(<K extends keyof DetectConfig>(key: K, val: DetectConfig[K]) => {
+    setDetectCfg(prev => ({ ...prev, [key]: val }));
+    setDetectSaved(false);
+  }, []);
+
+  const saveDetect = useCallback(() => {
+    saveDetectConfig(detectCfg);
+    setDetectSaved(true);
+    setTimeout(() => setDetectSaved(false), 2000);
+  }, [detectCfg]);
+
+  const resetDetect = useCallback(() => {
+    setDetectCfg({ ...DEFAULT_DETECT_CFG });
+    saveDetectConfig({ ...DEFAULT_DETECT_CFG });
+    setDetectSaved(true);
+    setTimeout(() => setDetectSaved(false), 2000);
+  }, []);
 
   const [favModels, setFavModels] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem(FAV_MODELS_KEY) ?? "[]"); } catch { return []; }
@@ -378,6 +399,98 @@ export default function SettingsPage() {
             {promptDraft !== prompt && (
               <p className="text-xs text-amber-400/80">Unsaved changes — hit Save to apply.</p>
             )}
+          </CardContent>
+        </Card>
+
+        {/* ── Auto-Detection Tuning ── */}
+        <Card className="border-border bg-card/50 backdrop-blur-sm shadow-xl shadow-black/20">
+          <CardHeader>
+            <CardTitle className="text-xl">Champion Auto-Detection</CardTitle>
+            <CardDescription>
+              Tune how the minimap scanner finds ally (blue) and enemy (red) champion circles.
+              Changes take effect on the next screenshot you process.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {/* Enemy (Red) section */}
+            <div className="space-y-3">
+              <p className="text-xs font-display uppercase tracking-widest text-red-400/80">Enemy (Red Ring)</p>
+
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <label className="text-sm text-muted-foreground">Min red brightness</label>
+                  <span className="text-sm font-mono text-foreground w-10 text-right">{detectCfg.redBright}</span>
+                </div>
+                <input type="range" min={80} max={200} step={5} value={detectCfg.redBright}
+                  onChange={e => updateDetect("redBright", +e.target.value)}
+                  className="w-full accent-red-500" />
+                <p className="text-[11px] text-muted-foreground/60">Lower = catches dimmer or more orange reds. Raise if false positives appear.</p>
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <label className="text-sm text-muted-foreground">Red/green ratio</label>
+                  <span className="text-sm font-mono text-foreground w-10 text-right">{detectCfg.redRatio.toFixed(2)}</span>
+                </div>
+                <input type="range" min={1.0} max={3.0} step={0.05} value={detectCfg.redRatio}
+                  onChange={e => updateDetect("redRatio", +e.target.value)}
+                  className="w-full accent-red-500" />
+                <p className="text-[11px] text-muted-foreground/60">How much redder than green a pixel must be. Lower catches pinkish reds.</p>
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <label className="text-sm text-muted-foreground">Enemy ring fill tolerance</label>
+                  <span className="text-sm font-mono text-foreground w-10 text-right">{(detectCfg.enemyRingThreshold * 100).toFixed(0)}%</span>
+                </div>
+                <input type="range" min={0.3} max={0.95} step={0.05} value={detectCfg.enemyRingThreshold}
+                  onChange={e => updateDetect("enemyRingThreshold", +e.target.value)}
+                  className="w-full accent-red-500" />
+                <p className="text-[11px] text-muted-foreground/60">
+                  How much of the circle interior can be red before it's rejected as a ward/minion.
+                  Raise this if champs with red portraits (Irelia, Darius…) are missed.
+                  Default 60%.
+                </p>
+              </div>
+            </div>
+
+            <div className="border-t border-border/20" />
+
+            {/* Ally (Blue) section */}
+            <div className="space-y-3">
+              <p className="text-xs font-display uppercase tracking-widest text-sky-400/80">Ally (Blue Ring)</p>
+
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <label className="text-sm text-muted-foreground">Min blue brightness</label>
+                  <span className="text-sm font-mono text-foreground w-10 text-right">{detectCfg.blueBright}</span>
+                </div>
+                <input type="range" min={60} max={180} step={5} value={detectCfg.blueBright}
+                  onChange={e => updateDetect("blueBright", +e.target.value)}
+                  className="w-full accent-sky-500" />
+                <p className="text-[11px] text-muted-foreground/60">Lower = catches softer blues. Raise if wards or objectives are false-detected.</p>
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <label className="text-sm text-muted-foreground">Blue/green ratio</label>
+                  <span className="text-sm font-mono text-foreground w-10 text-right">{detectCfg.blueRatio.toFixed(2)}</span>
+                </div>
+                <input type="range" min={1.0} max={2.5} step={0.02} value={detectCfg.blueRatio}
+                  onChange={e => updateDetect("blueRatio", +e.target.value)}
+                  className="w-full accent-sky-500" />
+                <p className="text-[11px] text-muted-foreground/60">How much bluer than green/red a pixel must be. Lower catches teal/cyan tones.</p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-1">
+              <Button onClick={saveDetect} className="flex-1">
+                {detectSaved ? "✓ Saved" : "Save Detection Settings"}
+              </Button>
+              <Button variant="outline" onClick={resetDetect} className="flex items-center gap-2">
+                <RotateCcw className="w-4 h-4" /> Reset
+              </Button>
+            </div>
           </CardContent>
         </Card>
 

@@ -28,7 +28,7 @@ import {
   Database, Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { detectMapCircles, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, detectTowerStatus, detectMinionWavesInLanes, detectDeadBySlotBoxes, SlotBox, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
+import { detectMapCircles, loadDetectConfig, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, detectTowerStatus, detectMinionWavesInLanes, detectDeadBySlotBoxes, SlotBox, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
 
 // ─── Champions ────────────────────────────────────────────────────────────────
 const CHAMPIONS = [
@@ -738,10 +738,10 @@ function QuickObjPicker({pin,pos,onUpdate,onRemove,onClose}:{
 }
 
 // ─── QuickChampPicker — small floating popup anchored near the pin ─────────────
-function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,favorites,onToggleFav,recent}:{
+function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,recent}:{
   pin:MapPin;label:string;pos:{x:number;y:number};
   onAssign:(c:string|null)=>void;onRemove:()=>void;onClose:()=>void;
-  favorites:string[];onToggleFav:(c:string)=>void;recent?:string[];
+  recent?:string[];
 }){
   const[search,setSearch]=useState("");
   const inputRef=useRef<HTMLInputElement>(null);
@@ -797,34 +797,16 @@ function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,favorites,onT
             </div>
           </div>
         )}
-        {/* Favorites strip */}
-        {favorites.length>0&&!search&&(
-          <div className="px-3 pb-1.5 flex gap-1.5 overflow-x-auto shrink-0">
-            {favorites.map(c=>(
-              <button key={c} onClick={()=>onAssign(c)}
-                className={cn("shrink-0 text-xs px-2.5 py-1 rounded-full border active:scale-95",
-                  pin.champ===c?"bg-amber-400/25 border-amber-400 text-amber-300":"border-amber-400/30 text-amber-300/70")}>
-                ★ {c}
-              </button>
-            ))}
-          </div>
-        )}
         {/* List */}
         <div className="overflow-y-auto flex-1 px-2 pb-2">
           {filtered.map(c=>{
             const sel=pin.champ===c;
-            const isFav=favorites.includes(c);
             return(
-              <div key={c} className="flex items-center gap-1 group">
-                <button onClick={()=>onAssign(c)}
-                  className={cn("flex-1 text-left px-3 py-2.5 text-sm rounded-lg transition-all active:scale-[.97]",
-                    sel?"bg-primary/20 text-primary":"text-slate-300 hover:bg-white/5 hover:text-white")}>
-                  {c}
-                </button>
-                <button onClick={ev=>{ev.stopPropagation();onToggleFav(c);}} className="opacity-0 group-hover:opacity-100 px-2 py-2">
-                  <Star className={cn("w-3.5 h-3.5",isFav?"fill-amber-400 text-amber-400":"text-muted-foreground/40")}/>
-                </button>
-              </div>
+              <button key={c} onClick={()=>onAssign(c)}
+                className={cn("w-full text-left px-3 py-2.5 text-sm rounded-lg transition-all active:scale-[.97]",
+                  sel?"bg-primary/20 text-primary":"text-slate-300 hover:bg-white/5 hover:text-white")}>
+                {c}
+              </button>
             );
           })}
         </div>
@@ -1200,7 +1182,7 @@ export default function CoachPage(){
 
     // ── Detect all minimap circles (me/allies/enemies) ──────────────────────
     if(minimap){
-      detectMapCircles(minimap,portraitCropPct).then(({me,allies,enemies})=>{
+      detectMapCircles(minimap,portraitCropPct,loadDetectConfig()).then(({me,allies,enemies})=>{
         const ts=Date.now();
         // Remove previous auto champion pins; keep manual pins AND auto wave pins
         // (wave pins are placed by a parallel async call — don't wipe them here)
@@ -2736,8 +2718,6 @@ export default function CoachPage(){
             }}
             onRemove={()=>{removePin(quickPickPinId);setQuickPickPinId(null);}}
             onClose={()=>setQuickPickPinId(null)}
-            favorites={favorites}
-            onToggleFav={toggleFav}
             recent={recentChamps}
           />
         );
