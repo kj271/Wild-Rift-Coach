@@ -702,10 +702,16 @@ export default function CoachPage(){
   const[detectedEnemies,setDetectedEnemies]=useState<(string|null)[]>([]);
   const[detectingChamps,setDetectingChamps]=useState(false);
 
-  // Portrait database viewer
+  // Portrait database viewer + crop-size calibration
   const[showPortraitDb,setShowPortraitDb]=useState(false);
   const[portraitDbEntries,setPortraitDbEntries]=useState<PortraitDbEntry[]>([]);
   const loadPortraitDb=useCallback(()=>{getAllPortraitEntries().then(setPortraitDbEntries).catch(()=>{});},[]);
+  const[portraitCropPct,_setPortraitCropPct]=useState(()=>parseInt(localStorage.getItem("wr_portrait_crop_pct")??"12"));
+  const setPortraitCropPct=useCallback((v:number)=>{
+    const clamped=Math.max(6,Math.min(25,v));
+    _setPortraitCropPct(clamped);
+    localStorage.setItem("wr_portrait_crop_pct",String(clamped));
+  },[]);
 
   // Pins
   const[pins,setPins]=useState<MapPin[]>((_sess.pins as MapPin[])??[]);
@@ -870,7 +876,7 @@ export default function CoachPage(){
 
     // ── Detect all minimap circles (me/allies/enemies) ──────────────────────
     if(minimap){
-      detectMapCircles(minimap).then(({me,allies,enemies})=>{
+      detectMapCircles(minimap,portraitCropPct).then(({me,allies,enemies})=>{
         const ts=Date.now();
         // Remove previous auto-placed pins; keep manual ones
         setPins(prev=>{
@@ -920,7 +926,7 @@ export default function CoachPage(){
       setPortraitStripCrop(ps);
     }catch{}
     setDetectingChamps(true);
-  },[recropMinimap,timerCropConfig,portraitStripConfig,portraitConfig,lanePaths,zones,myChamp]);
+  },[recropMinimap,timerCropConfig,portraitStripConfig,portraitConfig,lanePaths,zones,myChamp,portraitCropPct]);
 
   const clearPinState=()=>{setPins([]);setBenchPins([]);setObjPins([]);setAlliesDown([]);setEnemiesDown([]);setTowersDown({ally:[],enemy:[]});};
   const applySlotState=(s:ImageSlotState|undefined)=>{
@@ -2194,7 +2200,21 @@ export default function CoachPage(){
                   </div>
                 )}
               </div>
-              <div className="px-4 py-3 border-t border-[#30363d] flex justify-end">
+              <div className="px-4 py-3 border-t border-[#30363d] flex items-center justify-between gap-3">
+                {/* Crop-size calibration — adjust until portraits look centred in the DB thumbnail */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-[#8b949e]">Crop:</span>
+                  <button
+                    className="w-6 h-6 flex items-center justify-center rounded bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] text-sm leading-none transition-colors"
+                    onClick={()=>setPortraitCropPct(portraitCropPct-1)}
+                  >−</button>
+                  <span className="text-xs text-[#c9d1d9] w-8 text-center tabular-nums">{portraitCropPct}%</span>
+                  <button
+                    className="w-6 h-6 flex items-center justify-center rounded bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] text-sm leading-none transition-colors"
+                    onClick={()=>setPortraitCropPct(portraitCropPct+1)}
+                  >+</button>
+                  {portraitDbEntries.length>0&&<span className="text-xs text-amber-400/80 ml-1">Clear DB to apply</span>}
+                </div>
                 <button
                   className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 px-3 py-1.5 rounded border border-red-800/50 hover:border-red-600/50 transition-colors"
                   onClick={()=>{
@@ -2229,7 +2249,7 @@ export default function CoachPage(){
               setPins(prev=>prev.map(p=>p.id===quickPickPinId?{...p,champ}:p));
               // Save portrait crop → personal database for future auto-matching
               if(pin&&minimapBase64&&champ){
-                saveChampPortrait(champ,minimapBase64,pin.x,pin.y).catch(()=>{});
+                saveChampPortrait(champ,minimapBase64,pin.x,pin.y,portraitCropPct).catch(()=>{});
               }
               setQuickPickPinId(null);
             }}
