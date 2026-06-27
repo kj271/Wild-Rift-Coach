@@ -28,7 +28,7 @@ import {
   Database, Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { detectMapCircles, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
+import { detectMapCircles, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, detectTowerStatus, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
 
 // ─── Champions ────────────────────────────────────────────────────────────────
 const CHAMPIONS = [
@@ -903,6 +903,11 @@ export default function CoachPage(){
           setDetectedEnemies(eu.map(u=>u.champ));
           setDetectingChamps(false);
         }).catch(()=>setDetectingChamps(false));
+      }).catch(()=>{});
+
+      // ── Auto-detect tower status from minimap colours ──────────────────────
+      detectTowerStatus(minimap,towerConfig.ally,towerConfig.enemy).then(({allyDown,enemyDown})=>{
+        setTowersDown({ally:allyDown,enemy:enemyDown});
       }).catch(()=>{});
     }
 

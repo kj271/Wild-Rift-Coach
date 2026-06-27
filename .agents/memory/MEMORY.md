@@ -1,2 +1,4 @@
 - [Personal portrait DB](portrait-db.md) — personal DB beats Data Dragon for WR champion matching; IDB `wr_portrait_db_v1`.
-- [Blob detection false positives](blob-detection.md) — circularity filter (aspect ≥ 0.28) + size bounds (0.06%-4% of area) needed to exclude towers/base.
+- [Blob detection false positives](blob-detection.md) — circularity ≥ 0.3 + relative-only size bounds (0.7%–3% area); no fixed pixel floor.
+- [Circular mask for signatures](circular-mask.md) — mask out-of-circle pixels to neutral grey so background contributes 0 to distance.
+- [Tower detection](tower-detection.md) — `detectTowerStatus()` samples calibrated tower positions; looser blue/red thresholds than champion circles.

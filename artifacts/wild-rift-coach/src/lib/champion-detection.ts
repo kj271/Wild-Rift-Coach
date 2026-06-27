@@ -1,22 +1,38 @@
-// Minimap circle detection + personal portrait database
+// Minimap circle detection + personal portrait database + tower status
 
 // ── Colour signature helpers ──────────────────────────────────────────────────
 const SIG_N = 12;
+const _CX = SIG_N / 2, _CY = SIG_N / 2;
+const _R2 = (SIG_N / 2 - 0.5) ** 2; // inscribed-circle radius squared
 
-function _sig(data: Uint8ClampedArray): Float32Array {
+/**
+ * Convert image pixel data to a colour feature vector.
+ * With circular=true (default), pixels outside the inscribed circle are set to
+ * neutral grey (0.5,0.5,0.5). Because BOTH the saved signature and the query
+ * signature use the same mask, those pixels contribute exactly 0 to the
+ * distance — so the background never contaminates matching.
+ */
+function _sig(data: Uint8ClampedArray, circular = true): Float32Array {
   const s = new Float32Array(SIG_N * SIG_N * 3);
-  for (let i = 0; i < SIG_N * SIG_N; i++) {
-    s[i * 3]     = data[i * 4]     / 255;
-    s[i * 3 + 1] = data[i * 4 + 1] / 255;
-    s[i * 3 + 2] = data[i * 4 + 2] / 255;
+  for (let py = 0; py < SIG_N; py++) {
+    for (let px = 0; px < SIG_N; px++) {
+      const i = py * SIG_N + px;
+      const dx = px - _CX + 0.5, dy = py - _CY + 0.5;
+      if (circular && dx * dx + dy * dy > _R2) {
+        s[i * 3] = 0.5; s[i * 3 + 1] = 0.5; s[i * 3 + 2] = 0.5;
+      } else {
+        s[i * 3]     = data[i * 4]     / 255;
+        s[i * 3 + 1] = data[i * 4 + 1] / 255;
+        s[i * 3 + 2] = data[i * 4 + 2] / 255;
+      }
+    }
   }
   return s;
 }
 
-function sigFromUrl(url: string, crossOrigin?: boolean): Promise<Float32Array | null> {
+function sigFromUrl(url: string): Promise<Float32Array | null> {
   return new Promise(resolve => {
     const img = new Image();
-    if (crossOrigin) img.crossOrigin = "anonymous";
     img.onload = () => {
       try {
         const c = document.createElement("canvas");
@@ -38,8 +54,8 @@ function dist(a: Float32Array, b: Float32Array): number {
 }
 
 // ── Personal portrait database ────────────────────────────────────────────────
-const _PDBNAME  = "wr_portrait_db_v1";
-const _PSTORE   = "portraits";
+const _PDBNAME = "wr_portrait_db_v1";
+const _PSTORE  = "portraits";
 
 export interface PortraitDbEntry {
   id?: number;
@@ -92,12 +108,16 @@ async function _savePortraitEntry(entry: Omit<PortraitDbEntry, "id">): Promise<v
   });
 }
 
-/** Crop the minimap at a pin position and return a 48×48 thumbnail. */
+/**
+ * Crop a 48×48 thumbnail from the minimap centred on the pin position.
+ * sizePct is the crop width as a percentage of the minimap width.
+ * Tighter crops include less background — 10% works well for champion circles.
+ */
 export function cropMinimapPortrait(
   minimapDataUrl: string,
   xPct: number,
   yPct: number,
-  sizePct = 14,
+  sizePct = 10,
 ): Promise<string | null> {
   return new Promise(resolve => {
     const img = new Image();
@@ -117,8 +137,8 @@ export function cropMinimapPortrait(
 }
 
 /**
- * Crop the minimap at the pin's location and save the labelled portrait to the
- * personal database. Called when the user assigns a champion name to a pin.
+ * Crop the minimap at the pin's location and save the labelled portrait to
+ * the personal database. Called when the user assigns a champion name to a pin.
  */
 export async function saveChampPortrait(
   champName: string,
@@ -135,7 +155,8 @@ export async function saveChampPortrait(
 
 /**
  * Match a portrait crop against the personal database.
- * Returns the best match or null if nothing is close enough.
+ * Uses circular-masked signatures so the background doesn't affect the result.
+ * Returns the best match or null if no entry is close enough.
  */
 export async function matchPersonalDb(
   cropDataUrl: string,
@@ -152,7 +173,7 @@ export async function matchPersonalDb(
   }
   if (!best) return null;
 
-  const THRESHOLD = 0.28;
+  const THRESHOLD = 0.22; // tighter than before due to circular masking
   if (best.d > THRESHOLD) return null;
   return { name: best.name, id: best.id, confidence: +(1 - best.d / THRESHOLD).toFixed(2) };
 }
@@ -212,11 +233,11 @@ function findBlobs(
 
       const bw = (x1 - x0 + 1) / W * 100;
       const bh = (y1 - y0 + 1) / H * 100;
-      // Circularity guard: aspect ratio must be close to square (allows edge clipping)
+      // Circularity: bounding box must be roughly square (champion circles are round)
       const aspect = Math.min(bw, bh) / Math.max(bw, bh);
-      if (aspect < 0.28) continue;
-      // Bounding box must be at least 2% of minimap in each dimension (filters noise)
-      if (bw < 2 || bh < 2) continue;
+      if (aspect < 0.3) continue;
+      // Bounding box must span at least 3% in each dimension
+      if (bw < 3 || bh < 3) continue;
 
       out.push({
         cx: sx / cnt / W * 100,
@@ -239,12 +260,13 @@ function isRed(r: number, g: number, b: number): boolean {
   return r > 170 && g < 120 && b < 110 && r > g * 2.2;
 }
 
+/** Crop the detected blob as a 32×32 JPEG — tight to the bounding box, no extra padding. */
 function cropBlobPortrait(canvas: HTMLCanvasElement, blob: Blob): string {
-  const W = canvas.width;
-  const size = Math.max(blob.bw, blob.bh) * 1.5;
-  const halfPx = (size / 100) * W / 2;
+  const W = canvas.width, H = canvas.height;
+  // Use 100% of bounding box (no extra padding — circle fills the box)
+  const halfPx = (Math.max(blob.bw, blob.bh) / 100) * W / 2;
   const cx = (blob.cx / 100) * W;
-  const cy = (blob.cy / 100) * canvas.height;
+  const cy = (blob.cy / 100) * H;
   const off = document.createElement("canvas");
   off.width = 32; off.height = 32;
   off.getContext("2d")!.drawImage(canvas, cx - halfPx, cy - halfPx, halfPx * 2, halfPx * 2, 0, 0, 32, 32);
@@ -275,9 +297,11 @@ export function detectMapCircles(minimapDataUrl: string): Promise<MapDetectionRe
       ctx.drawImage(img, 0, 0);
       const px = ctx.getImageData(0, 0, W, H).data;
 
-      // Size bounds: 0.06%–4% of minimap area — champion circles are mid-range
-      const minPx = Math.max(20, Math.floor(area * 0.0006));
-      const maxPx = Math.floor(area * 0.04);
+      // Champion circles occupy ~0.7%–3% of minimap area.
+      // Using relative bounds only (no fixed pixel min) so it scales with crop size.
+      // This filters wards, baron/dragon indicators, and base structures.
+      const minPx = Math.floor(area * 0.007);
+      const maxPx = Math.floor(area * 0.03);
 
       const pt = (x: number, y: number) => ({ x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
 
@@ -285,7 +309,7 @@ export function detectMapCircles(minimapDataUrl: string): Promise<MapDetectionRe
       const greens = findBlobs(px, W, H, isGreen, minPx, maxPx).sort((a, b) => b.pixels - a.pixels);
       const me = greens[0] ? pt(greens[0].cx, greens[0].cy) : null;
 
-      // Allies: up to 4 blue blobs
+      // Allies: up to 4 blue blobs (sorted by size — champion circles are largest)
       const blues = findBlobs(px, W, H, isBlue, minPx, maxPx)
         .sort((a, b) => b.pixels - a.pixels)
         .slice(0, 4);
@@ -310,7 +334,85 @@ export function detectMapCircles(minimapDataUrl: string): Promise<MapDetectionRe
   });
 }
 
-// ── Strip-vs-strip matching (kept for reference, no longer used in auto flow) ──
+// ── Tower status detection ────────────────────────────────────────────────────
+export interface TowerDetectionResult {
+  allyDown: number[];  // indices of ally towers that appear destroyed
+  enemyDown: number[]; // indices of enemy towers that appear destroyed
+}
+
+/**
+ * Scan the minimap at each tower's calibrated position and decide whether the
+ * tower is still standing based on the presence of team-coloured pixels.
+ *
+ * Ally towers show as blue when up; enemy towers show as red when up.
+ * A destroyed tower's icon is absent — so very few matching pixels → down.
+ */
+export function detectTowerStatus(
+  minimapDataUrl: string,
+  allyPositions: Array<{ x: number; y: number } | null>,
+  enemyPositions: Array<{ x: number; y: number } | null>,
+): Promise<TowerDetectionResult> {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const W = img.width, H = img.height;
+      const c = document.createElement("canvas");
+      c.width = W; c.height = H;
+      c.getContext("2d")!.drawImage(img, 0, 0);
+      const data = c.getContext("2d")!.getImageData(0, 0, W, H).data;
+
+      // Sample a small square centred on the tower position
+      const HALF_PCT = 4; // ±4% of minimap around each tower
+      const MIN_HIT  = 8; // minimum coloured pixels for tower to be "up"
+
+      const countColor = (
+        xPct: number, yPct: number,
+        test: (r: number, g: number, b: number) => boolean,
+      ): number => {
+        const cx = Math.round(xPct / 100 * W);
+        const cy = Math.round(yPct / 100 * H);
+        const hw = Math.round(HALF_PCT / 100 * W);
+        const hh = Math.round(HALF_PCT / 100 * H);
+        let n = 0;
+        for (let dy = -hh; dy <= hh; dy++) {
+          for (let dx = -hw; dx <= hw; dx++) {
+            const px2 = cx + dx, py2 = cy + dy;
+            if (px2 < 0 || px2 >= W || py2 < 0 || py2 >= H) continue;
+            const i = (py2 * W + px2) * 4;
+            if (test(data[i], data[i + 1], data[i + 2])) n++;
+          }
+        }
+        return n;
+      };
+
+      // Looser blue/red tests than champion-circle detection — tower icons
+      // can be slightly less saturated, especially outer towers that may
+      // partially overlap terrain.
+      const isBlueTower = (r: number, g: number, b: number) =>
+        b > 130 && b > r * 1.15 && b > g * 0.72;
+      const isRedTower = (r: number, g: number, b: number) =>
+        r > 145 && r > g * 1.7 && r > b * 1.5;
+
+      const allyDown: number[] = [];
+      const enemyDown: number[] = [];
+
+      allyPositions.forEach((pos, idx) => {
+        if (!pos) return;
+        if (countColor(pos.x, pos.y, isBlueTower) < MIN_HIT) allyDown.push(idx);
+      });
+      enemyPositions.forEach((pos, idx) => {
+        if (!pos) return;
+        if (countColor(pos.x, pos.y, isRedTower) < MIN_HIT) enemyDown.push(idx);
+      });
+
+      resolve({ allyDown, enemyDown });
+    };
+    img.onerror = () => resolve({ allyDown: [], enemyDown: [] });
+    img.src = minimapDataUrl;
+  });
+}
+
+// ── Strip-vs-strip matching (kept for API compat, no longer used) ─────────────
 export async function matchCropToStrip(
   minimapCrop: string,
   stripCrops: Array<string | null>,
@@ -329,7 +431,7 @@ export async function matchCropToStrip(
   return bestIdx === -1 ? null : bestIdx;
 }
 
-// ── Pre-warm (no-op now — kept for API compat) ────────────────────────────────
+// ── Pre-warm (no-op — kept for API compat) ────────────────────────────────────
 export async function prewarmChampSigs(_names: string[]): Promise<void> {}
 export async function matchPortrait(
   _dataUrl: string,
