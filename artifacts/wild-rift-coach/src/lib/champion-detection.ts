@@ -669,7 +669,19 @@ export function detectMapCircles(
         }
       }
 
-      const reds = splitReds
+      // NMS: remove red blobs whose centre falls within ~1.3× typical ring of any ally.
+      // Ally portraits (e.g. Garen, Darius) can have red/warm tones in their interior;
+      // with a raised ring threshold these form a false red blob right on top of the ally.
+      const EXCLUSION_RADIUS = TYPICAL_RING * 1.3;
+      const bluePositions = blues.map(b => ({ cx: b.cx, cy: b.cy }));
+      const filteredSplitReds = splitReds.filter(r =>
+        !bluePositions.some(a => {
+          const dx = r.cx - a.cx, dy = r.cy - a.cy;
+          return Math.sqrt(dx * dx + dy * dy) < EXCLUSION_RADIUS;
+        })
+      );
+
+      const reds = filteredSplitReds
         .sort((a, b) => b.pixels - a.pixels)
         .slice(0, 5);
       const enemies: DetectedCircle[] = reds.map(b => ({

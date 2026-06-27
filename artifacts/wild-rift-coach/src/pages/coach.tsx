@@ -740,16 +740,17 @@ function QuickObjPicker({pin,pos,onUpdate,onRemove,onClose}:{
 // ─── QuickChampPicker — small floating popup anchored near the pin ─────────────
 function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,recent}:{
   pin:MapPin;label:string;pos:{x:number;y:number};
-  onAssign:(c:string|null)=>void;onRemove:()=>void;onClose:()=>void;
+  onAssign:(c:string|null,save:boolean)=>void;onRemove:()=>void;onClose:()=>void;
   recent?:string[];
 }){
   const[search,setSearch]=useState("");
+  const[saveToDb,setSaveToDb]=useState(true);
   const inputRef=useRef<HTMLInputElement>(null);
   const popupRef=useRef<HTMLDivElement>(null);
   useEffect(()=>{setTimeout(()=>inputRef.current?.focus(),60);},[]);
 
-  // Clamp popup so it stays on screen (popup is ~300×420)
-  const PW=300,PH=420;
+  // Clamp popup so it stays on screen (popup is ~300×440)
+  const PW=300,PH=440;
   const left=Math.max(6,Math.min(pos.x-PW/2,window.innerWidth-PW-6));
   const rawTop=pos.y+20+PH>window.innerHeight?pos.y-PH-20:pos.y+20;
   const top=Math.max(6,Math.min(rawTop,window.innerHeight-PH-6));
@@ -771,7 +772,14 @@ function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,recent}:{
           <span className="text-sm font-display font-bold uppercase tracking-wider" style={{color:accent}}>{label}</span>
           {pin.champ&&<span className="text-xs text-muted-foreground flex-1 truncate">{pin.champ}</span>}
           {!pin.champ&&<span className="flex-1"/>}
-          {pin.champ&&<button onClick={()=>onAssign(null)} className="text-xs text-muted-foreground border border-border/30 px-2 py-1 rounded active:scale-95 shrink-0">✕</button>}
+          {/* Save to DB toggle */}
+          <button onClick={()=>setSaveToDb(v=>!v)}
+            title={saveToDb?"Assigned champion will be saved to portrait database — tap to disable":"Portrait will NOT be saved — tap to enable"}
+            className={cn("flex items-center gap-1 text-[10px] px-2 py-1 rounded border shrink-0 active:scale-95",
+              saveToDb?"border-emerald-500/60 text-emerald-400 bg-emerald-500/10":"border-border/30 text-muted-foreground/40")}>
+            <Database className="w-3 h-3"/>{saveToDb?"DB":"No DB"}
+          </button>
+          {pin.champ&&<button onClick={()=>onAssign(null,false)} className="text-xs text-muted-foreground border border-border/30 px-2 py-1 rounded active:scale-95 shrink-0">✕</button>}
           <button onClick={onRemove} className="text-sm font-bold text-red-400 border border-red-500/50 px-3 py-1.5 rounded-lg active:scale-95 shrink-0 min-w-[44px] min-h-[36px]">Del</button>
         </div>
         {/* Search */}
@@ -788,7 +796,7 @@ function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,recent}:{
             <p className="text-[9px] uppercase tracking-widest text-sky-400/60 mb-1.5 font-display">Recent</p>
             <div className="flex gap-1.5 overflow-x-auto">
               {(recent??[]).map(c=>(
-                <button key={c} onClick={()=>onAssign(c)}
+                <button key={c} onClick={()=>onAssign(c,saveToDb)}
                   className={cn("shrink-0 text-xs px-2.5 py-1 rounded-full border active:scale-95",
                     pin.champ===c?"bg-sky-400/25 border-sky-400 text-sky-300":"border-sky-400/20 text-sky-300/60 hover:border-sky-400/50")}>
                   {c}
@@ -802,7 +810,7 @@ function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,recent}:{
           {filtered.map(c=>{
             const sel=pin.champ===c;
             return(
-              <button key={c} onClick={()=>onAssign(c)}
+              <button key={c} onClick={()=>onAssign(c,saveToDb)}
                 className={cn("w-full text-left px-3 py-2.5 text-sm rounded-lg transition-all active:scale-[.97]",
                   sel?"bg-primary/20 text-primary":"text-slate-300 hover:bg-white/5 hover:text-white")}>
                 {c}
@@ -810,6 +818,40 @@ function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,recent}:{
             );
           })}
         </div>
+      </div>
+    </>
+  );
+}
+
+// ─── LongPressMenu — appears after 500ms hold on minimap to pick pin type ───────
+function LongPressMenu({pos,onClose,onPlace}:{
+  pos:{x:number;y:number};
+  onClose:()=>void;
+  onPlace:(t:"ally"|"enemy"|"obj"|"ally_wave"|"enemy_wave")=>void;
+}){
+  const PW=190,PH=248;
+  const left=Math.max(6,Math.min(pos.x-PW/2,window.innerWidth-PW-6));
+  const rawTop=pos.y+12+PH>window.innerHeight?pos.y-PH-12:pos.y+12;
+  const top=Math.max(6,rawTop);
+  const opts=[
+    {type:"ally"as const,label:"Ally Pin",cls:"text-sky-400 border-sky-400/40 hover:bg-sky-400/10"},
+    {type:"enemy"as const,label:"Enemy Pin",cls:"text-red-400 border-red-500/40 hover:bg-red-500/10"},
+    {type:"obj"as const,label:"Objective",cls:"text-purple-400 border-purple-500/40 hover:bg-purple-500/10"},
+    {type:"ally_wave"as const,label:"Ally Wave",cls:"text-green-400 border-green-400/40 hover:bg-green-400/10"},
+    {type:"enemy_wave"as const,label:"Enemy Wave",cls:"text-orange-400 border-orange-400/40 hover:bg-orange-400/10"},
+  ];
+  return(
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose}/>
+      <div className="fixed z-50 bg-[#0d1526] border border-border/60 rounded-xl shadow-2xl overflow-hidden py-2"
+        style={{left,top,width:PW}}>
+        <p className="text-[9px] uppercase tracking-widest text-muted-foreground/50 px-3 pb-1.5 font-display">Place pin here</p>
+        {opts.map(o=>(
+          <button key={o.type} onClick={()=>onPlace(o.type)}
+            className={cn("w-full text-left px-3 py-2.5 text-sm border-l-2 transition-colors active:scale-[.97]",o.cls)}>
+            {o.label}
+          </button>
+        ))}
       </div>
     </>
   );
@@ -1065,6 +1107,9 @@ export default function CoachPage(){
   };
   const[quickPickPinId,setQuickPickPinId]=useState<string|null>(null);
   const[quickPickPos,setQuickPickPos]=useState<{x:number;y:number}>({x:0,y:0});
+  const[longPressMenu,setLongPressMenu]=useState<{screenX:number;screenY:number;mapX:number;mapY:number}|null>(null);
+  const longPressTimerRef=useRef<ReturnType<typeof setTimeout>|null>(null);
+  const longPressTouchRef=useRef<{x:number;y:number}|null>(null);
   const[contextOpen,setContextOpen]=useState(true);
   const[champPickOpen,setChampPickOpen]=useState(false);
 
@@ -1405,6 +1450,68 @@ export default function CoachPage(){
       setPins(p=>[...p,{id:`enemy-${Date.now()}`,type:"enemy",x,y,pos,champ:null}]);
     }
   },[placeMode,myChamp,pins,benchPins,lanePaths,zones]);
+
+  // ── Long-press on minimap to place a pin without entering a mode ─────────────
+  const handleMinimapTouchStart=useCallback((e:React.TouchEvent)=>{
+    // If already in place mode, delegate to existing tap handler
+    if(placeMode){handleMinimapTap(e);return;}
+    const t=e.touches[0]!;
+    longPressTouchRef.current={x:t.clientX,y:t.clientY};
+    longPressTimerRef.current=setTimeout(()=>{
+      if(!minimapDivRef.current||!longPressTouchRef.current)return;
+      const{x:cx,y:cy}=longPressTouchRef.current;
+      const rect=minimapDivRef.current.getBoundingClientRect();
+      const mapX=Math.max(0,Math.min(100,(cx-rect.left)/rect.width*100));
+      const mapY=Math.max(0,Math.min(100,(cy-rect.top)/rect.height*100));
+      setLongPressMenu({screenX:cx,screenY:cy,mapX,mapY});
+      longPressTouchRef.current=null;
+    },500);
+  },[placeMode,handleMinimapTap]);
+
+  const handleMinimapTouchMove=useCallback((e:React.TouchEvent)=>{
+    if(!longPressTouchRef.current||!longPressTimerRef.current)return;
+    const t=e.touches[0]!;
+    const dx=t.clientX-longPressTouchRef.current.x;
+    const dy=t.clientY-longPressTouchRef.current.y;
+    if(Math.sqrt(dx*dx+dy*dy)>10){
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current=null;
+      longPressTouchRef.current=null;
+    }
+  },[]);
+
+  const handleMinimapTouchEnd=useCallback(()=>{
+    if(longPressTimerRef.current){clearTimeout(longPressTimerRef.current);longPressTimerRef.current=null;}
+    longPressTouchRef.current=null;
+  },[]);
+
+  const handleLongPressPlace=useCallback((type:"ally"|"enemy"|"obj"|"ally_wave"|"enemy_wave")=>{
+    if(!longPressMenu)return;
+    const{mapX:x,mapY:y}=longPressMenu;
+    const pos=classifyPos(x,y,lanePaths,zones);
+    const totalOfType=(t:PinType)=>[...pins,...benchPins].filter(p=>p.type===t).length;
+    if(type==="ally"&&totalOfType("ally")<4){
+      const id=`ally-${Date.now()}`;
+      setPins(p=>[...p,{id,type:"ally",x,y,pos,champ:null}]);
+      if(minimapDivRef.current){const r=minimapDivRef.current.getBoundingClientRect();setQuickPickPos({x:r.left+x/100*r.width,y:r.top+y/100*r.height});}
+      setQuickPickPinId(id);
+    }else if(type==="enemy"&&totalOfType("enemy")<5){
+      const id=`enemy-${Date.now()}`;
+      setPins(p=>[...p,{id,type:"enemy",x,y,pos,champ:null}]);
+      if(minimapDivRef.current){const r=minimapDivRef.current.getBoundingClientRect();setQuickPickPos({x:r.left+x/100*r.width,y:r.top+y/100*r.height});}
+      setQuickPickPinId(id);
+    }else if(type==="obj"){
+      const id=`obj-${Date.now()}`;
+      setObjPins(p=>[...p,{id,x,y,pos,objType:null,status:null}]);
+      if(minimapDivRef.current){const r=minimapDivRef.current.getBoundingClientRect();setQuickObjPickPos({x:r.left+x/100*r.width,y:r.top+y/100*r.height});}
+      setQuickObjPickId(id);
+    }else if(type==="ally_wave"&&totalOfType("ally_wave")<5){
+      setPins(p=>[...p,{id:`aw-${Date.now()}`,type:"ally_wave",x,y,pos,champ:null}]);
+    }else if(type==="enemy_wave"&&totalOfType("enemy_wave")<5){
+      setPins(p=>[...p,{id:`ew-${Date.now()}`,type:"enemy_wave",x,y,pos,champ:null}]);
+    }
+    setLongPressMenu(null);
+  },[longPressMenu,pins,benchPins,lanePaths,zones]);
 
   const removePin=(id:string)=>setPins(p=>p.filter(pp=>pp.id!==id));
 
@@ -1824,7 +1931,9 @@ export default function CoachPage(){
                 className={cn("relative flex-1",
                   placeMode?"cursor-crosshair":"cursor-default")}
                 onClick={handleMinimapTap}
-                onTouchStart={handleMinimapTap}>
+                onTouchStart={handleMinimapTouchStart}
+                onTouchMove={handleMinimapTouchMove}
+                onTouchEnd={handleMinimapTouchEnd}>
                 {/* X button — top-right corner — clears image and triggers new upload */}
                 {minimapBase64&&(
                   <button
@@ -2706,12 +2815,12 @@ export default function CoachPage(){
             pin={pin}
             label={lbl}
             pos={quickPickPos}
-            onAssign={champ=>{
+            onAssign={(champ,save)=>{
               const pin=pins.find(p=>p.id===quickPickPinId);
               setPins(prev=>prev.map(p=>p.id===quickPickPinId?{...p,champ}:p));
               if(champ)trackRecentChamp(champ);
-              // Save portrait crop → personal database for future auto-matching
-              if(pin&&minimapBase64&&champ){
+              // Save portrait crop → personal database only if save=true (not hidden behind another)
+              if(pin&&minimapBase64&&champ&&save){
                 saveChampPortrait(champ,minimapBase64,pin.x,pin.y,portraitCropPct).catch(()=>{});
               }
               setQuickPickPinId(null);
@@ -2722,6 +2831,15 @@ export default function CoachPage(){
           />
         );
       })()}
+
+      {/* Long-press place-pin menu */}
+      {longPressMenu&&(
+        <LongPressMenu
+          pos={{x:longPressMenu.screenX,y:longPressMenu.screenY}}
+          onClose={()=>setLongPressMenu(null)}
+          onPlace={handleLongPressPlace}
+        />
+      )}
 
       {/* ── Dead strip champion picker ────────────────────────────────────── */}
       {deadStripPick&&(
