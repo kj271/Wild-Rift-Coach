@@ -2224,20 +2224,30 @@ export default function CoachPage(){
                     onClick={e=>{
                       e.stopPropagation();
                       if(pinDragMoved.current){pinDragMoved.current=false;return;}
-                      if(pin.type!=="me"){
+                      if(pin.type==="me"||pin.type==="ally_wave"||pin.type==="enemy_wave"){
+                        removePin(pin.id);
+                      }else{
                         const rect=(e.currentTarget as HTMLElement).getBoundingClientRect();
                         setQuickPickPos({x:rect.left+rect.width/2,y:rect.top+rect.height/2});
                         setQuickPickPinId(pin.id);
-                      }else{
-                        removePin(pin.id);
                       }
                     }}>
-                    <div className={cn(
-                      "w-8 h-8 rounded-full border-2 flex items-center justify-center",
-                      "font-display font-bold text-[11px] shadow-lg transition-transform",
-                      PIN_BG[pin.type],PIN_BORDER[pin.type],PIN_TEXT[pin.type])}>
-                      {pinLabel(pin)}
-                    </div>
+                    {pin.type==="ally_wave"||pin.type==="enemy_wave"?(
+                      /* Diamond / wave shape — clearly distinct from round champion pins */
+                      <div className="relative flex items-center justify-center w-9 h-9">
+                        <div className={cn(
+                          "w-6 h-6 rotate-45 border-2 shadow-lg",
+                          PIN_BG[pin.type],PIN_BORDER[pin.type])}/>
+                        <span className="absolute text-[9px] font-bold text-black leading-none select-none">≋</span>
+                      </div>
+                    ):(
+                      <div className={cn(
+                        "w-8 h-8 rounded-full border-2 flex items-center justify-center",
+                        "font-display font-bold text-[11px] shadow-lg transition-transform",
+                        PIN_BG[pin.type],PIN_BORDER[pin.type],PIN_TEXT[pin.type])}>
+                        {pinLabel(pin)}
+                      </div>
+                    )}
                     {pin.champ&&(
                       <span className="text-[8px] font-medium text-white bg-black/70 px-1 rounded mt-0.5 whitespace-nowrap leading-tight max-w-[60px] text-center truncate">{pin.champ}</span>
                     )}

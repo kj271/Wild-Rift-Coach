@@ -41,6 +41,40 @@ function sigFromUrl(url: string): Promise<Float32Array | null> {
   });
 }
 
+/**
+ * Generate colour signatures at multiple inner-crop scales.
+ * Scale < 1 samples the inner portion of the crop (less ring, more face).
+ * This handles portrait size variation: the same champion appears at different
+ * sizes on the minimap depending on state, causing the ring to take up more
+ * or less of the crop. Trying several scales maximises the chance of a match
+ * even when the detected size differs from what was saved in the DB.
+ */
+function sigFromUrlMultiScale(url: string): Promise<Float32Array[]> {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        // Draw full image onto a reusable canvas once
+        const full = document.createElement("canvas");
+        full.width = 48; full.height = 48;
+        full.getContext("2d")!.drawImage(img, 0, 0, 48, 48);
+        const sigs: Float32Array[] = [];
+        for (const scale of [0.55, 0.75, 1.0]) {
+          const inner = Math.round(48 * scale);
+          const off   = Math.round((48 - inner) / 2);
+          const c = document.createElement("canvas");
+          c.width = SIG_N; c.height = SIG_N;
+          c.getContext("2d")!.drawImage(full, off, off, inner, inner, 0, 0, SIG_N, SIG_N);
+          sigs.push(_sig(c.getContext("2d")!.getImageData(0, 0, SIG_N, SIG_N).data));
+        }
+        resolve(sigs);
+      } catch { resolve([]); }
+    };
+    img.onerror = () => resolve([]);
+    img.src = url;
+  });
+}
+
 function dist(a: Float32Array, b: Float32Array): number {
   let d = 0;
   for (let i = 0; i < a.length; i++) d += (a[i] - b[i]) ** 2;
@@ -203,23 +237,29 @@ export async function saveChampPortrait(
   await _savePortraitEntry({ champName, sig, cropDataUrl, ts: Date.now(), cropPct: cropSizePct });
 }
 
-/** Match a portrait crop against the personal DB. */
+/** Match a portrait crop against the personal DB.
+ *  Tries three inner-crop scales (55 %, 75 %, 100 %) to stay robust when the
+ *  champion portrait appears at a different minimap size than when it was saved.
+ */
 export async function matchPersonalDb(
   cropDataUrl: string,
 ): Promise<{ name: string; id: number; confidence: number } | null> {
   const entries = await getAllPortraitEntries();
   if (!entries.length) return null;
-  const sig = await sigFromUrl(cropDataUrl);
-  if (!sig) return null;
+  const sigs = await sigFromUrlMultiScale(cropDataUrl);
+  if (!sigs.length) return null;
 
   let best: { name: string; id: number; d: number } | null = null;
   for (const e of entries) {
-    const d = dist(sig, e.sig);
-    if (!best || d < best.d) best = { name: e.champName, id: e.id!, d };
+    for (const sig of sigs) {
+      const d = dist(sig, e.sig);
+      if (!best || d < best.d) best = { name: e.champName, id: e.id!, d };
+    }
   }
   if (!best) return null;
 
-  const THRESHOLD = 0.16;
+  // Slightly more permissive threshold to accommodate scale + partial-occlusion variance
+  const THRESHOLD = 0.20;
   if (best.d > THRESHOLD) return null;
   return { name: best.name, id: best.id, confidence: +(1 - best.d / THRESHOLD).toFixed(2) };
 }
