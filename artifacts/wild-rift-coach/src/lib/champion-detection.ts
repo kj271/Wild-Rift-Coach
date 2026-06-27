@@ -294,9 +294,9 @@ function findBlobs(
       if (bw < minBBoxPct || bh < minBBoxPct) continue;
       if (bw > maxBBoxPct || bh > maxBBoxPct) continue;
 
-      // ── Circularity filter ────────────────────────────────────────────────
+      // ── Circularity filter — champion rings are roughly circular ─────────
       const aspect = Math.min(bw, bh) / Math.max(bw, bh);
-      if (aspect < 0.3) continue;
+      if (aspect < 0.45) continue;
 
       // ── Ring-shape filter: champion circles have non-team-coloured interiors ──
       // Sample the centre 20% of the bbox. If >30% of those pixels are team-
@@ -340,7 +340,8 @@ function isBlue(r: number, g: number, b: number): boolean {
   return b > 155 && r < 160 && b > r * 1.25 && b > g * 1.15;
 }
 function isRed(r: number, g: number, b: number): boolean {
-  return r > 170 && g < 120 && b < 110 && r > g * 2.2;
+  // Lower threshold to catch dimmer enemy rings in jungle terrain
+  return r > 150 && g < 110 && b < 105 && r > g * 2.0;
 }
 
 // ── Minion wave detection ─────────────────────────────────────────────────────
