@@ -168,7 +168,7 @@ export async function matchPersonalDb(
   }
   if (!best) return null;
 
-  const THRESHOLD = 0.20;
+  const THRESHOLD = 0.16;
   if (best.d > THRESHOLD) return null;
   return { name: best.name, id: best.id, confidence: +(1 - best.d / THRESHOLD).toFixed(2) };
 }
@@ -181,13 +181,17 @@ interface Blob {
 }
 
 /**
- * Find connected colour blobs, filtered by BOUNDING BOX dimensions (not pixel count).
+ * Find connected colour blobs, filtered by BOUNDING BOX dimensions + ring-shape check.
  *
  * Wild Rift champion circles are ring-shaped — only the border pixels carry the
- * team colour. Pixel-count filtering silently drops thin rings. Bounding-box
- * filtering works because the bbox spans the full ring diameter regardless of fill.
+ * team colour; the interior is the champion portrait (not team-coloured).
+ * Sight wards are SOLID FILLED circles — their interior IS the team colour.
  *
- * minBBoxPct = 8  → filters sight wards (~5-7% bbox) and small aura dots
+ * The ring-shape check samples the inner 20% of the blob bounding box.
+ * If > 30% of those interior pixels pass the colour test → solid circle (ward) → rejected.
+ * Champion rings have a portrait interior → < 5% interior pixels pass → kept.
+ *
+ * minBBoxPct = 6  → picks up all champion rings including edge-of-minimap ones
  * maxBBoxPct = 22 → filters base structures and large colour patches
  */
 function findBlobs(
@@ -234,12 +238,35 @@ function findBlobs(
         }
       }
 
+      // ── Bounding-box size filter ──────────────────────────────────────────
       const bw = (x1 - x0 + 1) / W * 100;
       const bh = (y1 - y0 + 1) / H * 100;
       if (bw < minBBoxPct || bh < minBBoxPct) continue;
       if (bw > maxBBoxPct || bh > maxBBoxPct) continue;
+
+      // ── Circularity filter ────────────────────────────────────────────────
       const aspect = Math.min(bw, bh) / Math.max(bw, bh);
       if (aspect < 0.3) continue;
+
+      // ── Ring-shape filter: champion circles have non-team-coloured interiors ──
+      // Sample the centre 20% of the bbox. If >30% of those pixels are team-
+      // coloured the blob is a solid circle (ward/objective), not a ring.
+      const icx = ((x0 + x1) >> 1);
+      const icy = ((y0 + y1) >> 1);
+      const ihw = Math.max(1, Math.round((x1 - x0 + 1) * 0.10));
+      const ihh = Math.max(1, Math.round((y1 - y0 + 1) * 0.10));
+      let intColor = 0, intTotal = 0;
+      for (let dy = -ihh; dy <= ihh; dy++) {
+        for (let dx = -ihw; dx <= ihw; dx++) {
+          const ipx = icx + dx, ipy = icy + dy;
+          if (ipx < 0 || ipx >= W || ipy < 0 || ipy >= H) continue;
+          intTotal++;
+          const ni = (ipy * W + ipx) * 4;
+          if (test(data[ni], data[ni + 1], data[ni + 2])) intColor++;
+        }
+      }
+      // Solid ward: interior is team-coloured → reject
+      if (intTotal > 0 && intColor / intTotal > 0.30) continue;
 
       out.push({
         cx: sx / cnt / W * 100,
@@ -311,7 +338,7 @@ export function detectMapCircles(
       ctx.drawImage(img, 0, 0);
       const px = ctx.getImageData(0, 0, W, H).data;
 
-      const MIN_BBOX = 8;  // % — filters sight wards (~5-7%) and small dots
+      const MIN_BBOX = 6;  // % — catches edge rings; ring-shape filter handles wards
       const MAX_BBOX = 22; // % — filters base structures and large patches
 
       const pt = (x: number, y: number) => ({ x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });

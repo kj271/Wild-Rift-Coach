@@ -16,3 +16,8 @@ Filters that work (in `findBlobs`):
 
 **How to apply:** Pass `minBBoxPct, maxBBoxPct` to `findBlobs()`, not `minPx, maxPx`.
 
+**Ring-shape check (critical for filtering wards):**
+Sight wards are SOLID filled circles — their interior IS team-coloured. Champion circles are RINGS — interior is portrait (NOT team-coloured). After bbox/aspect filters, sample the centre 20% of the blob bbox. If >30% of those pixels pass the colour test → solid → reject. This is far more reliable than size filtering alone since wards and rings can overlap in bbox size range. Use ihw/ihh = 10% of bbox dimensions to sample the interior.
+
+**Threshold history:** 0.22 → 0.20 → 0.16 (current). Vi was matching as Garen at 0.20, suggesting 12×12 signatures need a tight threshold when DB has only 1 entry.
+
