@@ -50,7 +50,7 @@ const CHAMPIONS = [
   "Pantheon",
   "Quinn",
   "Rakan","Rammus","Renekton","Rengar","Riven","Ryze",
-  "Seraphine","Senna","Sett","Shyvana","Singed","Skarner","Smolder","Sona","Soraka","Swain",
+  "Seraphine","Senna","Sett","Shen","Shyvana","Singed","Skarner","Smolder","Sona","Soraka","Swain",
   "Taliyah","Teemo","Thresh","Tristana","Tryndamere","Twisted Fate","Twitch",
   "Varus","Vayne","Veigar","Vi","Viego","Viktor","Vladimir","Volibear",
   "Warwick","Wukong",
@@ -73,7 +73,12 @@ type ZonePos = { kind: "zone"; zone: string };
 type PosInfo = LanePos | ZonePos;
 
 interface MapPin { id: string; type: PinType; x: number; y: number; pos: PosInfo; champ: string | null; auto?: boolean }
-interface ImageSlotState { pins:MapPin[]; benchPins:MapPin[]; objPins:ObjPin[]; alliesDown:number[]; enemiesDown:number[]; towersDown:{ally:number[];enemy:number[]} }
+interface ImageSlotState {
+  pins:MapPin[]; benchPins:MapPin[]; objPins:ObjPin[];
+  alliesDown:number[]; enemiesDown:number[]; towersDown:{ally:number[];enemy:number[]};
+  advice?:string; chatMessages?:StreamingMsg[]; conversationId?:number|null;
+  detectedStripAllies?:(string|null)[]; detectedStripEnemies?:(string|null)[];
+}
 
 // ─── Session persistence ───────────────────────────────────────────────────────
 const SESSION_KEY = "wildrift_session";
@@ -1279,9 +1284,18 @@ export default function CoachPage(){
   const applySlotState=(s:ImageSlotState|undefined)=>{
     setPins(s?.pins??[]);setBenchPins(s?.benchPins??[]);setObjPins(s?.objPins??[]);
     setAlliesDown(s?.alliesDown??[]);setEnemiesDown(s?.enemiesDown??[]);setTowersDown(s?.towersDown??{ally:[],enemy:[]});
+    if(s?.advice!==undefined)setAdvice(s.advice);
+    if(s?.chatMessages!==undefined)setChatMessages(s.chatMessages);
+    if(s?.conversationId!==undefined)setActiveConversationId(s.conversationId??null);
+    if(s?.detectedStripAllies!==undefined)setDetectedStripAllies(s.detectedStripAllies);
+    if(s?.detectedStripEnemies!==undefined)setDetectedStripEnemies(s.detectedStripEnemies);
   };
   const saveCurrentSlot=(url:string)=>{
-    perImageState.current.set(url,{pins,benchPins,objPins,alliesDown,enemiesDown,towersDown});
+    perImageState.current.set(url,{
+      pins,benchPins,objPins,alliesDown,enemiesDown,towersDown,
+      advice,chatMessages,conversationId:activeConversationId,
+      detectedStripAllies,detectedStripEnemies,
+    });
   };
 
   const handleAppendFiles=(files:FileList|File[])=>{
@@ -1676,11 +1690,21 @@ export default function CoachPage(){
                     <button onClick={()=>{
                         if(i===activeQueueIdx)return;
                         saveCurrentSlot(imageQueue[activeQueueIdx]!);
-                        // First visit: carry forward pins + towers, reset dead tracker only
-                        const restore=perImageState.current.get(img)??{pins,benchPins,objPins,alliesDown:[],enemiesDown:[],towersDown};
+                        const saved=perImageState.current.get(img);
                         setActiveQueueIdx(i);
-                        applySlotState(restore);
-                        processImage(img);
+                        setPlaceMode(null);
+                        if(saved){
+                          // Return visit: restore full saved state (pins, advice, chat, strip) + reload crops
+                          applySlotState(saved);
+                          setImageBase64(img);
+                          recropMinimap(img);
+                          cropDataUrl(img,timerCropConfig.x,timerCropConfig.y,timerCropConfig.w,timerCropConfig.h).then(setGameTimeCrop).catch(()=>{});
+                          cropDataUrl(img,portraitStripConfig.x,portraitStripConfig.y,portraitStripConfig.w,portraitStripConfig.h).then(setPortraitStripCrop).catch(()=>{});
+                        }else{
+                          // First visit: carry forward manual pins + towers, run fresh auto-detection
+                          applySlotState({pins:pins.filter(p=>!p.auto),benchPins,objPins:objPins.filter(p=>!p.id.startsWith("obj-auto-")),alliesDown:[],enemiesDown:[],towersDown});
+                          processImage(img);
+                        }
                       }}
                       className={cn("w-14 h-14 rounded-lg overflow-hidden border-2 active:scale-95 transition-all block",
                         i===activeQueueIdx?"border-primary":"border-border/30 opacity-50")}>
@@ -1697,11 +1721,19 @@ export default function CoachPage(){
                         } else {
                           const newIdx=i>=next.length?next.length-1:i===activeQueueIdx?Math.min(i,next.length-1):activeQueueIdx>i?activeQueueIdx-1:activeQueueIdx;
                           if(i===activeQueueIdx){
-                            // Deleting the active image — carry forward pins + towers, reset dead tracker only
-                            const restore=perImageState.current.get(next[newIdx]!)??{pins,benchPins,objPins,alliesDown:[],enemiesDown:[],towersDown};
-                            setImageQueue(next);setActiveQueueIdx(newIdx);
-                            applySlotState(restore);
-                            processImage(next[newIdx]!);
+                            const nextUrl=next[newIdx]!;
+                            const savedNext=perImageState.current.get(nextUrl);
+                            setImageQueue(next);setActiveQueueIdx(newIdx);setPlaceMode(null);
+                            if(savedNext){
+                              applySlotState(savedNext);
+                              setImageBase64(nextUrl);
+                              recropMinimap(nextUrl);
+                              cropDataUrl(nextUrl,timerCropConfig.x,timerCropConfig.y,timerCropConfig.w,timerCropConfig.h).then(setGameTimeCrop).catch(()=>{});
+                              cropDataUrl(nextUrl,portraitStripConfig.x,portraitStripConfig.y,portraitStripConfig.w,portraitStripConfig.h).then(setPortraitStripCrop).catch(()=>{});
+                            }else{
+                              applySlotState({pins:pins.filter(p=>!p.auto),benchPins,objPins:objPins.filter(p=>!p.id.startsWith("obj-auto-")),alliesDown:[],enemiesDown:[],towersDown});
+                              processImage(nextUrl);
+                            }
                           } else {
                             // Deleting a non-active image — active image unchanged, just update queue
                             setImageQueue(next);setActiveQueueIdx(newIdx);
