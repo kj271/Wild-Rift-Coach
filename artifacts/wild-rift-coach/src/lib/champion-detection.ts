@@ -244,28 +244,15 @@ function findBlobs(
       const aspect = Math.min(bw, bh) / Math.max(bw, bh);
       if (aspect < 0.18) continue;
 
-      // ── Ring-shape filter: only reject truly solid fills (wards, objectives) ──
-      // Champion rings have low solid-interior ratio; merged/overlapping rings
-      // can have higher ratios. We only reject at 0.85+ (solid-filled objects).
-      // solid=true (minion): reject if interior is NOT team-coloured.
-      if (solid) {
-        const icx = ((x0 + x1) >> 1);
-        const icy = ((y0 + y1) >> 1);
-        const ihw = Math.max(1, Math.round((x1 - x0 + 1) * 0.10));
-        const ihh = Math.max(1, Math.round((y1 - y0 + 1) * 0.10));
-        let intColor = 0, intTotal = 0;
-        for (let dy = -ihh; dy <= ihh; dy++) {
-          for (let dx = -ihw; dx <= ihw; dx++) {
-            const ipx = icx + dx, ipy = icy + dy;
-            if (ipx < 0 || ipx >= W || ipy < 0 || ipy >= H) continue;
-            intTotal++;
-            const ni = (ipy * W + ipx) * 4;
-            if (test(data[ni], data[ni + 1], data[ni + 2])) intColor++;
-          }
-        }
-        const solidRatio = intTotal > 0 ? intColor / intTotal : 0;
-        if (solidRatio < 0.15) continue;
-      }
+      // ── Fill-ratio filter: distinguish rings from solid fills ────────────
+      // A champion ring's colored pixels occupy 20–58% of its bounding-box area
+      // (hollow center keeps fill low), even when 2–3 rings merge into one blob.
+      // A solid ward/dot fills 65–90% of its bbox. Use this ratio — which never
+      // depends on the bbox center pixel — so merged clusters don't get misclassified.
+      const bboxArea = (x1 - x0 + 1) * (y1 - y0 + 1);
+      const fillRatio = cnt / bboxArea;
+      if (!solid && fillRatio > 0.62) continue; // too solid → ward / objective dot
+      if ( solid && fillRatio < 0.22) continue; // too sparse → ring, not a minion fill
 
       out.push({
         cx: sx / cnt / W * 100,
