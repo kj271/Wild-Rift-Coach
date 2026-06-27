@@ -562,29 +562,44 @@ export async function matchPortrait(
 // ── Dead-champion detection via portrait strip death timers ───────────────────
 
 export interface DeadChampResult {
-  /** 0-based slot indices for ally team (top half of the portrait strip). */
+  /** 0-based slot indices for ally team (top section of the portrait strip). */
   allySlots: number[];
-  /** 0-based slot indices for enemy team (bottom half of the portrait strip). */
+  /** 0-based slot indices for enemy team (bottom section of the portrait strip). */
   enemySlots: number[];
+}
+
+export interface DeadDetectOptions {
+  /**
+   * Y% [0–100] of strip height where the ally section ends and the enemy section
+   * begins.  Default 50 (even split).  Set to 100 if the strip shows allies only.
+   */
+  splitY?: number;
+  /**
+   * Y% [0–100] within each section to START scanning for red pixels.
+   * Default 0 (scan the entire section).
+   */
+  sectionScanY0?: number;
+  /**
+   * Y% [0–100] within each section to STOP scanning for red pixels.
+   * Default 100 (scan the entire section).
+   */
+  sectionScanY1?: number;
 }
 
 /**
  * Scan a cropped portrait-strip image for red death-timer text and return
  * which champion slots are dead for each team.
  *
- * WR portrait strips can show:
- *  - A single row (allies only), or
- *  - Two rows stacked (top = allies, bottom = enemies)
- *
- * The strip is divided into a `slotsPerTeam`-column × 2-row grid.  Each cell
- * counts red pixels (r > 190, g < 90, b < 90).  Cells with ≥ 20 red pixels
- * are flagged as dead.  Top-half cells → allySlots, bottom-half → enemySlots.
- *
- * @param slotsPerTeam  Usually 5 for WR (5v5).
+ * The strip is split horizontally at `opts.splitY` (default 50%).
+ * Pixels above the split → ally slots; pixels below → enemy slots.
+ * Within each half, only the sub-band [sectionScanY0, sectionScanY1] is scanned.
+ * Each section is divided into `slotsPerTeam` equal columns; columns with
+ * ≥ 20 red pixels (r > 190, g < 90, b < 90) are flagged as dead.
  */
 export function detectDeadChampions(
   stripDataUrl: string,
   slotsPerTeam = 5,
+  opts: DeadDetectOptions = {},
 ): Promise<DeadChampResult> {
   return new Promise(resolve => {
     const img = new Image();
@@ -595,21 +610,32 @@ export function detectDeadChampions(
       c.getContext("2d")!.drawImage(img, 0, 0);
       const data = c.getContext("2d")!.getImageData(0, 0, W, H).data;
 
-      const midY = H / 2;
-      const slotW = W / slotsPerTeam;
+      const splitPx   = H * (opts.splitY  ?? 50)  / 100;  // pixel row of ally/enemy boundary
+      const scan0Frac = (opts.sectionScanY0 ?? 0)   / 100;  // within-section fraction start
+      const scan1Frac = (opts.sectionScanY1 ?? 100) / 100;  // within-section fraction end
 
-      // Per-cell red pixel counts: allyRow[slot] and enemyRow[slot]
+      // Pixel rows to scan for each section
+      const allyScanY0  = Math.round(splitPx * scan0Frac);
+      const allyScanY1  = Math.round(splitPx * scan1Frac);
+      const enemyScanY0 = Math.round(splitPx + (H - splitPx) * scan0Frac);
+      const enemyScanY1 = Math.round(splitPx + (H - splitPx) * scan1Frac);
+
+      const slotW = W / slotsPerTeam;
       const allyCount  = new Array<number>(slotsPerTeam).fill(0);
       const enemyCount = new Array<number>(slotsPerTeam).fill(0);
 
       for (let y = 0; y < H; y++) {
+        const inAlly  = y >= allyScanY0  && y < allyScanY1;
+        const inEnemy = y >= enemyScanY0 && y < enemyScanY1;
+        if (!inAlly && !inEnemy) continue;
+
         for (let x = 0; x < W; x++) {
           const idx = (y * W + x) * 4;
           const r = data[idx], g = data[idx + 1], b = data[idx + 2];
           if (r > 190 && g < 90 && b < 90 && r > g * 2.5) {
             const slot = Math.min(Math.floor(x / slotW), slotsPerTeam - 1);
-            if (y < midY) allyCount[slot]++;
-            else          enemyCount[slot]++;
+            if (inAlly)  allyCount[slot]++;
+            if (inEnemy) enemyCount[slot]++;
           }
         }
       }

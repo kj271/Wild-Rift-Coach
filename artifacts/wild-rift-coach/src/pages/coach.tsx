@@ -28,7 +28,7 @@ import {
   Database, Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { detectMapCircles, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, detectTowerStatus, detectMinionWaves, detectDeadChampions, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
+import { detectMapCircles, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, detectTowerStatus, detectMinionWaves, detectDeadChampions, DeadDetectOptions, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
 
 // ─── Champions ────────────────────────────────────────────────────────────────
 const CHAMPIONS = [
@@ -707,6 +707,10 @@ export default function CoachPage(){
   const[portraitDbEntries,setPortraitDbEntries]=useState<PortraitDbEntry[]>([]);
   const loadPortraitDb=useCallback(()=>{getAllPortraitEntries().then(setPortraitDbEntries).catch(()=>{});},[]);
   const[portraitCropPct,_setPortraitCropPct]=useState(()=>parseInt(localStorage.getItem("wr_portrait_crop_pct")??"12"));
+  // Dead-timer detection calibration
+  const[deadSplitY,setDeadSplitY]=useState(()=>parseInt(localStorage.getItem("wr_dead_split_y")??"50"));
+  const[deadScanY0,setDeadScanY0]=useState(()=>parseInt(localStorage.getItem("wr_dead_scan_y0")??"50"));
+  const[deadScanY1,setDeadScanY1]=useState(()=>parseInt(localStorage.getItem("wr_dead_scan_y1")??"100"));
   const setPortraitCropPct=useCallback((v:number)=>{
     const clamped=Math.max(6,Math.min(25,v));
     _setPortraitCropPct(clamped);
@@ -878,9 +882,10 @@ export default function CoachPage(){
     if(minimap){
       detectMapCircles(minimap,portraitCropPct).then(({me,allies,enemies})=>{
         const ts=Date.now();
-        // Remove previous auto-placed pins; keep manual ones
+        // Remove previous auto champion pins; keep manual pins AND auto wave pins
+        // (wave pins are placed by a parallel async call — don't wipe them here)
         setPins(prev=>{
-          const manual=prev.filter(p=>!p.auto);
+          const manual=prev.filter(p=>!p.auto||(p.type==="ally_wave"||p.type==="enemy_wave"));
           const next=[...manual];
           if(me) next.push({id:`me-${ts}`,type:"me",x:me.x,y:me.y,pos:classifyPos(me.x,me.y,lanePaths,zones),champ:myChamp,auto:true});
           allies.forEach((a,i)=>next.push({id:`ally-auto-${ts}-${i}`,type:"ally",x:a.x,y:a.y,pos:classifyPos(a.x,a.y,lanePaths,zones),champ:null,auto:true}));
@@ -964,15 +969,14 @@ export default function CoachPage(){
       setPortraitStripCrop(ps);
       // Auto-detect dead champions from red death-timer text in portrait strip.
       // Top half of strip = allies, bottom half = enemies (handles 2-row layout).
-      detectDeadChampions(ps,5).then(({allySlots,enemySlots})=>{
-        if(allySlots.length>0||enemySlots.length>0){
-          if(allySlots.length>0)setAlliesDown(allySlots);
-          if(enemySlots.length>0)setEnemiesDown(enemySlots);
-        }
+      const deadOpts:DeadDetectOptions={splitY:deadSplitY,sectionScanY0:deadScanY0,sectionScanY1:deadScanY1};
+      detectDeadChampions(ps,5,deadOpts).then(({allySlots,enemySlots})=>{
+        if(allySlots.length>0)setAlliesDown(allySlots);
+        if(enemySlots.length>0)setEnemiesDown(enemySlots);
       }).catch(()=>{});
     }catch{}
     setDetectingChamps(true);
-  },[recropMinimap,timerCropConfig,portraitStripConfig,portraitConfig,lanePaths,zones,myChamp,portraitCropPct]);
+  },[recropMinimap,timerCropConfig,portraitStripConfig,portraitConfig,lanePaths,zones,myChamp,portraitCropPct,deadSplitY,deadScanY0,deadScanY1]);
 
   const clearPinState=()=>{setPins([]);setBenchPins([]);setObjPins([]);setAlliesDown([]);setEnemiesDown([]);setTowersDown({ally:[],enemy:[]});};
   const applySlotState=(s:ImageSlotState|undefined)=>{
@@ -1751,10 +1755,19 @@ export default function CoachPage(){
                   )}
                 </div>
               )}
-              {/* Portrait strip with calibrated tap zones overlaid */}
+              {/* Portrait strip with calibrated tap zones + dead-timer scan band overlaid */}
               {portraitStripCrop&&(
+                <div className="space-y-2">
                 <div className="relative rounded-xl overflow-hidden border border-border/30">
                   <img src={portraitStripCrop} alt="Portrait strip" className="w-full h-auto block pointer-events-none select-none"/>
+                  {/* Ally scan band (blue) */}
+                  <div className="absolute inset-x-0 pointer-events-none"
+                    style={{top:`${deadSplitY*deadScanY0/100}%`,height:`${deadSplitY*(deadScanY1-deadScanY0)/100}%`,background:"rgba(56,189,248,0.15)",borderTop:"1px solid rgba(56,189,248,0.5)",borderBottom:"1px solid rgba(56,189,248,0.5)"}}/>
+                  {/* Ally/enemy split line */}
+                  <div className="absolute inset-x-0 pointer-events-none border-t border-dashed border-white/30" style={{top:`${deadSplitY}%`}}/>
+                  {/* Enemy scan band (red) */}
+                  <div className="absolute inset-x-0 pointer-events-none"
+                    style={{top:`${deadSplitY+(100-deadSplitY)*deadScanY0/100}%`,height:`${(100-deadSplitY)*(deadScanY1-deadScanY0)/100}%`,background:"rgba(239,68,68,0.15)",borderTop:"1px solid rgba(239,68,68,0.5)",borderBottom:"1px solid rgba(239,68,68,0.5)"}}/>
                   {/* Ally tap zones — translate full-image % coords to strip-relative % */}
                   {portraitConfig.allies.map((pos,i)=>{
                     const n=i+1,dead=alliesDown.includes(n);
@@ -1795,6 +1808,25 @@ export default function CoachPage(){
                       </button>
                     );
                   })}
+                </div>
+                {/* Dead-timer calibration sliders */}
+                <div className="px-1 space-y-1.5">
+                  <p className="text-[9px] font-display uppercase tracking-widest text-white/30">Dead timer detection</p>
+                  {[
+                    {label:"Ally / Enemy split",val:deadSplitY,set:(v:number)=>{setDeadSplitY(v);localStorage.setItem("wr_dead_split_y",String(v));}},
+                    {label:"Scan band top",val:deadScanY0,set:(v:number)=>{setDeadScanY0(v);localStorage.setItem("wr_dead_scan_y0",String(v));}},
+                    {label:"Scan band bottom",val:deadScanY1,set:(v:number)=>{setDeadScanY1(v);localStorage.setItem("wr_dead_scan_y1",String(v));}},
+                  ].map(({label,val,set})=>(
+                    <div key={label} className="flex items-center gap-2">
+                      <span className="text-[9px] text-white/40 w-28 shrink-0">{label}</span>
+                      <input type="range" min={0} max={100} value={val}
+                        onChange={e=>set(Number(e.target.value))}
+                        className="flex-1 accent-sky-400 h-1"/>
+                      <span className="text-[9px] text-white/50 w-7 text-right tabular-nums">{val}%</span>
+                    </div>
+                  ))}
+                  <p className="text-[8px] text-white/20 leading-tight">Blue band = where app scans for ally death timers. Red band = enemy. Drag sliders so the coloured bands cover the red countdown numbers on your portrait strip.</p>
+                </div>
                 </div>
               )}
 
