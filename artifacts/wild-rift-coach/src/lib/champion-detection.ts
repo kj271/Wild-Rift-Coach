@@ -309,11 +309,19 @@ export interface DetectConfig {
    * missed; lower if wards/minions get falsely detected as champions.
    */
   enemyRingThreshold: number;
+  /**
+   * Estimated diameter of one champion ring as % of minimap width. Default 8.
+   * Wild Rift scales portrait sizes dynamically — increase when portraits look
+   * larger (zoomed-in minimap), decrease when smaller (zoomed-out).
+   * Drives: NMS exclusion radius, blob split threshold, min/max bbox bounds.
+   */
+  typicalRing: number;
 }
 export const DEFAULT_DETECT_CFG: DetectConfig = {
   redBright: 130, redRatio: 1.5,
   blueBright: 110, blueRatio: 1.08,
   enemyRingThreshold: 0.60,
+  typicalRing: 8,
 };
 const DETECT_CFG_KEY = "wr_detect_cfg";
 export function loadDetectConfig(): DetectConfig {
@@ -684,12 +692,12 @@ export function detectMapCircles(
       const _isRed = (r: number, g: number, b: number) =>
         r > config.redBright && g < 120 && b < 115 && r > g * config.redRatio;
 
-      const MIN_BBOX = 6;  // % — for allies/me; ring-shape filter handles wards
-      const MAX_BBOX = 22; // % — filters base structures and large patches
-      // Enemies use a smaller min to catch partial arcs when circles cluster
-      const MIN_BBOX_ENEMY = 4;
-      // Estimated diameter of one champion ring on the minimap (%)
-      const TYPICAL_RING = 8;
+      // All size bounds derived from typicalRing so they scale with minimap zoom.
+      // typicalRing is the estimated champion circle diameter as % of minimap width.
+      const TYPICAL_RING  = config.typicalRing;
+      const MIN_BBOX      = Math.max(3, TYPICAL_RING * 0.55); // allies/me min
+      const MAX_BBOX      = TYPICAL_RING * 3.0;               // filter structures
+      const MIN_BBOX_ENEMY = Math.max(2, TYPICAL_RING * 0.4); // smaller — catch partial arcs
 
       const pt = (x: number, y: number) => ({ x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
 
@@ -697,8 +705,10 @@ export function detectMapCircles(
         .sort((a, b) => b.pixels - a.pixels);
       const me = greens[0] ? pt(greens[0].cx, greens[0].cy) : null;
 
-      // Ally ring threshold stays conservative (0.38) so blue wards are filtered out
-      const blues = findBlobs(px, W, H, _isBlue, MIN_BBOX, MAX_BBOX, false, 0.45, 0.38)
+      // aspectMin lowered to 0.35 (from 0.45) — catches crescent/partial-arc shapes
+      // when another champion is overlapping and occluding part of the ring.
+      // Ally ring threshold stays conservative (0.38) so blue wards are filtered out.
+      const blues = findBlobs(px, W, H, _isBlue, MIN_BBOX, MAX_BBOX, false, 0.35, 0.38)
         .sort((a, b) => b.pixels - a.pixels)
         .slice(0, 4);
       const allies: DetectedCircle[] = blues.map(b => ({

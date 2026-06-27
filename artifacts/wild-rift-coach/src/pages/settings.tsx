@@ -412,6 +412,28 @@ export default function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
+            {/* Ring size — scales all size-derived thresholds */}
+            <div className="space-y-3">
+              <p className="text-xs font-display uppercase tracking-widest text-amber-400/80">Portrait Size</p>
+
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <label className="text-sm text-muted-foreground">Typical ring diameter</label>
+                  <span className="text-sm font-mono text-foreground w-12 text-right">{detectCfg.typicalRing.toFixed(1)}%</span>
+                </div>
+                <input type="range" min={4} max={18} step={0.5} value={detectCfg.typicalRing}
+                  onChange={e => updateDetect("typicalRing", +e.target.value)}
+                  className="w-full accent-amber-500" />
+                <p className="text-[11px] text-muted-foreground/60">
+                  Estimated champion circle diameter as % of minimap width. Wild Rift scales portrait
+                  sizes dynamically — increase if portraits look large (zoomed-in map), decrease if small
+                  (zoomed-out). Default 8. This also scales min/max detection bounds and the NMS radius.
+                </p>
+              </div>
+            </div>
+
+            <div className="border-t border-border/20" />
+
             {/* Enemy (Red) section */}
             <div className="space-y-3">
               <p className="text-xs font-display uppercase tracking-widest text-red-400/80">Enemy (Red Ring)</p>
