@@ -246,7 +246,7 @@ function lanePoint(path:Point[],t:number):{x:number;y:number}{
 // ── Per-slot dead calibration box types ──────────────────────────────────────
 type DeadSlotBoxes={ally:SlotBox[];enemy:SlotBox[]};
 const DEFAULT_DEAD_SLOT_BOXES:DeadSlotBoxes={
-  ally: Array.from({length:5},(_,i)=>({x:i*20,y:0,w:20,h:50})),
+  ally: Array.from({length:4},(_,i)=>({x:i*25,y:0,w:25,h:50})),
   enemy:Array.from({length:5},(_,i)=>({x:i*20,y:50,w:20,h:50})),
 };
 function loadDeadBoxes():DeadSlotBoxes{
@@ -737,6 +737,8 @@ export default function CoachPage(){
   // Dead-timer detection calibration
   const[deadSlotBoxes,setDeadSlotBoxes]=useState<DeadSlotBoxes>(loadDeadBoxes);
   const[showDeadCalib,setShowDeadCalib]=useState(false);
+  const[deadStripPick,setDeadStripPick]=useState<{team:"ally"|"enemy";slotN:number}|null>(null);
+  const[deadStripSearch,setDeadStripSearch]=useState("");
   const deadDragRef=useRef<{team:'ally'|'enemy';idx:number;type:'move'|'resize';sx:number;sy:number;bx:number;by:number;bw:number;bh:number}|null>(null);
   const deadCalibImgRef=useRef<HTMLDivElement>(null);
   const onDeadBoxPointerDown=useCallback((e:React.PointerEvent,team:'ally'|'enemy',idx:number,type:'move'|'resize')=>{
@@ -979,23 +981,23 @@ export default function CoachPage(){
         ally:  {Top:lanePoint(lanePaths.baron,0.35),Mid:lanePoint(lanePaths.mid,0.35),Bot:lanePoint(lanePaths.dragon,0.35)},
         enemy: {Top:lanePoint(lanePaths.baron,0.65),Mid:lanePoint(lanePaths.mid,0.65),Bot:lanePoint(lanePaths.dragon,0.65)},
       };
-      const placeWavePins=(aw:{lane:string;x:number;y:number}[],ew:{lane:string;x:number;y:number}[])=>{
+      // Wave pins are ALWAYS placed at the calibrated lane-path midpoints — never outside lane zones.
+      // Detection result is intentionally ignored so pins can't drift into the wrong lane.
+      const placeWavePins=()=>{
         const ts2=Date.now();
         setPins(prev=>{
           const noAutoWave=prev.filter(p=>!((p.type==="ally_wave"||p.type==="enemy_wave")&&p.auto));
           const next=[...noAutoWave];
           (["Top","Mid","Bot"] as const).forEach(lane=>{
-            const ad=aw.find(w=>w.lane===lane);
-            const ed=ew.find(w=>w.lane===lane);
-            const ap=ad??waveDefaults.ally[lane];
-            const ep=ed??waveDefaults.enemy[lane];
+            const ap=waveDefaults.ally[lane];
+            const ep=waveDefaults.enemy[lane];
             next.push({id:`aw-auto-${ts2}-${lane}`,type:"ally_wave",x:ap.x,y:ap.y,pos:classifyPos(ap.x,ap.y,lanePaths,zones),champ:null,auto:true});
             next.push({id:`ew-auto-${ts2}-${lane}`,type:"enemy_wave",x:ep.x,y:ep.y,pos:classifyPos(ep.x,ep.y,lanePaths,zones),champ:null,auto:true});
           });
           return next;
         });
       };
-      detectMinionWaves(minimap).then(({ally:aw,enemy:ew})=>placeWavePins(aw,ew)).catch(()=>placeWavePins([],[]));
+      detectMinionWaves(minimap).then(placeWavePins).catch(placeWavePins);
     }
 
     try{
@@ -1850,9 +1852,9 @@ export default function CoachPage(){
                       const champName=detectedAllies[n-1]||null;
                       return(
                         <button key={`ad${n}`}
-                          onClick={()=>setAlliesDown(p=>p.filter(x=>x!==n))}
+                          onClick={()=>setDeadStripPick({team:"ally",slotN:n})}
                           className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full border border-sky-400/40 bg-sky-400/10 text-sky-300 text-[9px] font-bold">
-                          ☠ {champName??`A${n}`}
+                          {champName??`A${n}`} ▾
                         </button>
                       );
                     })}
@@ -1860,9 +1862,9 @@ export default function CoachPage(){
                       const champName=detectedEnemies[n-1]||null;
                       return(
                         <button key={`ed${n}`}
-                          onClick={()=>setEnemiesDown(p=>p.filter(x=>x!==n))}
+                          onClick={()=>setDeadStripPick({team:"enemy",slotN:n})}
                           className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full border border-red-400/40 bg-red-400/10 text-red-300 text-[9px] font-bold">
-                          ☠ {champName??`E${n}`}
+                          {champName??`E${n}`} ▾
                         </button>
                       );
                     })}
@@ -2384,6 +2386,56 @@ export default function CoachPage(){
           />
         );
       })()}
+
+      {/* ── Dead strip champion picker ────────────────────────────────────── */}
+      {deadStripPick&&(
+        <div className="fixed inset-0 z-50 flex items-end justify-center pb-4 px-4 bg-black/70"
+          onClick={()=>setDeadStripPick(null)}>
+          <div className="bg-[#0d1117] rounded-2xl border border-border/50 p-4 space-y-3 w-full max-w-sm"
+            onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-display font-bold"
+                style={{color:deadStripPick.team==="ally"?"#7dd3fc":"#fca5a5"}}>
+                {deadStripPick.team==="ally"?`Ally A${deadStripPick.slotN}`:`Enemy E${deadStripPick.slotN}`}
+              </h3>
+              <div className="flex gap-2">
+                <button
+                  onClick={()=>{
+                    if(deadStripPick.team==="ally")setAlliesDown(p=>p.filter(x=>x!==deadStripPick.slotN));
+                    else setEnemiesDown(p=>p.filter(x=>x!==deadStripPick.slotN));
+                    setDeadStripPick(null);
+                  }}
+                  className="text-[10px] px-2 py-1 rounded-lg border border-border/40 text-white/50 hover:text-white/80">
+                  Mark alive
+                </button>
+                <button onClick={()=>setDeadStripPick(null)} className="text-white/40 hover:text-white/70 px-1 text-lg leading-none">✕</button>
+              </div>
+            </div>
+            <input
+              autoFocus
+              placeholder="Search champion…"
+              value={deadStripSearch}
+              onChange={e=>setDeadStripSearch(e.target.value)}
+              className="w-full bg-white/5 border border-border/40 rounded-lg px-3 py-1.5 text-xs text-white placeholder-white/30 outline-none focus:border-sky-500/50"/>
+            <div className="max-h-52 overflow-y-auto grid grid-cols-3 gap-1">
+              {CHAMPIONS.filter(c=>!deadStripSearch||c.toLowerCase().includes(deadStripSearch.toLowerCase())).map(c=>(
+                <button key={c}
+                  onClick={()=>{
+                    if(deadStripPick.team==="ally"){
+                      setDetectedAllies(prev=>{const n=[...prev];n[deadStripPick.slotN-1]=c;return n;});
+                    }else{
+                      setDetectedEnemies(prev=>{const n=[...prev];n[deadStripPick.slotN-1]=c;return n;});
+                    }
+                    setDeadStripPick(null);setDeadStripSearch("");
+                  }}
+                  className="text-[9px] px-1.5 py-1 rounded-lg border border-border/30 text-white/60 hover:bg-white/10 hover:text-white/90 truncate text-left">
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Dead-timer calibration popup ──────────────────────────────────── */}
       {showDeadCalib&&(
