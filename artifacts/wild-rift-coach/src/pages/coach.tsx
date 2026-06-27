@@ -254,6 +254,95 @@ function loadDeadBoxes():DeadSlotBoxes{
   catch{return DEFAULT_DEAD_SLOT_BOXES;}
 }
 
+// ── Objective pit detection ───────────────────────────────────────────────────
+interface ObjPitConfig{zones:[SlotBox,SlotBox];colors:Record<string,string>}
+const OBJ_DETECT_TYPES=[
+  {id:"baron",    label:"Baron Nashor",    def:"#5B2C6F"},
+  {id:"elder",    label:"Elder Drake",     def:"#C39BD3"},
+  {id:"infernal", label:"Infernal Drake",  def:"#E74C3C"},
+  {id:"ocean",    label:"Ocean Drake",     def:"#1ABC9C"},
+  {id:"mountain", label:"Mountain Drake",  def:"#7D6608"},
+  {id:"cloud",    label:"Cloud Drake",     def:"#5DADE2"},
+  {id:"chemtech", label:"Chemtech Drake",  def:"#2ECC71"},
+  {id:"hextech",  label:"Hextech Drake",   def:"#3498DB"},
+] as const;
+type ObjDetectId=typeof OBJ_DETECT_TYPES[number]["id"];
+const DEFAULT_OBJ_PIT_CONFIG:ObjPitConfig={
+  zones:[{x:20,y:2,w:40,h:44},{x:40,y:54,w:40,h:44}],
+  colors:Object.fromEntries(OBJ_DETECT_TYPES.map(t=>[t.id,t.def])),
+};
+function loadObjPitConfig():ObjPitConfig{
+  try{const s=localStorage.getItem("wr_obj_pit_config");return s?JSON.parse(s):DEFAULT_OBJ_PIT_CONFIG;}
+  catch{return DEFAULT_OBJ_PIT_CONFIG;}
+}
+function hexToRgb(hex:string):{r:number;g:number;b:number}|null{
+  const m=hex.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  return m?{r:parseInt(m[1],16),g:parseInt(m[2],16),b:parseInt(m[3],16)}:null;
+}
+function detectObjColors(
+  imgUrl:string,
+  zones:[SlotBox,SlotBox],
+  colors:Record<string,string>,
+):Promise<{zoneA:string[];zoneB:string[]}>{
+  return new Promise(resolve=>{
+    const img=new Image();
+    img.onload=()=>{
+      const W=img.width,H=img.height;
+      const c=document.createElement("canvas");c.width=W;c.height=H;
+      c.getContext("2d")!.drawImage(img,0,0);
+      const data=c.getContext("2d")!.getImageData(0,0,W,H).data;
+      const scanZone=(zone:SlotBox,rgb:{r:number;g:number;b:number}):number=>{
+        const x0=Math.round(Math.max(0,zone.x*W/100)),x1=Math.round(Math.min(W,(zone.x+zone.w)*W/100));
+        const y0=Math.round(Math.max(0,zone.y*H/100)),y1=Math.round(Math.min(H,(zone.y+zone.h)*H/100));
+        let count=0;
+        for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++){
+          const i=(y*W+x)*4;
+          const dr=data[i]-rgb.r,dg=data[i+1]-rgb.g,db=data[i+2]-rgb.b;
+          if(Math.sqrt(dr*dr+dg*dg+db*db)<50)count++;
+        }
+        return count;
+      };
+      const THRESHOLD=8;
+      const checkZone=(zone:SlotBox)=>Object.entries(colors)
+        .filter(([,hex])=>{const rgb=hexToRgb(hex);return rgb&&scanZone(zone,rgb)>=THRESHOLD;})
+        .map(([id])=>id);
+      resolve({zoneA:checkZone(zones[0]),zoneB:checkZone(zones[1])});
+    };
+    img.onerror=()=>resolve({zoneA:[],zoneB:[]});
+    img.src=imgUrl;
+  });
+}
+
+// ── Portrait strip per-slot champion detection ────────────────────────────────
+async function detectStripSlotChamps(
+  stripCrop:string,
+  slots:Array<{x:number;y:number}>,
+  stripConfig:{x:number;y:number;w:number;h:number},
+  sizePct:number,
+):Promise<(string|null)[]>{
+  return Promise.all(slots.map(async pos=>{
+    const sx=((pos.x-stripConfig.x)/stripConfig.w)*100;
+    const sy=((pos.y-stripConfig.y)/stripConfig.h)*100;
+    const half=sizePct/2;
+    if(sx<-5||sx>105||sy<-5||sy>105)return null;
+    try{
+      const slotCrop=await cropDataUrl(stripCrop,Math.max(0,sx-half),Math.max(0,sy-half),sizePct,sizePct);
+      const match=await matchPersonalDb(slotCrop);
+      return match?.name??null;
+    }catch{return null;}
+  }));
+}
+
+// ── Tower cascade: if T2/T3 is down, all preceding towers in that lane are also down ──
+function applyTowerCascade(down:number[]):number[]{
+  const s=new Set(down);
+  [[0,1,2],[3,4,5],[6,7,8]].forEach(([t1,t2,t3])=>{
+    if(s.has(t3)){s.add(t1);s.add(t2);}
+    else if(s.has(t2)){s.add(t1);}
+  });
+  return Array.from(s).sort((a,b)=>a-b);
+}
+
 // Returns the slot number for the i-th pin of a given type, skipping slots already
 // reserved by dead portrait markers. e.g. if slot 1 is dead, first placed pin = slot 2.
 function pinSlot(index:number,occupied:number[]):number{
@@ -724,9 +813,18 @@ export default function CoachPage(){
   const[gameTimeCrop,setGameTimeCrop]=useState<string|null>(null);
   const[portraitStripCrop,setPortraitStripCrop]=useState<string|null>(null);
 
-  // Champion auto-detection from portrait strip
+  // Champion auto-detection from minimap rings
   const[detectedAllies,setDetectedAllies]=useState<(string|null)[]>([]);
   const[detectedEnemies,setDetectedEnemies]=useState<(string|null)[]>([]);
+  // Per-slot champion detection from portrait strip (independent of minimap order)
+  const[detectedStripAllies,setDetectedStripAllies]=useState<(string|null)[]>([]);
+  const[detectedStripEnemies,setDetectedStripEnemies]=useState<(string|null)[]>([]);
+  // Objective pit detection
+  const[objPitConfig,setObjPitConfig]=useState<ObjPitConfig>(loadObjPitConfig);
+  const[showObjPitCalib,setShowObjPitCalib]=useState(false);
+  const[detectedObjTypes,setDetectedObjTypes]=useState<string[]>([]);
+  const objPitDragRef=useRef<{zoneIdx:0|1;type:"move"|"resize";sx:number;sy:number;bx:number;by:number;bw:number;bh:number}|null>(null);
+  const objPitImgRef=useRef<HTMLDivElement>(null);
   const[detectingChamps,setDetectingChamps]=useState(false);
 
   // Portrait database viewer + crop-size calibration
@@ -968,36 +1066,42 @@ export default function CoachPage(){
         }).catch(()=>setDetectingChamps(false));
       }).catch(()=>{});
 
-      // ── Auto-detect tower status from minimap colours ──────────────────────
+      // ── Auto-detect tower status — with cascade logic ──────────────────────
       detectTowerStatus(minimap,towerConfig.ally,towerConfig.enemy).then(({allyDown,enemyDown})=>{
-        setTowersDown({ally:allyDown,enemy:enemyDown});
+        setTowersDown({ally:applyTowerCascade(allyDown),enemy:applyTowerCascade(enemyDown)});
       }).catch(()=>{});
 
+      // ── Auto-detect objectives via color matching in pit zones ──────────────
+      detectObjColors(minimap,objPitConfig.zones,objPitConfig.colors)
+        .then(({zoneA,zoneB})=>setDetectedObjTypes([...new Set([...zoneA,...zoneB])]))
+        .catch(()=>{});
+
       // ── Auto-detect minion waves (1 ally + 1 enemy per lane, ON the user's configured lane paths) ──
-      // Wave defaults are midpoints along the user's calibrated lane paths so pins always land in the right lane.
-      // lanePaths.baron = Top lane, lanePaths.mid = Mid, lanePaths.dragon = Bot.
-      // t=0.35 → toward ally base (ally wave front); t=0.65 → toward enemy base (enemy wave front).
+      // Default = calibrated lane midpoints. Detected position used only if it classifies as the correct lane.
       const waveDefaults={
         ally:  {Top:lanePoint(lanePaths.baron,0.35),Mid:lanePoint(lanePaths.mid,0.35),Bot:lanePoint(lanePaths.dragon,0.35)},
         enemy: {Top:lanePoint(lanePaths.baron,0.65),Mid:lanePoint(lanePaths.mid,0.65),Bot:lanePoint(lanePaths.dragon,0.65)},
       };
-      // Wave pins are ALWAYS placed at the calibrated lane-path midpoints — never outside lane zones.
-      // Detection result is intentionally ignored so pins can't drift into the wrong lane.
-      const placeWavePins=()=>{
+      const placeWavePins=(aw:{lane:string;x:number;y:number}[],ew:{lane:string;x:number;y:number}[])=>{
         const ts2=Date.now();
         setPins(prev=>{
           const noAutoWave=prev.filter(p=>!((p.type==="ally_wave"||p.type==="enemy_wave")&&p.auto));
           const next=[...noAutoWave];
           (["Top","Mid","Bot"] as const).forEach(lane=>{
-            const ap=waveDefaults.ally[lane];
-            const ep=waveDefaults.enemy[lane];
+            // Use detected position ONLY if it classifies as the correct lane — no cross-lane drift
+            const ad=aw.find(w=>w.lane===lane);
+            const adPos=ad?classifyPos(ad.x,ad.y,lanePaths,zones):null;
+            const ap=(ad&&adPos?.kind==="lane"&&adPos.lane===lane)?ad:waveDefaults.ally[lane];
+            const ed=ew.find(w=>w.lane===lane);
+            const edPos=ed?classifyPos(ed.x,ed.y,lanePaths,zones):null;
+            const ep=(ed&&edPos?.kind==="lane"&&edPos.lane===lane)?ed:waveDefaults.enemy[lane];
             next.push({id:`aw-auto-${ts2}-${lane}`,type:"ally_wave",x:ap.x,y:ap.y,pos:classifyPos(ap.x,ap.y,lanePaths,zones),champ:null,auto:true});
             next.push({id:`ew-auto-${ts2}-${lane}`,type:"enemy_wave",x:ep.x,y:ep.y,pos:classifyPos(ep.x,ep.y,lanePaths,zones),champ:null,auto:true});
           });
           return next;
         });
       };
-      detectMinionWaves(minimap).then(placeWavePins).catch(placeWavePins);
+      detectMinionWaves(minimap).then(({ally:aw,enemy:ew})=>placeWavePins(aw,ew)).catch(()=>placeWavePins([],[]));
     }
 
     try{
@@ -1007,15 +1111,20 @@ export default function CoachPage(){
     try{
       const ps=await cropDataUrl(dataUrl,portraitStripConfig.x,portraitStripConfig.y,portraitStripConfig.w,portraitStripConfig.h);
       setPortraitStripCrop(ps);
-      // Auto-detect dead champions from red death-timer text in portrait strip.
-      // Top half of strip = allies, bottom half = enemies (handles 2-row layout).
+      // Detect dead slots via slot boxes
       detectDeadBySlotBoxes(ps,deadSlotBoxes.ally,deadSlotBoxes.enemy).then(({allySlots,enemySlots})=>{
         if(allySlots.length>0)setAlliesDown(allySlots.map(i=>i+1));
         if(enemySlots.length>0)setEnemiesDown(enemySlots.map(i=>i+1));
       }).catch(()=>{});
+      // Detect champion names per strip slot (independent of minimap ring detection order)
+      const sz=portraitConfig.sizePct??5.5;
+      detectStripSlotChamps(ps,portraitConfig.allies,portraitStripConfig,sz)
+        .then(setDetectedStripAllies).catch(()=>{});
+      detectStripSlotChamps(ps,portraitConfig.enemies,portraitStripConfig,sz)
+        .then(setDetectedStripEnemies).catch(()=>{});
     }catch{}
     setDetectingChamps(true);
-  },[recropMinimap,timerCropConfig,portraitStripConfig,portraitConfig,lanePaths,zones,myChamp,portraitCropPct,deadSlotBoxes]);
+  },[recropMinimap,timerCropConfig,portraitStripConfig,portraitConfig,lanePaths,zones,myChamp,portraitCropPct,deadSlotBoxes,objPitConfig]);
 
   const clearPinState=()=>{setPins([]);setBenchPins([]);setObjPins([]);setAlliesDown([]);setEnemiesDown([]);setTowersDown({ally:[],enemy:[]});};
   const applySlotState=(s:ImageSlotState|undefined)=>{
@@ -1806,7 +1915,7 @@ export default function CoachPage(){
                     const sy=((pos.y-portraitStripConfig.y)/portraitStripConfig.h)*100;
                     const sz=portraitConfig.sizePct??5.5;
                     if(sx<-5||sx>105||sy<-5||sy>105)return null;
-                    const champName=detectedAllies[i]||null;
+                    const champName=detectedStripAllies[i]||null;
                     return(
                       <button key={`ps-a${n}`}
                         onClick={()=>setAlliesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
@@ -1827,7 +1936,7 @@ export default function CoachPage(){
                     const sy=((pos.y-portraitStripConfig.y)/portraitStripConfig.h)*100;
                     const sz=portraitConfig.sizePct??5.5;
                     if(sx<-5||sx>105||sy<-5||sy>105)return null;
-                    const champName=detectedEnemies[i]||null;
+                    const champName=detectedStripEnemies[i]||null;
                     return(
                       <button key={`ps-e${n}`}
                         onClick={()=>setEnemiesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
@@ -1849,7 +1958,7 @@ export default function CoachPage(){
                       <span className="text-[9px] text-white/25">Tap a portrait to mark dead · auto-detects on screenshot</span>
                     )}
                     {alliesDown.sort((a,b)=>a-b).map(n=>{
-                      const champName=detectedAllies[n-1]||null;
+                      const champName=detectedStripAllies[n-1]||null;
                       return(
                         <button key={`ad${n}`}
                           onClick={()=>setDeadStripPick({team:"ally",slotN:n})}
@@ -1859,7 +1968,7 @@ export default function CoachPage(){
                       );
                     })}
                     {enemiesDown.sort((a,b)=>a-b).map(n=>{
-                      const champName=detectedEnemies[n-1]||null;
+                      const champName=detectedStripEnemies[n-1]||null;
                       return(
                         <button key={`ed${n}`}
                           onClick={()=>setDeadStripPick({team:"enemy",slotN:n})}
@@ -2422,9 +2531,9 @@ export default function CoachPage(){
                 <button key={c}
                   onClick={()=>{
                     if(deadStripPick.team==="ally"){
-                      setDetectedAllies(prev=>{const n=[...prev];n[deadStripPick.slotN-1]=c;return n;});
+                      setDetectedStripAllies(prev=>{const n=[...prev];n[deadStripPick.slotN-1]=c;return n;});
                     }else{
-                      setDetectedEnemies(prev=>{const n=[...prev];n[deadStripPick.slotN-1]=c;return n;});
+                      setDetectedStripEnemies(prev=>{const n=[...prev];n[deadStripPick.slotN-1]=c;return n;});
                     }
                     setDeadStripPick(null);setDeadStripSearch("");
                   }}
