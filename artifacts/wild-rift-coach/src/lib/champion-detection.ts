@@ -240,35 +240,32 @@ function findBlobs(
       if (bw < minBBoxPct || bh < minBBoxPct) continue;
       if (bw > maxBBoxPct || bh > maxBBoxPct) continue;
 
-      // ── Circularity filter ────────────────────────────────────────────────
+      // ── Circularity filter — relaxed for merged clusters ─────────────────
       const aspect = Math.min(bw, bh) / Math.max(bw, bh);
-      if (aspect < 0.3) continue;
+      if (aspect < 0.18) continue;
 
-      // ── Ring-shape filter: champion circles have non-team-coloured interiors ──
-      // Sample the centre 20% of the bbox. If >30% of those pixels are team-
-      // coloured the blob is a solid circle (ward/objective), not a ring.
-      const icx = ((x0 + x1) >> 1);
-      const icy = ((y0 + y1) >> 1);
-      const ihw = Math.max(1, Math.round((x1 - x0 + 1) * 0.10));
-      const ihh = Math.max(1, Math.round((y1 - y0 + 1) * 0.10));
-      let intColor = 0, intTotal = 0;
-      for (let dy = -ihh; dy <= ihh; dy++) {
-        for (let dx = -ihw; dx <= ihw; dx++) {
-          const ipx = icx + dx, ipy = icy + dy;
-          if (ipx < 0 || ipx >= W || ipy < 0 || ipy >= H) continue;
-          intTotal++;
-          const ni = (ipy * W + ipx) * 4;
-          if (test(data[ni], data[ni + 1], data[ni + 2])) intColor++;
+      // ── Ring-shape filter: only reject truly solid fills (wards, objectives) ──
+      // Champion rings have low solid-interior ratio; merged/overlapping rings
+      // can have higher ratios. We only reject at 0.85+ (solid-filled objects).
+      // solid=true (minion): reject if interior is NOT team-coloured.
+      if (solid) {
+        const icx = ((x0 + x1) >> 1);
+        const icy = ((y0 + y1) >> 1);
+        const ihw = Math.max(1, Math.round((x1 - x0 + 1) * 0.10));
+        const ihh = Math.max(1, Math.round((y1 - y0 + 1) * 0.10));
+        let intColor = 0, intTotal = 0;
+        for (let dy = -ihh; dy <= ihh; dy++) {
+          for (let dx = -ihw; dx <= ihw; dx++) {
+            const ipx = icx + dx, ipy = icy + dy;
+            if (ipx < 0 || ipx >= W || ipy < 0 || ipy >= H) continue;
+            intTotal++;
+            const ni = (ipy * W + ipx) * 4;
+            if (test(data[ni], data[ni + 1], data[ni + 2])) intColor++;
+          }
         }
+        const solidRatio = intTotal > 0 ? intColor / intTotal : 0;
+        if (solidRatio < 0.15) continue;
       }
-      // solid=false (champion ring): reject if interior IS team-coloured (ward/minion)
-      // solid=true  (minion fill):   reject if interior is NOT team-coloured (ring)
-      // Threshold scales up for larger blobs: merged/overlapping rings have colored centers
-      // (0.30–0.60 range) while solid wards/structures stay >0.80 regardless.
-      const solidRatio = intTotal > 0 ? intColor / intTotal : 0;
-      const ringThreshold = !solid ? Math.min(0.60, 0.30 + (Math.max(0, bw - 8) / 20) * 0.30) : 0;
-      if (!solid && solidRatio > ringThreshold) continue;
-      if (solid  && solidRatio < 0.15) continue; // loosened: catch shallow-filled minion shapes
 
       out.push({
         cx: sx / cnt / W * 100,
@@ -285,10 +282,10 @@ function isGreen(r: number, g: number, b: number): boolean {
   return g > 145 && r < 120 && b < 130 && g > r * 1.7 && g > b * 1.5;
 }
 function isBlue(r: number, g: number, b: number): boolean {
-  return b > 155 && r < 160 && b > r * 1.25 && b > g * 0.75;
+  return b > 130 && r < 175 && b > r * 1.05 && b > g * 0.65 && b - r > 20;
 }
 function isRed(r: number, g: number, b: number): boolean {
-  return r > 170 && g < 120 && b < 110 && r > g * 2.2;
+  return r > 145 && g < 145 && b < 135 && r > g * 1.6 && r > b * 1.5 && r - g > 30;
 }
 
 // ── Minion wave detection ─────────────────────────────────────────────────────
@@ -518,8 +515,8 @@ export function detectMapCircles(
       ctx.drawImage(img, 0, 0);
       const px = ctx.getImageData(0, 0, W, H).data;
 
-      const MIN_BBOX = 4.5; // % — lowered to catch partial/occluded rings (JG terrain)
-      const MAX_BBOX = 30;  // % — raised to catch merged clusters of 2–3 overlapping circles
+      const MIN_BBOX = 3.5; // % — low to catch partial/occluded rings in JG terrain
+      const MAX_BBOX = 38;  // % — high to catch merged clusters of 3–4 overlapping circles
 
       const pt = (x: number, y: number) => ({ x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
 
