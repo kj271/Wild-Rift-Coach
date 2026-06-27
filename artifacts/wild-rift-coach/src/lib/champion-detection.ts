@@ -181,18 +181,13 @@ interface Blob {
 }
 
 /**
- * Find connected colour blobs, filtered by BOUNDING BOX dimensions + ring-shape check.
+ * Find connected colour blobs, filtered by bounding box + ring-shape check.
  *
- * Wild Rift champion circles are ring-shaped — only the border pixels carry the
- * team colour; the interior is the champion portrait (not team-coloured).
- * Sight wards are SOLID FILLED circles — their interior IS the team colour.
+ * solid=false (default) → champion rings: keep blobs whose interior is NOT team-coloured
+ * solid=true            → minion fills:   keep blobs whose interior IS team-coloured
  *
- * The ring-shape check samples the inner 20% of the blob bounding box.
- * If > 30% of those interior pixels pass the colour test → solid circle (ward) → rejected.
- * Champion rings have a portrait interior → < 5% interior pixels pass → kept.
- *
- * minBBoxPct = 6  → picks up all champion rings including edge-of-minimap ones
- * maxBBoxPct = 22 → filters base structures and large colour patches
+ * Ring-shape check samples the centre 10% of the bbox per dimension.
+ * If >30% team-coloured → solid; <30% → ring.
  */
 function findBlobs(
   data: Uint8ClampedArray,
@@ -201,6 +196,7 @@ function findBlobs(
   test: (r: number, g: number, b: number) => boolean,
   minBBoxPct: number,
   maxBBoxPct: number,
+  solid = false,
 ): Blob[] {
   const visited = new Uint8Array(W * H);
   const out: Blob[] = [];
@@ -265,8 +261,11 @@ function findBlobs(
           if (test(data[ni], data[ni + 1], data[ni + 2])) intColor++;
         }
       }
-      // Solid ward: interior is team-coloured → reject
-      if (intTotal > 0 && intColor / intTotal > 0.30) continue;
+      // solid=false (champion ring): reject if interior IS team-coloured (ward/minion)
+      // solid=true  (minion fill):   reject if interior is NOT team-coloured (ring)
+      const solidRatio = intTotal > 0 ? intColor / intTotal : 0;
+      if (!solid && solidRatio > 0.30) continue;
+      if (solid  && solidRatio < 0.25) continue;
 
       out.push({
         cx: sx / cnt / W * 100,
@@ -287,6 +286,92 @@ function isBlue(r: number, g: number, b: number): boolean {
 }
 function isRed(r: number, g: number, b: number): boolean {
   return r > 170 && g < 120 && b < 110 && r > g * 2.2;
+}
+
+// ── Minion wave detection ─────────────────────────────────────────────────────
+
+export type MinionLane = "Top" | "Mid" | "Bot";
+export interface MinionWavePin { lane: MinionLane; x: number; y: number }
+export interface MinionWaveResult { ally: MinionWavePin[]; enemy: MinionWavePin[] }
+
+function _minionLane(cy: number): MinionLane {
+  // Wild Rift minimap: top lane → upper region, bot lane → lower region
+  if (cy < 37) return "Top";
+  if (cy > 63) return "Bot";
+  return "Mid";
+}
+
+/** Cluster blobs within maxDist of each other (single-linkage). */
+function _cluster(blobs: Blob[], maxDist: number): Blob[][] {
+  const labels = new Int32Array(blobs.length).fill(-1);
+  let next = 0;
+  for (let i = 0; i < blobs.length; i++) {
+    for (let j = 0; j < i; j++) {
+      if (labels[j] < 0) continue;
+      const dx = blobs[i].cx - blobs[j].cx, dy = blobs[i].cy - blobs[j].cy;
+      if (dx * dx + dy * dy < maxDist * maxDist) { labels[i] = labels[j]; break; }
+    }
+    if (labels[i] < 0) labels[i] = next++;
+  }
+  const map = new Map<number, Blob[]>();
+  for (let i = 0; i < blobs.length; i++) {
+    const k = labels[i];
+    if (!map.has(k)) map.set(k, []);
+    map.get(k)!.push(blobs[i]);
+  }
+  return [...map.values()];
+}
+
+/**
+ * Detect minion wave positions on the minimap.
+ *
+ * Individual minion icons are SOLID FILLED (circle + diamond shapes).
+ * They're detected as small solid blobs (1.5–6% bbox), then clustered
+ * spatially. Each cluster of ≥2 blobs → one wave pin at its centroid.
+ * At most ONE wave pin per lane per team is returned.
+ *
+ * Red blobs → enemy wave   Blue blobs → ally wave
+ */
+export function detectMinionWaves(minimapDataUrl: string): Promise<MinionWaveResult> {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const W = img.width, H = img.height;
+      const c = document.createElement("canvas");
+      c.width = W; c.height = H;
+      c.getContext("2d")!.drawImage(img, 0, 0);
+      const px = c.getContext("2d")!.getImageData(0, 0, W, H).data;
+
+      // Minion blobs are small solid fills (1.5–6% bbox per dimension)
+      const MIN = 1.5, MAX = 6;
+      const allyBlobs  = findBlobs(px, W, H, isBlue, MIN, MAX, true);
+      const enemyBlobs = findBlobs(px, W, H, isRed,  MIN, MAX, true);
+
+      const toWavePins = (blobs: Blob[]): MinionWavePin[] => {
+        const clusters = _cluster(blobs, 14); // 14% distance threshold
+        const byLane = new Map<MinionLane, Blob[]>();
+        for (const cl of clusters) {
+          if (cl.length < 2) continue; // lone pixel/dot → skip
+          const cy = cl.reduce((s, b) => s + b.cy, 0) / cl.length;
+          const lane = _minionLane(cy);
+          const existing = byLane.get(lane);
+          // Keep the cluster with the most blobs per lane (densest wave)
+          if (!existing || cl.length > existing.length) byLane.set(lane, cl);
+        }
+        const pins: MinionWavePin[] = [];
+        for (const [lane, cl] of byLane) {
+          const cx = cl.reduce((s, b) => s + b.cx, 0) / cl.length;
+          const cy = cl.reduce((s, b) => s + b.cy, 0) / cl.length;
+          pins.push({ lane, x: Math.round(cx * 10) / 10, y: Math.round(cy * 10) / 10 });
+        }
+        return pins;
+      };
+
+      resolve({ ally: toWavePins(allyBlobs), enemy: toWavePins(enemyBlobs) });
+    };
+    img.onerror = () => resolve({ ally: [], enemy: [] });
+    img.src = minimapDataUrl;
+  });
 }
 
 /**

@@ -28,7 +28,7 @@ import {
   Database, Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { detectMapCircles, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, detectTowerStatus, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
+import { detectMapCircles, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, detectTowerStatus, detectMinionWaves, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
 
 // ─── Champions ────────────────────────────────────────────────────────────────
 const CHAMPIONS = [
@@ -914,6 +914,20 @@ export default function CoachPage(){
       // ── Auto-detect tower status from minimap colours ──────────────────────
       detectTowerStatus(minimap,towerConfig.ally,towerConfig.enemy).then(({allyDown,enemyDown})=>{
         setTowersDown({ally:allyDown,enemy:enemyDown});
+      }).catch(()=>{});
+
+      // ── Auto-detect minion waves ──────────────────────────────────────────
+      detectMinionWaves(minimap).then(({ally:aw,enemy:ew})=>{
+        if(!aw.length&&!ew.length)return;
+        const ts2=Date.now();
+        setPins(prev=>{
+          // Remove previous auto wave pins; keep manual wave pins
+          const noAutoWave=prev.filter(p=>!((p.type==="ally_wave"||p.type==="enemy_wave")&&p.auto));
+          const next=[...noAutoWave];
+          aw.forEach((w,i)=>next.push({id:`aw-auto-${ts2}-${i}`,type:"ally_wave",x:w.x,y:w.y,pos:classifyPos(w.x,w.y,lanePaths,zones),champ:null,auto:true}));
+          ew.forEach((w,i)=>next.push({id:`ew-auto-${ts2}-${i}`,type:"enemy_wave",x:w.x,y:w.y,pos:classifyPos(w.x,w.y,lanePaths,zones),champ:null,auto:true}));
+          return next;
+        });
       }).catch(()=>{});
     }
 
