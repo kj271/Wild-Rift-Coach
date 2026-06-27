@@ -240,19 +240,32 @@ function findBlobs(
       if (bw < minBBoxPct || bh < minBBoxPct) continue;
       if (bw > maxBBoxPct || bh > maxBBoxPct) continue;
 
-      // ── Circularity filter — relaxed for merged clusters ─────────────────
+      // ── Circularity filter ────────────────────────────────────────────────
       const aspect = Math.min(bw, bh) / Math.max(bw, bh);
-      if (aspect < 0.18) continue;
+      if (aspect < 0.3) continue;
 
-      // ── Fill-ratio filter: distinguish rings from solid fills ────────────
-      // A champion ring's colored pixels occupy 20–58% of its bounding-box area
-      // (hollow center keeps fill low), even when 2–3 rings merge into one blob.
-      // A solid ward/dot fills 65–90% of its bbox. Use this ratio — which never
-      // depends on the bbox center pixel — so merged clusters don't get misclassified.
-      const bboxArea = (x1 - x0 + 1) * (y1 - y0 + 1);
-      const fillRatio = cnt / bboxArea;
-      if (!solid && fillRatio > 0.62) continue; // too solid → ward / objective dot
-      if ( solid && fillRatio < 0.22) continue; // too sparse → ring, not a minion fill
+      // ── Ring-shape filter: champion circles have non-team-coloured interiors ──
+      // Sample the centre 20% of the bbox. If >30% of those pixels are team-
+      // coloured the blob is a solid circle (ward/objective), not a ring.
+      const icx = ((x0 + x1) >> 1);
+      const icy = ((y0 + y1) >> 1);
+      const ihw = Math.max(1, Math.round((x1 - x0 + 1) * 0.10));
+      const ihh = Math.max(1, Math.round((y1 - y0 + 1) * 0.10));
+      let intColor = 0, intTotal = 0;
+      for (let dy = -ihh; dy <= ihh; dy++) {
+        for (let dx = -ihw; dx <= ihw; dx++) {
+          const ipx = icx + dx, ipy = icy + dy;
+          if (ipx < 0 || ipx >= W || ipy < 0 || ipy >= H) continue;
+          intTotal++;
+          const ni = (ipy * W + ipx) * 4;
+          if (test(data[ni], data[ni + 1], data[ni + 2])) intColor++;
+        }
+      }
+      // solid=false (champion ring): reject if interior IS team-coloured (ward/minion)
+      // solid=true  (minion fill):   reject if interior is NOT team-coloured (ring)
+      const solidRatio = intTotal > 0 ? intColor / intTotal : 0;
+      if (!solid && solidRatio > 0.30) continue;
+      if (solid  && solidRatio < 0.15) continue; // loosened: catch shallow-filled minion shapes
 
       out.push({
         cx: sx / cnt / W * 100,
@@ -269,10 +282,10 @@ function isGreen(r: number, g: number, b: number): boolean {
   return g > 145 && r < 120 && b < 130 && g > r * 1.7 && g > b * 1.5;
 }
 function isBlue(r: number, g: number, b: number): boolean {
-  return b > 130 && r < 175 && b > r * 1.05 && b > g * 0.65 && b - r > 20;
+  return b > 155 && r < 160 && b > r * 1.25 && b > g * 0.75;
 }
 function isRed(r: number, g: number, b: number): boolean {
-  return r > 145 && g < 145 && b < 135 && r > g * 1.6 && r > b * 1.5 && r - g > 30;
+  return r > 170 && g < 120 && b < 110 && r > g * 2.2;
 }
 
 // ── Minion wave detection ─────────────────────────────────────────────────────
@@ -502,8 +515,8 @@ export function detectMapCircles(
       ctx.drawImage(img, 0, 0);
       const px = ctx.getImageData(0, 0, W, H).data;
 
-      const MIN_BBOX = 3.5; // % — low to catch partial/occluded rings in JG terrain
-      const MAX_BBOX = 38;  // % — high to catch merged clusters of 3–4 overlapping circles
+      const MIN_BBOX = 6;  // % — catches edge rings; ring-shape filter handles wards
+      const MAX_BBOX = 22; // % — filters base structures and large patches
 
       const pt = (x: number, y: number) => ({ x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
 
