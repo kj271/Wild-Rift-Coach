@@ -60,7 +60,7 @@ const CHAMPIONS = [
 ].sort();
 const ROLES = ["Top","Jungle","Mid","ADC","Support"] as const;
 type Role = typeof ROLES[number];
-type ObjType = "baron" | "infernal" | "mountain" | "ocean" | "ice";
+type ObjType = "baron" | "infernal" | "mountain" | "ocean" | "ice" | "elder_dragon" | "rift_herald";
 type ObjStatus = "up" | "soon" | null; // null = down
 type BuffHolder = "us" | "them" | null;
 type PinType = "me" | "ally" | "enemy" | "ally_wave" | "enemy_wave";
@@ -257,11 +257,13 @@ function loadDeadBoxes():DeadSlotBoxes{
 // ── Objective pit detection ───────────────────────────────────────────────────
 interface ObjPitConfig{zones:[SlotBox,SlotBox];colors:Record<string,string>}
 const OBJ_DETECT_TYPES=[
-  {id:"baron",    label:"Baron Nashor",    def:"#5B2C6F"},
-  {id:"infernal", label:"Infernal Dragon", def:"#E74C3C"},
-  {id:"mountain", label:"Mountain Dragon", def:"#7D6608"},
-  {id:"ocean",    label:"Ocean Dragon",    def:"#1ABC9C"},
-  {id:"ice",      label:"Ice Dragon",      def:"#7dd3fc"},
+  {id:"baron",       label:"Baron Nashor",    def:"#5B2C6F"},
+  {id:"infernal",    label:"Infernal Dragon", def:"#E74C3C"},
+  {id:"mountain",    label:"Mountain Dragon", def:"#7D6608"},
+  {id:"ocean",       label:"Ocean Dragon",    def:"#1ABC9C"},
+  {id:"ice",         label:"Ice Dragon",      def:"#7dd3fc"},
+  {id:"elder_dragon",label:"Elder Dragon",    def:"#C39BD3"},
+  {id:"rift_herald", label:"Rift Herald",     def:"#E8DAEF"},
 ] as const;
 type ObjDetectId=typeof OBJ_DETECT_TYPES[number]["id"];
 const DEFAULT_OBJ_PIT_CONFIG:ObjPitConfig={
@@ -288,13 +290,20 @@ function detectObjColors(
       const c=document.createElement("canvas");c.width=W;c.height=H;
       c.getContext("2d")!.drawImage(img,0,0);
       const data=c.getContext("2d")!.getImageData(0,0,W,H).data;
+      // Pixel RGB saturation (0–1): S = (max-min)/max
+      const saturation=(r:number,g:number,b:number):number=>{
+        const mx=Math.max(r,g,b);return mx===0?0:(mx-Math.min(r,g,b))/mx;
+      };
       const scanZone=(zone:SlotBox,rgb:{r:number;g:number;b:number}):number=>{
         const x0=Math.round(Math.max(0,zone.x*W/100)),x1=Math.round(Math.min(W,(zone.x+zone.w)*W/100));
         const y0=Math.round(Math.max(0,zone.y*H/100)),y1=Math.round(Math.min(H,(zone.y+zone.h)*H/100));
         let count=0;
         for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++){
           const i=(y*W+x)*4;
-          const dr=data[i]-rgb.r,dg=data[i+1]-rgb.g,db=data[i+2]-rgb.b;
+          const r=data[i],g=data[i+1],b=data[i+2];
+          // Skip grey/desaturated pixels — grey icon = objective is DOWN
+          if(saturation(r,g,b)<0.25)continue;
+          const dr=r-rgb.r,dg=g-rgb.g,db=b-rgb.b;
           if(Math.sqrt(dr*dr+dg*dg+db*db)<50)count++;
         }
         return count;
@@ -462,8 +471,8 @@ async function renderAnnotatedMinimap(
 
   // Draw objective pins
   if(objPins?.length){
-    const objColors:Record<string,string>={baron:"#a855f7",infernal:"#ef4444",mountain:"#a16207",ocean:"#0ea5e9",ice:"#7dd3fc"};
-    const objShorts:Record<string,string>={baron:"B",infernal:"ID",mountain:"MD",ocean:"OD",ice:"IC"};
+    const objColors:Record<string,string>={baron:"#a855f7",infernal:"#ef4444",mountain:"#a16207",ocean:"#0ea5e9",ice:"#7dd3fc",elder_dragon:"#10b981",rift_herald:"#ef4444"};
+    const objShorts:Record<string,string>={baron:"B",infernal:"ID",mountain:"MD",ocean:"OD",ice:"IC",elder_dragon:"ED",rift_herald:"RH"};
     const or=Math.round(W*0.045);
     for(const op of objPins){
       const px=op.x/100*W,py=op.y/100*H;
@@ -634,11 +643,13 @@ interface StreamingMsg{role:"user"|"assistant";content:string;streaming?:boolean
 
 // ─── Objective pin config ──────────────────────────────────────────────────────
 const OBJ_CFG:Record<ObjType,{label:string;short:string;color:string;bg:string;border:string}>={
-  baron:    {label:"Baron Nashor",    short:"B",  color:"#a855f7",bg:"rgba(168,85,247,0.18)",border:"rgba(168,85,247,0.6)"},
-  infernal: {label:"Infernal Dragon", short:"ID", color:"#ef4444",bg:"rgba(239,68,68,0.18)", border:"rgba(239,68,68,0.6)"},
-  mountain: {label:"Mountain Dragon", short:"MD", color:"#a16207",bg:"rgba(161,98,7,0.18)",  border:"rgba(161,98,7,0.6)"},
-  ocean:    {label:"Ocean Dragon",    short:"OD", color:"#0ea5e9",bg:"rgba(14,165,233,0.18)",border:"rgba(14,165,233,0.6)"},
-  ice:      {label:"Ice Dragon",      short:"IC", color:"#7dd3fc",bg:"rgba(125,211,252,0.18)",border:"rgba(125,211,252,0.6)"},
+  baron:       {label:"Baron Nashor",    short:"B",  color:"#a855f7",bg:"rgba(168,85,247,0.18)",border:"rgba(168,85,247,0.6)"},
+  infernal:    {label:"Infernal Dragon", short:"ID", color:"#ef4444",bg:"rgba(239,68,68,0.18)", border:"rgba(239,68,68,0.6)"},
+  mountain:    {label:"Mountain Dragon", short:"MD", color:"#a16207",bg:"rgba(161,98,7,0.18)",  border:"rgba(161,98,7,0.6)"},
+  ocean:       {label:"Ocean Dragon",    short:"OD", color:"#0ea5e9",bg:"rgba(14,165,233,0.18)",border:"rgba(14,165,233,0.6)"},
+  ice:         {label:"Ice Dragon",      short:"IC", color:"#7dd3fc",bg:"rgba(125,211,252,0.18)",border:"rgba(125,211,252,0.6)"},
+  elder_dragon:{label:"Elder Dragon",    short:"ED", color:"#10b981",bg:"rgba(16,185,129,0.18)", border:"rgba(16,185,129,0.6)"},
+  rift_herald: {label:"Rift Herald",     short:"RH", color:"#f59e0b",bg:"rgba(245,158,11,0.18)", border:"rgba(245,158,11,0.6)"},
 };
 
 // ─── QuickObjPicker — floating popup for objective pins ───────────────────────
@@ -1198,22 +1209,16 @@ export default function CoachPage(){
         ally:  {Top:lanePoint(lanePaths.baron,0.35),Mid:lanePoint(lanePaths.mid,0.35),Bot:lanePoint(lanePaths.dragon,0.35)},
         enemy: {Top:lanePoint(lanePaths.baron,0.65),Mid:lanePoint(lanePaths.mid,0.65),Bot:lanePoint(lanePaths.dragon,0.65)},
       };
-      // Lane bounding boxes — only accept detected waves that fall inside the calibrated lane zone
-      const lbbox={
-        Top:laneBbox(lanePaths.baron,10),
-        Mid:laneBbox(lanePaths.mid,10),
-        Bot:laneBbox(lanePaths.dragon,10),
-      };
       const placeWavePins=(aw:{lane:string;x:number;y:number}[],ew:{lane:string;x:number;y:number}[])=>{
         const ts2=Date.now();
         setPins(prev=>{
           const noAutoWave=prev.filter(p=>!((p.type==="ally_wave"||p.type==="enemy_wave")&&p.auto));
           const next=[...noAutoWave];
           (["Top","Mid","Bot"] as const).forEach(lane=>{
-            // Accept detected position only if it falls within the calibrated lane bounding box
-            const ad=aw.find(w=>w.lane===lane&&inBbox(w,lbbox[lane]));
+            // Trust detectMinionWaves lane label (already uses correct WR lane geometry)
+            const ad=aw.find(w=>w.lane===lane);
             const ap=ad??waveDefaults.ally[lane];
-            const ed=ew.find(w=>w.lane===lane&&inBbox(w,lbbox[lane]));
+            const ed=ew.find(w=>w.lane===lane);
             const ep=ed??waveDefaults.enemy[lane];
             next.push({id:`aw-auto-${ts2}-${lane}`,type:"ally_wave",x:ap.x,y:ap.y,pos:classifyPos(ap.x,ap.y,lanePaths,zones),champ:null,auto:true});
             next.push({id:`ew-auto-${ts2}-${lane}`,type:"enemy_wave",x:ep.x,y:ep.y,pos:classifyPos(ep.x,ep.y,lanePaths,zones),champ:null,auto:true});
