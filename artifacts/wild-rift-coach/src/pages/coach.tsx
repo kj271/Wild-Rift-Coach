@@ -60,7 +60,7 @@ const CHAMPIONS = [
 ].sort();
 const ROLES = ["Top","Jungle","Mid","ADC","Support"] as const;
 type Role = typeof ROLES[number];
-type ObjType = "baron" | "dragon" | "rift_herald" | "elder_dragon";
+type ObjType = "baron" | "infernal" | "mountain" | "ocean" | "ice";
 type ObjStatus = "up" | "soon" | null; // null = down
 type BuffHolder = "us" | "them" | null;
 type PinType = "me" | "ally" | "enemy" | "ally_wave" | "enemy_wave";
@@ -258,13 +258,10 @@ function loadDeadBoxes():DeadSlotBoxes{
 interface ObjPitConfig{zones:[SlotBox,SlotBox];colors:Record<string,string>}
 const OBJ_DETECT_TYPES=[
   {id:"baron",    label:"Baron Nashor",    def:"#5B2C6F"},
-  {id:"elder",    label:"Elder Drake",     def:"#C39BD3"},
-  {id:"infernal", label:"Infernal Drake",  def:"#E74C3C"},
-  {id:"ocean",    label:"Ocean Drake",     def:"#1ABC9C"},
-  {id:"mountain", label:"Mountain Drake",  def:"#7D6608"},
-  {id:"cloud",    label:"Cloud Drake",     def:"#5DADE2"},
-  {id:"chemtech", label:"Chemtech Drake",  def:"#2ECC71"},
-  {id:"hextech",  label:"Hextech Drake",   def:"#3498DB"},
+  {id:"infernal", label:"Infernal Dragon", def:"#E74C3C"},
+  {id:"mountain", label:"Mountain Dragon", def:"#7D6608"},
+  {id:"ocean",    label:"Ocean Dragon",    def:"#1ABC9C"},
+  {id:"ice",      label:"Ice Dragon",      def:"#7dd3fc"},
 ] as const;
 type ObjDetectId=typeof OBJ_DETECT_TYPES[number]["id"];
 const DEFAULT_OBJ_PIT_CONFIG:ObjPitConfig={
@@ -341,6 +338,17 @@ async function detectStripSlotChamps(
       return match?.name??null;
     }catch{return null;}
   }));
+}
+
+// ── Lane bounding box — used to keep wave pins inside the correct lane zone ──
+function laneBbox(path:{x:number;y:number}[],pad=10):{xMin:number;xMax:number;yMin:number;yMax:number}{
+  if(!path.length)return{xMin:0,xMax:100,yMin:0,yMax:100};
+  const xs=path.map(p=>p.x),ys=path.map(p=>p.y);
+  return{xMin:Math.max(0,Math.min(...xs)-pad),xMax:Math.min(100,Math.max(...xs)+pad),
+         yMin:Math.max(0,Math.min(...ys)-pad),yMax:Math.min(100,Math.max(...ys)+pad)};
+}
+function inBbox(pt:{x:number;y:number},bb:{xMin:number;xMax:number;yMin:number;yMax:number}):boolean{
+  return pt.x>=bb.xMin&&pt.x<=bb.xMax&&pt.y>=bb.yMin&&pt.y<=bb.yMax;
 }
 
 // ── Tower cascade: if T2/T3 is down, all preceding towers in that lane are also down ──
@@ -454,8 +462,8 @@ async function renderAnnotatedMinimap(
 
   // Draw objective pins
   if(objPins?.length){
-    const objColors:Record<string,string>={baron:"#a855f7",dragon:"#f97316",rift_herald:"#ef4444",elder_dragon:"#10b981"};
-    const objShorts:Record<string,string>={baron:"B",dragon:"D",rift_herald:"RH",elder_dragon:"ED"};
+    const objColors:Record<string,string>={baron:"#a855f7",infernal:"#ef4444",mountain:"#a16207",ocean:"#0ea5e9",ice:"#7dd3fc"};
+    const objShorts:Record<string,string>={baron:"B",infernal:"ID",mountain:"MD",ocean:"OD",ice:"IC"};
     const or=Math.round(W*0.045);
     for(const op of objPins){
       const px=op.x/100*W,py=op.y/100*H;
@@ -626,10 +634,11 @@ interface StreamingMsg{role:"user"|"assistant";content:string;streaming?:boolean
 
 // ─── Objective pin config ──────────────────────────────────────────────────────
 const OBJ_CFG:Record<ObjType,{label:string;short:string;color:string;bg:string;border:string}>={
-  baron:       {label:"Baron",       short:"B",  color:"#a855f7",bg:"rgba(168,85,247,0.18)",border:"rgba(168,85,247,0.6)"},
-  dragon:      {label:"Dragon",      short:"D",  color:"#f97316",bg:"rgba(249,115,22,0.18)", border:"rgba(249,115,22,0.6)"},
-  rift_herald: {label:"Rift Herald", short:"RH", color:"#ef4444",bg:"rgba(239,68,68,0.18)",  border:"rgba(239,68,68,0.6)"},
-  elder_dragon:{label:"Elder Dragon",short:"ED", color:"#10b981",bg:"rgba(16,185,129,0.18)", border:"rgba(16,185,129,0.6)"},
+  baron:    {label:"Baron Nashor",    short:"B",  color:"#a855f7",bg:"rgba(168,85,247,0.18)",border:"rgba(168,85,247,0.6)"},
+  infernal: {label:"Infernal Dragon", short:"ID", color:"#ef4444",bg:"rgba(239,68,68,0.18)", border:"rgba(239,68,68,0.6)"},
+  mountain: {label:"Mountain Dragon", short:"MD", color:"#a16207",bg:"rgba(161,98,7,0.18)",  border:"rgba(161,98,7,0.6)"},
+  ocean:    {label:"Ocean Dragon",    short:"OD", color:"#0ea5e9",bg:"rgba(14,165,233,0.18)",border:"rgba(14,165,233,0.6)"},
+  ice:      {label:"Ice Dragon",      short:"IC", color:"#7dd3fc",bg:"rgba(125,211,252,0.18)",border:"rgba(125,211,252,0.6)"},
 };
 
 // ─── QuickObjPicker — floating popup for objective pins ───────────────────────
@@ -832,7 +841,7 @@ export default function CoachPage(){
   // Objective pit detection
   const[objPitConfig,setObjPitConfig]=useState<ObjPitConfig>(loadObjPitConfig);
   const[showObjPitCalib,setShowObjPitCalib]=useState(false);
-  const[detectedObjTypes,setDetectedObjTypes]=useState<string[]>([]);
+  const[objPitResetConfirm,setObjPitResetConfirm]=useState(false);
   const objPitDragRef=useRef<{zoneIdx:0|1;type:"move"|"resize";sx:number;sy:number;bx:number;by:number;bw:number;bh:number}|null>(null);
   const objPitImgRef=useRef<HTMLDivElement>(null);
   const[objPickingColorFor,setObjPickingColorFor]=useState<string|null>(null);
@@ -1166,9 +1175,21 @@ export default function CoachPage(){
         setTowersDown({ally:applyTowerCascade(allyDown),enemy:applyTowerCascade(enemyDown)});
       }).catch(()=>{});
 
-      // ── Auto-detect objectives via color matching in pit zones ──────────────
+      // ── Auto-detect objectives → place ObjPins at pit zone centres ───────
       detectObjColors(minimap,objPitConfig.zones,objPitConfig.colors)
-        .then(({zoneA,zoneB})=>setDetectedObjTypes([...new Set([...zoneA,...zoneB])]))
+        .then(({zoneA,zoneB})=>{
+          const ts=Date.now();
+          const newPins:ObjPin[]=[];
+          ([zoneA,zoneB] as const).forEach((detected,zi)=>{
+            if(!detected.length)return;
+            const zone=objPitConfig.zones[zi as 0|1];
+            const cx=zone.x+zone.w/2,cy=zone.y+zone.h/2;
+            const objType=detected[0] as ObjType;
+            newPins.push({id:`obj-auto-${ts}-${zi}`,x:cx,y:cy,
+              pos:classifyPos(cx,cy,lanePaths,zones),objType,status:"up"});
+          });
+          if(newPins.length)setObjPins(prev=>[...prev.filter(p=>!p.id.startsWith("obj-auto-")),...newPins]);
+        })
         .catch(()=>{});
 
       // ── Auto-detect minion waves (1 ally + 1 enemy per lane, ON the user's configured lane paths) ──
@@ -1177,19 +1198,23 @@ export default function CoachPage(){
         ally:  {Top:lanePoint(lanePaths.baron,0.35),Mid:lanePoint(lanePaths.mid,0.35),Bot:lanePoint(lanePaths.dragon,0.35)},
         enemy: {Top:lanePoint(lanePaths.baron,0.65),Mid:lanePoint(lanePaths.mid,0.65),Bot:lanePoint(lanePaths.dragon,0.65)},
       };
+      // Lane bounding boxes — only accept detected waves that fall inside the calibrated lane zone
+      const lbbox={
+        Top:laneBbox(lanePaths.baron,10),
+        Mid:laneBbox(lanePaths.mid,10),
+        Bot:laneBbox(lanePaths.dragon,10),
+      };
       const placeWavePins=(aw:{lane:string;x:number;y:number}[],ew:{lane:string;x:number;y:number}[])=>{
         const ts2=Date.now();
         setPins(prev=>{
           const noAutoWave=prev.filter(p=>!((p.type==="ally_wave"||p.type==="enemy_wave")&&p.auto));
           const next=[...noAutoWave];
           (["Top","Mid","Bot"] as const).forEach(lane=>{
-            // Use detected position ONLY if it classifies as the correct lane — no cross-lane drift
-            const ad=aw.find(w=>w.lane===lane);
-            const adPos=ad?classifyPos(ad.x,ad.y,lanePaths,zones):null;
-            const ap=(ad&&adPos?.kind==="lane"&&adPos.lane===lane)?ad:waveDefaults.ally[lane];
-            const ed=ew.find(w=>w.lane===lane);
-            const edPos=ed?classifyPos(ed.x,ed.y,lanePaths,zones):null;
-            const ep=(ed&&edPos?.kind==="lane"&&edPos.lane===lane)?ed:waveDefaults.enemy[lane];
+            // Accept detected position only if it falls within the calibrated lane bounding box
+            const ad=aw.find(w=>w.lane===lane&&inBbox(w,lbbox[lane]));
+            const ap=ad??waveDefaults.ally[lane];
+            const ed=ew.find(w=>w.lane===lane&&inBbox(w,lbbox[lane]));
+            const ep=ed??waveDefaults.enemy[lane];
             next.push({id:`aw-auto-${ts2}-${lane}`,type:"ally_wave",x:ap.x,y:ap.y,pos:classifyPos(ap.x,ap.y,lanePaths,zones),champ:null,auto:true});
             next.push({id:`ew-auto-${ts2}-${lane}`,type:"enemy_wave",x:ep.x,y:ep.y,pos:classifyPos(ep.x,ep.y,lanePaths,zones),champ:null,auto:true});
           });
@@ -2108,18 +2133,7 @@ export default function CoachPage(){
                       ))}
                     </div>
                   )}
-                  {!detectingChamps&&detectedObjTypes.length>0&&(
-                    <div className="flex flex-wrap items-center gap-1">
-                      <span className="text-[9px] font-display uppercase tracking-widest text-yellow-400/70 mr-0.5">Obj:</span>
-                      {detectedObjTypes.map(id=>{const def=OBJ_DETECT_TYPES.find(t=>t.id===id);return(
-                        <span key={id} className="text-[9px] px-1.5 py-0.5 rounded-md bg-yellow-900/40 border border-yellow-700/40 text-yellow-300 font-medium">{def?.label??id}</span>
-                      );})}
-                      <button onClick={()=>setShowObjPitCalib(true)} className="text-[9px] text-white/25 hover:text-white/55 px-1 transition-colors" title="Calibrate objective pit zones">⚙</button>
-                    </div>
-                  )}
-                  {!detectingChamps&&detectedObjTypes.length===0&&(
-                    <button onClick={()=>setShowObjPitCalib(true)} className="text-[9px] text-white/20 hover:text-white/50 self-start transition-colors">⚙ Obj detection</button>
-                  )}
+                  <button onClick={()=>setShowObjPitCalib(true)} className="text-[9px] text-white/20 hover:text-white/50 self-start transition-colors" title="Configure objective pit detection">⚙ Obj detection</button>
                 </div>
               )}
             </div>
@@ -2796,17 +2810,27 @@ export default function CoachPage(){
                 ))}
               </div>
             </div>
-            <div className="flex gap-2">
-              <button onClick={()=>setObjPitConfig(DEFAULT_OBJ_PIT_CONFIG)}
-                className="flex-1 text-[11px] py-1.5 rounded-lg border border-border/40 text-white/50 hover:text-white/70 transition-colors">
-                Reset
-              </button>
-              <button
-                onClick={()=>{localStorage.setItem("wr_obj_pit_config",JSON.stringify(objPitConfig));setShowObjPitCalib(false);setObjPickingColorFor(null);}}
-                className="flex-1 text-[11px] py-1.5 rounded-lg bg-violet-500/20 border border-violet-500/40 text-violet-300 font-semibold hover:bg-violet-500/30 transition-colors">
-                Save & Close
-              </button>
-            </div>
+            {objPitResetConfirm?(
+              <div className="flex gap-2 items-center bg-red-950/40 border border-red-700/40 rounded-lg px-3 py-2">
+                <span className="text-[10px] text-red-300 flex-1">Reset all to defaults?</span>
+                <button onClick={()=>{setObjPitConfig(DEFAULT_OBJ_PIT_CONFIG);setObjPitResetConfirm(false);}}
+                  className="text-[10px] px-2.5 py-1 rounded-md bg-red-600/70 border border-red-500/60 text-white font-bold active:scale-95">Yes</button>
+                <button onClick={()=>setObjPitResetConfirm(false)}
+                  className="text-[10px] px-2.5 py-1 rounded-md border border-border/40 text-white/50 active:scale-95">Cancel</button>
+              </div>
+            ):(
+              <div className="flex gap-2">
+                <button onClick={()=>setObjPitResetConfirm(true)}
+                  className="flex-1 text-[11px] py-1.5 rounded-lg border border-border/40 text-white/50 hover:text-white/70 transition-colors">
+                  Reset
+                </button>
+                <button
+                  onClick={()=>{localStorage.setItem("wr_obj_pit_config",JSON.stringify(objPitConfig));setShowObjPitCalib(false);setObjPickingColorFor(null);setObjPitResetConfirm(false);}}
+                  className="flex-1 text-[11px] py-1.5 rounded-lg bg-violet-500/20 border border-violet-500/40 text-violet-300 font-semibold hover:bg-violet-500/30 transition-colors">
+                  Save & Close
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
