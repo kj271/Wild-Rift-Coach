@@ -571,8 +571,12 @@ export function detectMapCircles(
       ctx.drawImage(img, 0, 0);
       const px = ctx.getImageData(0, 0, W, H).data;
 
-      const MIN_BBOX = 6;  // % — catches edge rings; ring-shape filter handles wards
+      const MIN_BBOX = 6;  // % — for allies/me; ring-shape filter handles wards
       const MAX_BBOX = 22; // % — filters base structures and large patches
+      // Enemies use a smaller min to catch partial arcs when circles cluster
+      const MIN_BBOX_ENEMY = 4;
+      // A blob wider than this is likely 2 overlapping champion circles
+      const SINGLE_RING_MAX = 13; // %
 
       const pt = (x: number, y: number) => ({ x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
 
@@ -588,7 +592,31 @@ export function detectMapCircles(
         portraitDataUrl: cropBlobPortrait(c, b, cropSizePct),
       }));
 
-      const reds = findBlobs(px, W, H, isRed, MIN_BBOX, MAX_BBOX)
+      // Enemy detection: lower min bbox, then split large merged blobs
+      const rawReds = findBlobs(px, W, H, isRed, MIN_BBOX_ENEMY, MAX_BBOX)
+        .sort((a, b) => b.pixels - a.pixels);
+
+      // Split blobs that are too wide/tall for a single ring — likely 2 overlapping circles
+      const splitReds: Blob[] = [];
+      for (const b of rawReds) {
+        const bigAxis = Math.max(b.bw, b.bh);
+        const smallAxis = Math.min(b.bw, b.bh);
+        if (bigAxis > SINGLE_RING_MAX && smallAxis / bigAxis > 0.3) {
+          // Likely 2 overlapping rings — split along the longer axis at 30%/70% of bbox
+          const half = { ...b, pixels: b.pixels >> 1 };
+          if (b.bw >= b.bh) {
+            splitReds.push({ ...half, cx: b.bx + b.bw * 0.28 });
+            splitReds.push({ ...half, cx: b.bx + b.bw * 0.72 });
+          } else {
+            splitReds.push({ ...half, cy: b.by + b.bh * 0.28 });
+            splitReds.push({ ...half, cy: b.by + b.bh * 0.72 });
+          }
+        } else {
+          splitReds.push(b);
+        }
+      }
+
+      const reds = splitReds
         .sort((a, b) => b.pixels - a.pixels)
         .slice(0, 5);
       const enemies: DetectedCircle[] = reds.map(b => ({
