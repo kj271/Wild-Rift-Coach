@@ -309,9 +309,16 @@ function detectObjColors(
         return count;
       };
       const THRESHOLD=8;
-      const checkZone=(zone:SlotBox)=>Object.entries(colors)
-        .filter(([,hex])=>{const rgb=hexToRgb(hex);return rgb&&scanZone(zone,rgb)>=THRESHOLD;})
-        .map(([id])=>id);
+      // Return only the single best-matching objective (most pixels) to avoid false ties
+      const checkZone=(zone:SlotBox)=>{
+        let bestId="",bestCount=THRESHOLD-1;
+        for(const[id,hex]of Object.entries(colors)){
+          const rgb=hexToRgb(hex);if(!rgb)continue;
+          const count=scanZone(zone,rgb);
+          if(count>bestCount){bestCount=count;bestId=id;}
+        }
+        return bestId?[bestId]:[];
+      };
       resolve({zoneA:checkZone(zones[0]),zoneB:checkZone(zones[1])});
     };
     img.onerror=()=>resolve({zoneA:[],zoneB:[]});
@@ -349,15 +356,26 @@ async function detectStripSlotChamps(
   }));
 }
 
-// ── Lane bounding box — used to keep wave pins inside the correct lane zone ──
-function laneBbox(path:{x:number;y:number}[],pad=10):{xMin:number;xMax:number;yMin:number;yMax:number}{
-  if(!path.length)return{xMin:0,xMax:100,yMin:0,yMax:100};
-  const xs=path.map(p=>p.x),ys=path.map(p=>p.y);
-  return{xMin:Math.max(0,Math.min(...xs)-pad),xMax:Math.min(100,Math.max(...xs)+pad),
-         yMin:Math.max(0,Math.min(...ys)-pad),yMax:Math.min(100,Math.max(...ys)+pad)};
+// ── Distance from a point to a polyline path (lane zones) ────────────────────
+function distToSegment(p:{x:number;y:number},a:{x:number;y:number},b:{x:number;y:number}):number{
+  const dx=b.x-a.x,dy=b.y-a.y;
+  if(dx===0&&dy===0){const ex=p.x-a.x,ey=p.y-a.y;return Math.sqrt(ex*ex+ey*ey);}
+  const t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy)));
+  const cx=a.x+t*dx,cy=a.y+t*dy;
+  const ex=p.x-cx,ey=p.y-cy;return Math.sqrt(ex*ex+ey*ey);
 }
-function inBbox(pt:{x:number;y:number},bb:{xMin:number;xMax:number;yMin:number;yMax:number}):boolean{
-  return pt.x>=bb.xMin&&pt.x<=bb.xMax&&pt.y>=bb.yMin&&pt.y<=bb.yMax;
+function distToPath(p:{x:number;y:number},path:{x:number;y:number}[]):number{
+  if(!path.length)return Infinity;
+  let min=Infinity;
+  for(let i=0;i<path.length-1;i++)min=Math.min(min,distToSegment(p,path[i],path[i+1]));
+  return min;
+}
+// Assign a position to the nearest calibrated lane path
+function nearestLane(p:{x:number;y:number},baron:{x:number;y:number}[],mid:{x:number;y:number}[],dragon:{x:number;y:number}[]):"Top"|"Mid"|"Bot"{
+  const dT=distToPath(p,baron),dM=distToPath(p,mid),dB=distToPath(p,dragon);
+  if(dT<=dM&&dT<=dB)return"Top";
+  if(dM<=dT&&dM<=dB)return"Mid";
+  return"Bot";
 }
 
 // ── Tower cascade: if T2/T3 is down, all preceding towers in that lane are also down ──
@@ -1214,12 +1232,14 @@ export default function CoachPage(){
         setPins(prev=>{
           const noAutoWave=prev.filter(p=>!((p.type==="ally_wave"||p.type==="enemy_wave")&&p.auto));
           const next=[...noAutoWave];
+          // Reclassify each detected wave by nearest calibrated lane path (ignores _minionLane labels)
+          const aByLane:{Top?:{x:number;y:number};Mid?:{x:number;y:number};Bot?:{x:number;y:number}}={};
+          const eByLane:{Top?:{x:number;y:number};Mid?:{x:number;y:number};Bot?:{x:number;y:number}}={};
+          aw.forEach(w=>{const l=nearestLane(w,lanePaths.baron,lanePaths.mid,lanePaths.dragon);if(!aByLane[l])aByLane[l]=w;});
+          ew.forEach(w=>{const l=nearestLane(w,lanePaths.baron,lanePaths.mid,lanePaths.dragon);if(!eByLane[l])eByLane[l]=w;});
           (["Top","Mid","Bot"] as const).forEach(lane=>{
-            // Trust detectMinionWaves lane label (already uses correct WR lane geometry)
-            const ad=aw.find(w=>w.lane===lane);
-            const ap=ad??waveDefaults.ally[lane];
-            const ed=ew.find(w=>w.lane===lane);
-            const ep=ed??waveDefaults.enemy[lane];
+            const ap=aByLane[lane]??waveDefaults.ally[lane];
+            const ep=eByLane[lane]??waveDefaults.enemy[lane];
             next.push({id:`aw-auto-${ts2}-${lane}`,type:"ally_wave",x:ap.x,y:ap.y,pos:classifyPos(ap.x,ap.y,lanePaths,zones),champ:null,auto:true});
             next.push({id:`ew-auto-${ts2}-${lane}`,type:"enemy_wave",x:ep.x,y:ep.y,pos:classifyPos(ep.x,ep.y,lanePaths,zones),champ:null,auto:true});
           });
