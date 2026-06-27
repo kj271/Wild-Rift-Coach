@@ -25,9 +25,10 @@ import {
   Target, Settings, AlertCircle, Loader2, Send, Upload,
   MessageSquare, X, Search, UserRound, Users, Swords,
   ChevronDown, ChevronUp, Crop, Map as MapIcon, Star, RotateCcw, Bug, Timer, Clock, Building2, Plus,
+  Database, Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { detectMapCircles, matchCropToStrip, matchPortrait, prewarmChampSigs } from "@/lib/champion-detection";
+import { detectMapCircles, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
 
 // ─── Champions ────────────────────────────────────────────────────────────────
 const CHAMPIONS = [
@@ -697,12 +698,14 @@ export default function CoachPage(){
   const[portraitStripCrop,setPortraitStripCrop]=useState<string|null>(null);
 
   // Champion auto-detection from portrait strip
-  const[detectedAllies,setDetectedAllies]=useState<(string|null)[]>([null,null,null,null]);
-  const[detectedEnemies,setDetectedEnemies]=useState<(string|null)[]>([null,null,null,null,null]);
+  const[detectedAllies,setDetectedAllies]=useState<(string|null)[]>([]);
+  const[detectedEnemies,setDetectedEnemies]=useState<(string|null)[]>([]);
   const[detectingChamps,setDetectingChamps]=useState(false);
 
-  // Pre-warm champion signature cache in background on mount
-  useEffect(()=>{ prewarmChampSigs(CHAMPIONS).catch(()=>{}); },[]);
+  // Portrait database viewer
+  const[showPortraitDb,setShowPortraitDb]=useState(false);
+  const[portraitDbEntries,setPortraitDbEntries]=useState<PortraitDbEntry[]>([]);
+  const loadPortraitDb=useCallback(()=>{getAllPortraitEntries().then(setPortraitDbEntries).catch(()=>{});},[]);
 
   // Pins
   const[pins,setPins]=useState<MapPin[]>((_sess.pins as MapPin[])??[]);
@@ -860,8 +863,8 @@ export default function CoachPage(){
     setImageBase64(dataUrl);setMinimapBase64(null);setPlaceMode(null);
     setGameTimeCrop(null);setPortraitStripCrop(null);
     setAdvice("");setChatMessages([]);setActiveConversationId(null);
-    setDetectedAllies([null,null,null,null]);
-    setDetectedEnemies([null,null,null,null,null]);
+    setDetectedAllies([]);
+    setDetectedEnemies([]);
 
     const minimap=await recropMinimap(dataUrl);
 
@@ -869,68 +872,35 @@ export default function CoachPage(){
     if(minimap){
       detectMapCircles(minimap).then(({me,allies,enemies})=>{
         const ts=Date.now();
-        // Remove previous auto-placed champion pins; keep manual ones
+        // Remove previous auto-placed pins; keep manual ones
         setPins(prev=>{
           const manual=prev.filter(p=>!p.auto);
-          const next:[...typeof manual]=manual;
-          if(me){
-            next.push({id:`me-${ts}`,type:"me",x:me.x,y:me.y,pos:classifyPos(me.x,me.y,lanePaths,zones),champ:myChamp,auto:true});
-          }
-          allies.forEach((a,i)=>{
-            next.push({id:`ally-auto-${ts}-${i}`,type:"ally",x:a.x,y:a.y,pos:classifyPos(a.x,a.y,lanePaths,zones),champ:null,auto:true});
-          });
-          enemies.forEach((e,i)=>{
-            next.push({id:`enemy-auto-${ts}-${i}`,type:"enemy",x:e.x,y:e.y,pos:classifyPos(e.x,e.y,lanePaths,zones),champ:null,auto:true});
-          });
+          const next=[...manual];
+          if(me) next.push({id:`me-${ts}`,type:"me",x:me.x,y:me.y,pos:classifyPos(me.x,me.y,lanePaths,zones),champ:myChamp,auto:true});
+          allies.forEach((a,i)=>next.push({id:`ally-auto-${ts}-${i}`,type:"ally",x:a.x,y:a.y,pos:classifyPos(a.x,a.y,lanePaths,zones),champ:null,auto:true}));
+          enemies.forEach((e,i)=>next.push({id:`enemy-auto-${ts}-${i}`,type:"enemy",x:e.x,y:e.y,pos:classifyPos(e.x,e.y,lanePaths,zones),champ:null,auto:true}));
           return next;
         });
 
-        // ── Match minimap portrait crops against portrait strip thumbnails ──
-        // Crop portrait strip slot images from the full screenshot
-        const sz=portraitConfig.sizePct??5.5;
-        const half=sz/2;
-        Promise.all([
-          ...portraitConfig.allies.map(pos=>cropDataUrl(dataUrl,pos.x-half,pos.y-half,sz,sz).catch(():null=>null)),
-          ...portraitConfig.enemies.map(pos=>cropDataUrl(dataUrl,pos.x-half,pos.y-half,sz,sz).catch(():null=>null)),
-        ]).then(async stripCrops=>{
-          const allyCrops=stripCrops.slice(0,4);
-          const enemyCrops=stripCrops.slice(4);
-
-          // Match each detected ally/enemy circle to closest strip slot
-          const assignChamp=async(detected:{x:number;y:number;portraitDataUrl:string|null}[],slotCrops:(string|null)[],type:"ally"|"enemy")=>{
-            const updates:Array<{id:string;champ:string|null}>=[];
-            for(let i=0;i<detected.length;i++){
-              const d=detected[i];
-              if(!d.portraitDataUrl)continue;
-              const slotIdx=await matchCropToStrip(d.portraitDataUrl,slotCrops).catch(():null=>null);
-              if(slotIdx!==null&&slotCrops[slotIdx]){
-                // Also try to name the champion by matching strip crop vs Data Dragon
-                const name=await matchPortrait(slotCrops[slotIdx]!,CHAMPIONS).catch(():null=>null);
-                updates.push({id:`${type}-auto-${ts}-${i}`,champ:name?.name??null});
-              }
-            }
-            return updates;
-          };
-
-          const [allyUpdates,enemyUpdates]=await Promise.all([
-            assignChamp(allies,allyCrops,"ally"),
-            assignChamp(enemies,enemyCrops,"enemy"),
-          ]);
-          const allUpdates=[...allyUpdates,...enemyUpdates];
-          if(allUpdates.length){
-            setPins(prev=>prev.map(p=>{
-              const u=allUpdates.find(u=>u.id===p.id);
-              return u?{...p,champ:u.champ}:p;
-            }));
+        // ── Match detected portrait crops against personal portrait database ──
+        setDetectingChamps(true);
+        const tryDb=async(detected:DetectedCircle[],type:"ally"|"enemy")=>{
+          const updates:Array<{id:string;champ:string}>=[];
+          for(let i=0;i<detected.length;i++){
+            const d=detected[i];
+            if(!d.portraitDataUrl)continue;
+            const m=await matchPersonalDb(d.portraitDataUrl).catch(():null=>null);
+            if(m)updates.push({id:`${type}-auto-${ts}-${i}`,champ:m.name});
           }
-
-          // Also set detected chips from strip slot Data Dragon matching
-          const [detectedA,detectedE]=await Promise.all([
-            Promise.all(allyCrops.map(c=>c?matchPortrait(c,CHAMPIONS).catch(():null=>null):Promise.resolve(null))),
-            Promise.all(enemyCrops.map(c=>c?matchPortrait(c,CHAMPIONS).catch(():null=>null):Promise.resolve(null))),
-          ]);
-          setDetectedAllies(detectedA.map(r=>r?.name??null));
-          setDetectedEnemies(detectedE.map(r=>r?.name??null));
+          return updates;
+        };
+        Promise.all([tryDb(allies,"ally"),tryDb(enemies,"enemy")]).then(([au,eu])=>{
+          const all=[...au,...eu];
+          if(all.length){
+            setPins(prev=>prev.map(p=>{const u=all.find(u=>u.id===p.id);return u?{...p,champ:u.champ}:p;}));
+          }
+          setDetectedAllies(au.map(u=>u.champ));
+          setDetectedEnemies(eu.map(u=>u.champ));
           setDetectingChamps(false);
         }).catch(()=>setDetectingChamps(false));
       }).catch(()=>{});
@@ -1417,6 +1387,15 @@ export default function CoachPage(){
                   );
                 })}
               </div>
+
+              {/* Portrait database button */}
+              <button
+                onClick={()=>{setShowPortraitDb(true);loadPortraitDb();}}
+                className="flex items-center gap-1.5 self-end text-[10px] font-semibold px-2.5 py-1.5 rounded-lg border border-[#30363d] bg-black/30 text-[#8b949e] hover:text-[#58a6ff] hover:border-[#58a6ff]/40 transition-colors"
+                title="View saved champion portraits"
+              >
+                <Database size={11}/>DB
+              </button>
 
               {/* Hint */}
               {placeMode&&(
@@ -2146,6 +2125,86 @@ export default function CoachPage(){
         );
       })()}
 
+      {/* ── Portrait database viewer ─────────────────────────────────────── */}
+      {showPortraitDb&&(()=>{
+        const grouped:Record<string,PortraitDbEntry[]>={};
+        for(const e of portraitDbEntries){
+          if(!grouped[e.champName])grouped[e.champName]=[];
+          grouped[e.champName].push(e);
+        }
+        const champs=Object.keys(grouped).sort();
+        return(
+          <div
+            className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70"
+            onClick={()=>setShowPortraitDb(false)}
+          >
+            <div
+              className="bg-[#0d1117] border border-[#30363d] rounded-xl shadow-2xl w-[min(92vw,520px)] max-h-[80vh] flex flex-col"
+              onClick={e=>e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-4 py-3 border-b border-[#30363d]">
+                <div className="flex items-center gap-2 text-[#c9d1d9] font-semibold text-sm">
+                  <Database size={15} className="text-[#58a6ff]"/>
+                  Portrait Database
+                  <span className="text-xs text-[#8b949e] font-normal">({portraitDbEntries.length} saved)</span>
+                </div>
+                <button
+                  className="text-[#8b949e] hover:text-[#c9d1d9] p-1 rounded"
+                  onClick={()=>setShowPortraitDb(false)}
+                ><X size={16}/></button>
+              </div>
+              <div className="overflow-y-auto p-4 flex-1">
+                {champs.length===0?(
+                  <div className="text-center text-[#8b949e] text-sm py-8">
+                    <Database size={28} className="mx-auto mb-2 opacity-40"/>
+                    No portraits saved yet.<br/>
+                    <span className="text-xs">Assign champions to auto-placed pins to build your database.</span>
+                  </div>
+                ):(
+                  <div className="space-y-4">
+                    {champs.map(champ=>(
+                      <div key={champ}>
+                        <div className="text-xs font-semibold text-[#58a6ff] mb-1.5">{champ}</div>
+                        <div className="flex flex-wrap gap-2">
+                          {grouped[champ].map(e=>(
+                            <div key={e.id} className="relative group">
+                              <img
+                                src={e.cropDataUrl}
+                                className="w-12 h-12 rounded border border-[#30363d] object-cover"
+                                title={new Date(e.ts).toLocaleDateString()}
+                              />
+                              <button
+                                className="absolute inset-0 flex items-center justify-center bg-red-900/80 opacity-0 group-hover:opacity-100 rounded transition-opacity"
+                                onClick={()=>{
+                                  if(!e.id)return;
+                                  deletePortraitEntry(e.id).then(loadPortraitDb).catch(()=>{});
+                                }}
+                                title="Delete"
+                              ><Trash2 size={14} className="text-red-300"/></button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="px-4 py-3 border-t border-[#30363d] flex justify-end">
+                <button
+                  className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 px-3 py-1.5 rounded border border-red-800/50 hover:border-red-600/50 transition-colors"
+                  onClick={()=>{
+                    if(!window.confirm("Delete ALL saved portraits?"))return;
+                    Promise.all(portraitDbEntries.filter(e=>e.id!=null).map(e=>deletePortraitEntry(e.id!))).then(loadPortraitDb).catch(()=>{});
+                  }}
+                >
+                  <Trash2 size={12}/>Clear all
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Quick champ picker — appears after placing ally/enemy pin, or on pin tap */}
       {quickPickPinId&&(()=>{
         const pin=pins.find(p=>p.id===quickPickPinId);
@@ -2161,7 +2220,12 @@ export default function CoachPage(){
             label={lbl}
             pos={quickPickPos}
             onAssign={champ=>{
+              const pin=pins.find(p=>p.id===quickPickPinId);
               setPins(prev=>prev.map(p=>p.id===quickPickPinId?{...p,champ}:p));
+              // Save portrait crop → personal database for future auto-matching
+              if(pin&&minimapBase64&&champ){
+                saveChampPortrait(champ,minimapBase64,pin.x,pin.y).catch(()=>{});
+              }
               setQuickPickPinId(null);
             }}
             onRemove={()=>{removePin(quickPickPinId);setQuickPickPinId(null);}}

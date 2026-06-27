@@ -1,0 +1,2 @@
+- [Personal portrait DB](portrait-db.md) — personal DB beats Data Dragon for WR champion matching; IDB `wr_portrait_db_v1`.
+- [Blob detection false positives](blob-detection.md) — circularity filter (aspect ≥ 0.28) + size bounds (0.06%-4% of area) needed to exclude towers/base.
