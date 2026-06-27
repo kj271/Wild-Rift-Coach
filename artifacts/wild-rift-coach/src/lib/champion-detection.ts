@@ -3,22 +3,21 @@
 // ── Colour signature helpers ──────────────────────────────────────────────────
 const SIG_N = 12;
 const _CX = SIG_N / 2, _CY = SIG_N / 2;
-const _R2 = (SIG_N / 2 - 0.5) ** 2; // inscribed-circle radius squared
+const _R2 = (SIG_N / 2 - 0.5) ** 2;
 
 /**
- * Convert image pixel data to a colour feature vector.
- * With circular=true (default), pixels outside the inscribed circle are set to
- * neutral grey (0.5,0.5,0.5). Because BOTH the saved signature and the query
- * signature use the same mask, those pixels contribute exactly 0 to the
- * distance — so the background never contaminates matching.
+ * Colour signature with circular mask.
+ * Out-of-circle pixels are set to neutral grey (0.5, 0.5, 0.5) so that both
+ * the saved and query signatures share the same background value → background
+ * contributes exactly 0 to L2 distance.
  */
-function _sig(data: Uint8ClampedArray, circular = true): Float32Array {
+function _sig(data: Uint8ClampedArray): Float32Array {
   const s = new Float32Array(SIG_N * SIG_N * 3);
   for (let py = 0; py < SIG_N; py++) {
     for (let px = 0; px < SIG_N; px++) {
       const i = py * SIG_N + px;
       const dx = px - _CX + 0.5, dy = py - _CY + 0.5;
-      if (circular && dx * dx + dy * dy > _R2) {
+      if (dx * dx + dy * dy > _R2) {
         s[i * 3] = 0.5; s[i * 3 + 1] = 0.5; s[i * 3 + 2] = 0.5;
       } else {
         s[i * 3]     = data[i * 4]     / 255;
@@ -61,7 +60,7 @@ export interface PortraitDbEntry {
   id?: number;
   champName: string;
   sig: Float32Array;
-  cropDataUrl: string; // 48×48 thumbnail for display
+  cropDataUrl: string;
   ts: number;
 }
 
@@ -109,15 +108,21 @@ async function _savePortraitEntry(entry: Omit<PortraitDbEntry, "id">): Promise<v
 }
 
 /**
- * Crop a 48×48 thumbnail from the minimap centred on the pin position.
- * sizePct is the crop width as a percentage of the minimap width.
- * Tighter crops include less background — 10% works well for champion circles.
+ * Fixed crop size used by BOTH saving and matching — 16% of minimap width.
+ * Keeping this consistent means the same champion always appears at the same
+ * scale in both the saved signature and the query.
+ */
+export const PORTRAIT_CROP_PCT = 16;
+
+/**
+ * Crop a square patch from the minimap centred on (xPct, yPct).
+ * Default size = PORTRAIT_CROP_PCT (16%) so saving and detection use the same frame.
  */
 export function cropMinimapPortrait(
   minimapDataUrl: string,
   xPct: number,
   yPct: number,
-  sizePct = 10,
+  sizePct = PORTRAIT_CROP_PCT,
 ): Promise<string | null> {
   return new Promise(resolve => {
     const img = new Image();
@@ -137,8 +142,8 @@ export function cropMinimapPortrait(
 }
 
 /**
- * Crop the minimap at the pin's location and save the labelled portrait to
- * the personal database. Called when the user assigns a champion name to a pin.
+ * Crop the minimap at the pin's location and save to the personal DB.
+ * Uses PORTRAIT_CROP_PCT so the saved signature matches detection crops.
  */
 export async function saveChampPortrait(
   champName: string,
@@ -146,7 +151,7 @@ export async function saveChampPortrait(
   x: number,
   y: number,
 ): Promise<void> {
-  const cropDataUrl = await cropMinimapPortrait(minimapDataUrl, x, y);
+  const cropDataUrl = await cropMinimapPortrait(minimapDataUrl, x, y, PORTRAIT_CROP_PCT);
   if (!cropDataUrl) return;
   const sig = await sigFromUrl(cropDataUrl);
   if (!sig) return;
@@ -155,8 +160,7 @@ export async function saveChampPortrait(
 
 /**
  * Match a portrait crop against the personal database.
- * Uses circular-masked signatures so the background doesn't affect the result.
- * Returns the best match or null if no entry is close enough.
+ * Both the query and DB signatures use PORTRAIT_CROP_PCT framing + circular mask.
  */
 export async function matchPersonalDb(
   cropDataUrl: string,
@@ -173,7 +177,7 @@ export async function matchPersonalDb(
   }
   if (!best) return null;
 
-  const THRESHOLD = 0.22; // tighter than before due to circular masking
+  const THRESHOLD = 0.22;
   if (best.d > THRESHOLD) return null;
   return { name: best.name, id: best.id, confidence: +(1 - best.d / THRESHOLD).toFixed(2) };
 }
@@ -185,13 +189,23 @@ interface Blob {
   pixels: number;
 }
 
+/**
+ * Find connected colour blobs.
+ *
+ * Filtering uses BOUNDING BOX size (% of minimap), not pixel count.
+ * This is critical because Wild Rift champion circles are RING-shaped
+ * (the interior is the champion portrait, not the team colour). A ring has
+ * far fewer coloured pixels than a filled circle of the same apparent size,
+ * so pixel-count filtering would miss them. Bounding-box filtering correctly
+ * captures "this blob spans ~15% of the minimap width" regardless of fill.
+ */
 function findBlobs(
   data: Uint8ClampedArray,
   W: number,
   H: number,
   test: (r: number, g: number, b: number) => boolean,
-  minPx: number,
-  maxPx: number,
+  minBBoxPct: number, // each dimension must be at least this % of the minimap
+  maxBBoxPct: number, // each dimension must be less than this % of the minimap
 ): Blob[] {
   const visited = new Uint8Array(W * H);
   const out: Blob[] = [];
@@ -211,10 +225,10 @@ function findBlobs(
       while (stk.length) {
         const cur = stk.pop()!;
         const cx = cur % W;
-        const cy = (cur - cx) / W;
-        cnt++; sx += cx; sy += cy;
+        const cy2 = (cur - cx) / W;
+        cnt++; sx += cx; sy += cy2;
         if (cx < x0) x0 = cx; if (cx > x1) x1 = cx;
-        if (cy < y0) y0 = cy; if (cy > y1) y1 = cy;
+        if (cy2 < y0) y0 = cy2; if (cy2 > y1) y1 = cy2;
 
         for (const delta of [-1, 1, -W, W]) {
           const n = cur + delta;
@@ -229,15 +243,15 @@ function findBlobs(
         }
       }
 
-      if (cnt < minPx || cnt > maxPx) continue;
-
+      // Primary filter: bounding box dimensions (% of minimap)
       const bw = (x1 - x0 + 1) / W * 100;
       const bh = (y1 - y0 + 1) / H * 100;
-      // Circularity: bounding box must be roughly square (champion circles are round)
+      if (bw < minBBoxPct || bh < minBBoxPct) continue; // too small (ward, noise)
+      if (bw > maxBBoxPct || bh > maxBBoxPct) continue; // too large (base, river patch)
+
+      // Secondary filter: aspect ratio — champion rings are roughly square
       const aspect = Math.min(bw, bh) / Math.max(bw, bh);
-      if (aspect < 0.3) continue;
-      // Bounding box must span at least 3% in each dimension
-      if (bw < 3 || bh < 3) continue;
+      if (aspect < 0.3) continue; // elongated → not a ring
 
       out.push({
         cx: sx / cnt / W * 100,
@@ -260,16 +274,20 @@ function isRed(r: number, g: number, b: number): boolean {
   return r > 170 && g < 120 && b < 110 && r > g * 2.2;
 }
 
-/** Crop the detected blob as a 32×32 JPEG — tight to the bounding box, no extra padding. */
+/**
+ * Crop the detected blob's portrait at the SAME fixed size as saveChampPortrait
+ * so that the two signatures use the same framing and scale.
+ */
 function cropBlobPortrait(canvas: HTMLCanvasElement, blob: Blob): string {
   const W = canvas.width, H = canvas.height;
-  // Use 100% of bounding box (no extra padding — circle fills the box)
-  const halfPx = (Math.max(blob.bw, blob.bh) / 100) * W / 2;
+  // Use the same PORTRAIT_CROP_PCT as saving — consistent framing is essential
+  // for accurate signature matching.
+  const halfPx = (PORTRAIT_CROP_PCT / 100) * W / 2;
   const cx = (blob.cx / 100) * W;
   const cy = (blob.cy / 100) * H;
   const off = document.createElement("canvas");
-  off.width = 32; off.height = 32;
-  off.getContext("2d")!.drawImage(canvas, cx - halfPx, cy - halfPx, halfPx * 2, halfPx * 2, 0, 0, 32, 32);
+  off.width = 48; off.height = 48;
+  off.getContext("2d")!.drawImage(canvas, cx - halfPx, cy - halfPx, halfPx * 2, halfPx * 2, 0, 0, 48, 48);
   return off.toDataURL("image/jpeg", 0.8);
 }
 
@@ -285,32 +303,40 @@ export interface MapDetectionResult {
   enemies: DetectedCircle[];
 }
 
+/**
+ * Detect champion circle rings on the minimap.
+ *
+ * Size bounds (bbox):
+ *   min 5% — filters wards, drake/baron aura dots, noise
+ *   max 22% — filters base structures, large river colour patches
+ *
+ * The bounding box of a ring spans the FULL circle diameter even though
+ * only the border pixels are team-coloured. This makes bbox the right
+ * discriminator for ring detection.
+ */
 export function detectMapCircles(minimapDataUrl: string): Promise<MapDetectionResult> {
   return new Promise(resolve => {
     const img = new Image();
     img.onload = () => {
       const W = img.width, H = img.height;
-      const area = W * H;
       const c = document.createElement("canvas");
       c.width = W; c.height = H;
       const ctx = c.getContext("2d")!;
       ctx.drawImage(img, 0, 0);
       const px = ctx.getImageData(0, 0, W, H).data;
 
-      // Champion circles occupy ~0.7%–3% of minimap area.
-      // Using relative bounds only (no fixed pixel min) so it scales with crop size.
-      // This filters wards, baron/dragon indicators, and base structures.
-      const minPx = Math.floor(area * 0.007);
-      const maxPx = Math.floor(area * 0.03);
+      const MIN_BBOX = 5;  // % — champion rings span 8–20% on most minimap crops
+      const MAX_BBOX = 22; // % — avoids base structures & large colour patches
 
       const pt = (x: number, y: number) => ({ x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
 
       // Player: largest green blob
-      const greens = findBlobs(px, W, H, isGreen, minPx, maxPx).sort((a, b) => b.pixels - a.pixels);
+      const greens = findBlobs(px, W, H, isGreen, MIN_BBOX, MAX_BBOX)
+        .sort((a, b) => b.pixels - a.pixels);
       const me = greens[0] ? pt(greens[0].cx, greens[0].cy) : null;
 
-      // Allies: up to 4 blue blobs (sorted by size — champion circles are largest)
-      const blues = findBlobs(px, W, H, isBlue, minPx, maxPx)
+      // Allies: up to 4 blue blobs
+      const blues = findBlobs(px, W, H, isBlue, MIN_BBOX, MAX_BBOX)
         .sort((a, b) => b.pixels - a.pixels)
         .slice(0, 4);
       const allies: DetectedCircle[] = blues.map(b => ({
@@ -319,7 +345,7 @@ export function detectMapCircles(minimapDataUrl: string): Promise<MapDetectionRe
       }));
 
       // Enemies: up to 5 red blobs
-      const reds = findBlobs(px, W, H, isRed, minPx, maxPx)
+      const reds = findBlobs(px, W, H, isRed, MIN_BBOX, MAX_BBOX)
         .sort((a, b) => b.pixels - a.pixels)
         .slice(0, 5);
       const enemies: DetectedCircle[] = reds.map(b => ({
@@ -336,17 +362,10 @@ export function detectMapCircles(minimapDataUrl: string): Promise<MapDetectionRe
 
 // ── Tower status detection ────────────────────────────────────────────────────
 export interface TowerDetectionResult {
-  allyDown: number[];  // indices of ally towers that appear destroyed
-  enemyDown: number[]; // indices of enemy towers that appear destroyed
+  allyDown: number[];
+  enemyDown: number[];
 }
 
-/**
- * Scan the minimap at each tower's calibrated position and decide whether the
- * tower is still standing based on the presence of team-coloured pixels.
- *
- * Ally towers show as blue when up; enemy towers show as red when up.
- * A destroyed tower's icon is absent — so very few matching pixels → down.
- */
 export function detectTowerStatus(
   minimapDataUrl: string,
   allyPositions: Array<{ x: number; y: number } | null>,
@@ -361,9 +380,8 @@ export function detectTowerStatus(
       c.getContext("2d")!.drawImage(img, 0, 0);
       const data = c.getContext("2d")!.getImageData(0, 0, W, H).data;
 
-      // Sample a small square centred on the tower position
-      const HALF_PCT = 4; // ±4% of minimap around each tower
-      const MIN_HIT  = 8; // minimum coloured pixels for tower to be "up"
+      const HALF_PCT = 4;
+      const MIN_HIT  = 8;
 
       const countColor = (
         xPct: number, yPct: number,
@@ -385,9 +403,6 @@ export function detectTowerStatus(
         return n;
       };
 
-      // Looser blue/red tests than champion-circle detection — tower icons
-      // can be slightly less saturated, especially outer towers that may
-      // partially overlap terrain.
       const isBlueTower = (r: number, g: number, b: number) =>
         b > 130 && b > r * 1.15 && b > g * 0.72;
       const isRedTower = (r: number, g: number, b: number) =>
@@ -412,7 +427,7 @@ export function detectTowerStatus(
   });
 }
 
-// ── Strip-vs-strip matching (kept for API compat, no longer used) ─────────────
+// ── Strip-vs-strip matching (kept for API compat) ─────────────────────────────
 export async function matchCropToStrip(
   minimapCrop: string,
   stripCrops: Array<string | null>,
@@ -431,7 +446,7 @@ export async function matchCropToStrip(
   return bestIdx === -1 ? null : bestIdx;
 }
 
-// ── Pre-warm (no-op — kept for API compat) ────────────────────────────────────
+// ── Pre-warm (no-op) ──────────────────────────────────────────────────────────
 export async function prewarmChampSigs(_names: string[]): Promise<void> {}
 export async function matchPortrait(
   _dataUrl: string,
