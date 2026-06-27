@@ -251,6 +251,7 @@ function findBlobs(
   minBBoxPct: number,
   maxBBoxPct: number,
   solid = false,
+  aspectMin = 0.45,
 ): Blob[] {
   const visited = new Uint8Array(W * H);
   const out: Blob[] = [];
@@ -296,7 +297,7 @@ function findBlobs(
 
       // ── Circularity filter — champion rings are roughly circular ─────────
       const aspect = Math.min(bw, bh) / Math.max(bw, bh);
-      if (aspect < 0.45) continue;
+      if (aspect < aspectMin) continue;
 
       // ── Ring-shape filter: champion circles have non-team-coloured interiors ──
       // Sample the centre 20% of the bbox. If >30% of those pixels are team-
@@ -575,8 +576,8 @@ export function detectMapCircles(
       const MAX_BBOX = 22; // % — filters base structures and large patches
       // Enemies use a smaller min to catch partial arcs when circles cluster
       const MIN_BBOX_ENEMY = 4;
-      // A blob wider than this is likely 2 overlapping champion circles
-      const SINGLE_RING_MAX = 13; // %
+      // Estimated diameter of one champion ring on the minimap (%)
+      const TYPICAL_RING = 8;
 
       const pt = (x: number, y: number) => ({ x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
 
@@ -592,24 +593,28 @@ export function detectMapCircles(
         portraitDataUrl: cropBlobPortrait(c, b, cropSizePct),
       }));
 
-      // Enemy detection: lower min bbox, then split large merged blobs
-      const rawReds = findBlobs(px, W, H, isRed, MIN_BBOX_ENEMY, MAX_BBOX)
+      // Enemy detection: lower min bbox + relaxed aspect (0.35) to catch
+      // partial arcs when circles cluster near each other.
+      const rawReds = findBlobs(px, W, H, isRed, MIN_BBOX_ENEMY, MAX_BBOX, false, 0.35)
         .sort((a, b) => b.pixels - a.pixels);
 
-      // Split blobs that are too wide/tall for a single ring — likely 2 overlapping circles
+      // Split large merged blobs into N evenly-spaced pins along their longer axis.
+      // n = round(bigAxis / TYPICAL_RING), capped 1–5.
       const splitReds: Blob[] = [];
       for (const b of rawReds) {
         const bigAxis = Math.max(b.bw, b.bh);
         const smallAxis = Math.min(b.bw, b.bh);
-        if (bigAxis > SINGLE_RING_MAX && smallAxis / bigAxis > 0.3) {
-          // Likely 2 overlapping rings — split along the longer axis at 30%/70% of bbox
-          const half = { ...b, pixels: b.pixels >> 1 };
-          if (b.bw >= b.bh) {
-            splitReds.push({ ...half, cx: b.bx + b.bw * 0.28 });
-            splitReds.push({ ...half, cx: b.bx + b.bw * 0.72 });
-          } else {
-            splitReds.push({ ...half, cy: b.by + b.bh * 0.28 });
-            splitReds.push({ ...half, cy: b.by + b.bh * 0.72 });
+        const n = Math.min(5, Math.max(1, Math.round(bigAxis / TYPICAL_RING)));
+        if (n > 1 && smallAxis / bigAxis > 0.25) {
+          // n overlapping rings — place pins at (k+0.5)/n along the longer axis
+          const piecePixels = Math.round(b.pixels / n);
+          for (let k = 0; k < n; k++) {
+            const t = (k + 0.5) / n;
+            if (b.bw >= b.bh) {
+              splitReds.push({ ...b, cx: b.bx + b.bw * t, pixels: piecePixels });
+            } else {
+              splitReds.push({ ...b, cy: b.by + b.bh * t, pixels: piecePixels });
+            }
           }
         } else {
           splitReds.push(b);
