@@ -313,20 +313,30 @@ function detectObjColors(
   });
 }
 
+// ── Per-slot portrait strip detect calibration ───────────────────────────────
+interface StripDetectBox{x:number;y:number;sz:number} // strip-relative % — center + half-size
+interface StripDetectConfig{ally:StripDetectBox[];enemy:StripDetectBox[]}
+function loadStripDetectConfig():StripDetectConfig|null{
+  try{const s=localStorage.getItem("wr_strip_detect_config");return s?JSON.parse(s):null;}
+  catch{return null;}
+}
 // ── Portrait strip per-slot champion detection ────────────────────────────────
 async function detectStripSlotChamps(
   stripCrop:string,
   slots:Array<{x:number;y:number}>,
   stripConfig:{x:number;y:number;w:number;h:number},
   sizePct:number,
+  overrides?:(StripDetectBox|null)[],
 ):Promise<(string|null)[]>{
-  return Promise.all(slots.map(async pos=>{
-    const sx=((pos.x-stripConfig.x)/stripConfig.w)*100;
-    const sy=((pos.y-stripConfig.y)/stripConfig.h)*100;
-    const half=sizePct/2;
+  return Promise.all(slots.map(async(pos,i)=>{
+    const ov=overrides?.[i];
+    const sx=ov?.x??((pos.x-stripConfig.x)/stripConfig.w)*100;
+    const sy=ov?.y??((pos.y-stripConfig.y)/stripConfig.h)*100;
+    const sz=ov?.sz??sizePct;
+    const half=sz/2;
     if(sx<-5||sx>105||sy<-5||sy>105)return null;
     try{
-      const slotCrop=await cropDataUrl(stripCrop,Math.max(0,sx-half),Math.max(0,sy-half),sizePct,sizePct);
+      const slotCrop=await cropDataUrl(stripCrop,Math.max(0,sx-half),Math.max(0,sy-half),sz,sz);
       const match=await matchPersonalDb(slotCrop);
       return match?.name??null;
     }catch{return null;}
@@ -825,6 +835,12 @@ export default function CoachPage(){
   const[detectedObjTypes,setDetectedObjTypes]=useState<string[]>([]);
   const objPitDragRef=useRef<{zoneIdx:0|1;type:"move"|"resize";sx:number;sy:number;bx:number;by:number;bw:number;bh:number}|null>(null);
   const objPitImgRef=useRef<HTMLDivElement>(null);
+  const[objPickingColorFor,setObjPickingColorFor]=useState<string|null>(null);
+  // Per-slot strip detect calibration
+  const[stripDetectConfig,setStripDetectConfig]=useState<StripDetectConfig|null>(loadStripDetectConfig);
+  const[showStripDetectCalib,setShowStripDetectCalib]=useState(false);
+  const stripDetectDragRef=useRef<{team:'ally'|'enemy';idx:number;sx:number;sy:number;bx:number;by:number;bsz:number}|null>(null);
+  const stripDetectImgRef=useRef<HTMLDivElement>(null);
   const[detectingChamps,setDetectingChamps]=useState(false);
 
   // Portrait database viewer + crop-size calibration
@@ -839,6 +855,85 @@ export default function CoachPage(){
   const[deadStripSearch,setDeadStripSearch]=useState("");
   const deadDragRef=useRef<{team:'ally'|'enemy';idx:number;type:'move'|'resize';sx:number;sy:number;bx:number;by:number;bw:number;bh:number}|null>(null);
   const deadCalibImgRef=useRef<HTMLDivElement>(null);
+  // ── Objective pit drag handlers ───────────────────────────────────────────
+  const onObjPitPointerDown=useCallback((e:React.PointerEvent,zoneIdx:0|1,type:'move'|'resize')=>{
+    e.stopPropagation();(e.target as HTMLElement).setPointerCapture(e.pointerId);
+    const b=objPitConfig.zones[zoneIdx];
+    objPitDragRef.current={zoneIdx,type,sx:e.clientX,sy:e.clientY,bx:b.x,by:b.y,bw:b.w,bh:b.h};
+  },[objPitConfig]);
+  const onObjPitPointerMove=useCallback((e:React.PointerEvent)=>{
+    const drag=objPitDragRef.current;if(!drag||!objPitImgRef.current)return;
+    const rect=objPitImgRef.current.getBoundingClientRect();
+    const dx=(e.clientX-drag.sx)/rect.width*100,dy=(e.clientY-drag.sy)/rect.height*100;
+    const cl=(v:number,lo:number,hi:number)=>Math.max(lo,Math.min(hi,v));
+    setObjPitConfig(prev=>{
+      const zones=[...prev.zones] as [SlotBox,SlotBox];
+      const b=zones[drag.zoneIdx];
+      if(drag.type==='move')zones[drag.zoneIdx]={...b,x:cl(drag.bx+dx,0,100-b.w),y:cl(drag.by+dy,0,100-b.h)};
+      else zones[drag.zoneIdx]={...b,w:cl(drag.bw+dx,5,100-b.x),h:cl(drag.bh+dy,5,100-b.y)};
+      return{...prev,zones};
+    });
+  },[]);
+  const onObjPitPointerUp=useCallback(()=>{objPitDragRef.current=null;},[]);
+  // Eyedropper: tap on minimap image to pick color for an objective
+  const onObjPitEyedrop=useCallback((e:React.MouseEvent)=>{
+    if(!objPickingColorFor||!objPitImgRef.current||!minimapBase64)return;
+    const rect=objPitImgRef.current.getBoundingClientRect();
+    const xPct=(e.clientX-rect.left)/rect.width,yPct=(e.clientY-rect.top)/rect.height;
+    const img=new Image();
+    img.onload=()=>{
+      const c=document.createElement("canvas");c.width=img.width;c.height=img.height;
+      c.getContext("2d")!.drawImage(img,0,0);
+      const px=Math.round(xPct*img.width),py=Math.round(yPct*img.height);
+      const d=c.getContext("2d")!.getImageData(px,py,1,1).data;
+      const hex=`#${d[0].toString(16).padStart(2,"0")}${d[1].toString(16).padStart(2,"0")}${d[2].toString(16).padStart(2,"0")}`;
+      setObjPitConfig(prev=>({...prev,colors:{...prev.colors,[objPickingColorFor]:hex}}));
+      setObjPickingColorFor(null);
+    };
+    img.src=minimapBase64;
+  },[objPickingColorFor,minimapBase64]);
+
+  // ── Strip detect (per-slot champion crop) drag handlers ──────────────────
+  const getStripDetectBoxes=useCallback(():StripDetectConfig=>{
+    if(stripDetectConfig)return stripDetectConfig;
+    const sz=portraitConfig.sizePct??5.5;
+    const toBox=(pos:{x:number;y:number})=>({
+      x:((pos.x-portraitStripConfig.x)/portraitStripConfig.w)*100,
+      y:((pos.y-portraitStripConfig.y)/portraitStripConfig.h)*100,
+      sz,
+    });
+    return{ally:portraitConfig.allies.map(toBox),enemy:portraitConfig.enemies.map(toBox)};
+  },[stripDetectConfig,portraitConfig,portraitStripConfig]);
+  const onStripDetectPointerDown=useCallback((e:React.PointerEvent,team:'ally'|'enemy',idx:number)=>{
+    e.stopPropagation();(e.target as HTMLElement).setPointerCapture(e.pointerId);
+    const boxes=getStripDetectBoxes();
+    const b=(team==='ally'?boxes.ally:boxes.enemy)[idx];
+    stripDetectDragRef.current={team,idx,sx:e.clientX,sy:e.clientY,bx:b.x,by:b.y,bsz:b.sz};
+  },[getStripDetectBoxes]);
+  const onStripDetectPointerMove=useCallback((e:React.PointerEvent)=>{
+    const drag=stripDetectDragRef.current;if(!drag||!stripDetectImgRef.current)return;
+    const rect=stripDetectImgRef.current.getBoundingClientRect();
+    const dx=(e.clientX-drag.sx)/rect.width*100,dy=(e.clientY-drag.sy)/rect.height*100;
+    const cl=(v:number,lo:number,hi:number)=>Math.max(lo,Math.min(hi,v));
+    setStripDetectConfig(prev=>{
+      const curr=prev??getStripDetectBoxes();
+      const boxes=[...(drag.team==='ally'?curr.ally:curr.enemy)];
+      const b=boxes[drag.idx];
+      boxes[drag.idx]={...b,x:cl(drag.bx+dx,0,100),y:cl(drag.by+dy,0,100)};
+      return drag.team==='ally'?{...curr,ally:boxes}:{...curr,enemy:boxes};
+    });
+  },[getStripDetectBoxes]);
+  const onStripDetectPointerUp=useCallback(()=>{stripDetectDragRef.current=null;},[]);
+  const onStripDetectResizeSz=useCallback((team:'ally'|'enemy',idx:number,delta:number)=>{
+    setStripDetectConfig(prev=>{
+      const curr=prev??getStripDetectBoxes();
+      const boxes=[...(team==='ally'?curr.ally:curr.enemy)];
+      const b=boxes[idx];
+      boxes[idx]={...b,sz:Math.max(2,Math.min(30,b.sz+delta))};
+      return team==='ally'?{...curr,ally:boxes}:{...curr,enemy:boxes};
+    });
+  },[getStripDetectBoxes]);
+
   const onDeadBoxPointerDown=useCallback((e:React.PointerEvent,team:'ally'|'enemy',idx:number,type:'move'|'resize')=>{
     e.stopPropagation();
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -1116,15 +1211,15 @@ export default function CoachPage(){
         if(allySlots.length>0)setAlliesDown(allySlots.map(i=>i+1));
         if(enemySlots.length>0)setEnemiesDown(enemySlots.map(i=>i+1));
       }).catch(()=>{});
-      // Detect champion names per strip slot (independent of minimap ring detection order)
+      // Detect champion names per strip slot (uses per-slot calibrated positions when available)
       const sz=portraitConfig.sizePct??5.5;
-      detectStripSlotChamps(ps,portraitConfig.allies,portraitStripConfig,sz)
+      detectStripSlotChamps(ps,portraitConfig.allies,portraitStripConfig,sz,stripDetectConfig?.ally)
         .then(setDetectedStripAllies).catch(()=>{});
-      detectStripSlotChamps(ps,portraitConfig.enemies,portraitStripConfig,sz)
+      detectStripSlotChamps(ps,portraitConfig.enemies,portraitStripConfig,sz,stripDetectConfig?.enemy)
         .then(setDetectedStripEnemies).catch(()=>{});
     }catch{}
     setDetectingChamps(true);
-  },[recropMinimap,timerCropConfig,portraitStripConfig,portraitConfig,lanePaths,zones,myChamp,portraitCropPct,deadSlotBoxes,objPitConfig]);
+  },[recropMinimap,timerCropConfig,portraitStripConfig,portraitConfig,lanePaths,zones,myChamp,portraitCropPct,deadSlotBoxes,objPitConfig,stripDetectConfig]);
 
   const clearPinState=()=>{setPins([]);setBenchPins([]);setObjPins([]);setAlliesDown([]);setEnemiesDown([]);setTowersDown({ally:[],enemy:[]});};
   const applySlotState=(s:ImageSlotState|undefined)=>{
@@ -1996,21 +2091,34 @@ export default function CoachPage(){
                       <span>Detecting champions…</span>
                     </div>
                   )}
-                  {!detectingChamps&&detectedAllies.some(Boolean)&&(
+                  {!detectingChamps&&detectedStripAllies.some(Boolean)&&(
                     <div className="flex flex-wrap items-center gap-1">
                       <span className="text-[9px] font-display uppercase tracking-widest text-sky-400/70 mr-0.5">Allies:</span>
-                      {detectedAllies.map((c,i)=>c&&(
+                      {detectedStripAllies.map((c,i)=>c&&(
                         <span key={`da${i}`} className="text-[9px] px-1.5 py-0.5 rounded-md bg-sky-900/40 border border-sky-700/40 text-sky-300 font-medium">{c}</span>
                       ))}
+                      <button onClick={()=>setShowStripDetectCalib(true)} className="text-[9px] text-white/25 hover:text-white/55 px-1 transition-colors" title="Calibrate portrait detection areas">⚙</button>
                     </div>
                   )}
-                  {!detectingChamps&&detectedEnemies.some(Boolean)&&(
+                  {!detectingChamps&&detectedStripEnemies.some(Boolean)&&(
                     <div className="flex flex-wrap items-center gap-1">
                       <span className="text-[9px] font-display uppercase tracking-widest text-red-400/70 mr-0.5">Enemies:</span>
-                      {detectedEnemies.map((c,i)=>c&&(
+                      {detectedStripEnemies.map((c,i)=>c&&(
                         <span key={`de${i}`} className="text-[9px] px-1.5 py-0.5 rounded-md bg-red-900/40 border border-red-700/40 text-red-300 font-medium">{c}</span>
                       ))}
                     </div>
+                  )}
+                  {!detectingChamps&&detectedObjTypes.length>0&&(
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="text-[9px] font-display uppercase tracking-widest text-yellow-400/70 mr-0.5">Obj:</span>
+                      {detectedObjTypes.map(id=>{const def=OBJ_DETECT_TYPES.find(t=>t.id===id);return(
+                        <span key={id} className="text-[9px] px-1.5 py-0.5 rounded-md bg-yellow-900/40 border border-yellow-700/40 text-yellow-300 font-medium">{def?.label??id}</span>
+                      );})}
+                      <button onClick={()=>setShowObjPitCalib(true)} className="text-[9px] text-white/25 hover:text-white/55 px-1 transition-colors" title="Calibrate objective pit zones">⚙</button>
+                    </div>
+                  )}
+                  {!detectingChamps&&detectedObjTypes.length===0&&(
+                    <button onClick={()=>setShowObjPitCalib(true)} className="text-[9px] text-white/20 hover:text-white/50 self-start transition-colors">⚙ Obj detection</button>
                   )}
                 </div>
               )}
@@ -2577,7 +2685,7 @@ export default function CoachPage(){
                       border:"2px solid rgba(56,189,248,0.8)",background:"rgba(56,189,248,0.12)",boxSizing:"border-box"}}
                     onPointerDown={e=>onDeadBoxPointerDown(e,"ally",i,"move")}>
                     <span style={{position:"absolute",top:1,left:2,fontSize:"10px",color:"#38bdf8",fontWeight:"bold",lineHeight:1,pointerEvents:"none"}}>
-                      {detectedAllies[i]??`A${i+1}`}
+                      {detectedStripAllies[i]??`A${i+1}`}
                     </span>
                     {/* Resize corner */}
                     <div style={{position:"absolute",bottom:0,right:0,width:12,height:12,background:"rgba(56,189,248,0.6)",cursor:"se-resize",touchAction:"none"}}
@@ -2592,7 +2700,7 @@ export default function CoachPage(){
                       border:"2px solid rgba(239,68,68,0.8)",background:"rgba(239,68,68,0.12)",boxSizing:"border-box"}}
                     onPointerDown={e=>onDeadBoxPointerDown(e,"enemy",i,"move")}>
                     <span style={{position:"absolute",top:1,left:2,fontSize:"10px",color:"#f87171",fontWeight:"bold",lineHeight:1,pointerEvents:"none"}}>
-                      {detectedEnemies[i]??`E${i+1}`}
+                      {detectedStripEnemies[i]??`E${i+1}`}
                     </span>
                     <div style={{position:"absolute",bottom:0,right:0,width:12,height:12,background:"rgba(239,68,68,0.6)",cursor:"se-resize",touchAction:"none"}}
                       onPointerDown={e=>{e.stopPropagation();onDeadBoxPointerDown(e,"enemy",i,"resize");}}/>
@@ -2611,6 +2719,173 @@ export default function CoachPage(){
               </button>
               <button
                 onClick={()=>{localStorage.setItem("wr_dead_slot_boxes",JSON.stringify(deadSlotBoxes));setShowDeadCalib(false);}}
+                className="flex-1 text-[11px] py-1.5 rounded-lg bg-sky-500/20 border border-sky-500/40 text-sky-300 font-semibold hover:bg-sky-500/30 transition-colors">
+                Save & Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Objective pit calibration popup ───────────────────────────────── */}
+      {showObjPitCalib&&(
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-3 bg-black/85" onClick={()=>{setShowObjPitCalib(false);setObjPickingColorFor(null);}}>
+          <div className="bg-[#0d1117] rounded-2xl border border-border/50 p-4 space-y-3 w-full max-w-sm max-h-[92dvh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-display font-bold text-white/90">Objective Pit Detection</h3>
+                <p className="text-[9px] text-white/35 mt-0.5">Drag the two boxes over the baron and dragon pit areas. Assign a color per objective type — tap 💧 then tap the map.</p>
+              </div>
+              <button onClick={()=>{setShowObjPitCalib(false);setObjPickingColorFor(null);}} className="text-white/40 hover:text-white/70 text-lg leading-none px-1">✕</button>
+            </div>
+            {minimapBase64?(
+              <div
+                ref={objPitImgRef}
+                className="relative rounded-xl overflow-hidden select-none border border-border/30"
+                style={{touchAction:"none",cursor:objPickingColorFor?"crosshair":"default"}}
+                onPointerMove={onObjPitPointerMove}
+                onPointerUp={onObjPitPointerUp}
+                onPointerLeave={onObjPitPointerUp}
+                onClick={objPickingColorFor?onObjPitEyedrop:undefined}
+              >
+                <img src={minimapBase64} alt="Minimap" className="w-full h-auto block pointer-events-none"/>
+                {objPickingColorFor&&(
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <span className="bg-black/75 text-yellow-300 text-[10px] px-2 py-1 rounded-lg font-bold">
+                      Tap to pick color for {OBJ_DETECT_TYPES.find(t=>t.id===objPickingColorFor)?.label??objPickingColorFor}
+                    </span>
+                  </div>
+                )}
+                {([
+                  {label:"Pit A",col:"rgba(139,92,246,0.9)"},
+                  {label:"Pit B",col:"rgba(34,197,94,0.9)"},
+                ] as const).map(({label,col},zi)=>{
+                  const zone=objPitConfig.zones[zi as 0|1];
+                  return(
+                    <div key={zi}
+                      className="absolute cursor-move"
+                      style={{left:`${zone.x}%`,top:`${zone.y}%`,width:`${zone.w}%`,height:`${zone.h}%`,
+                        border:`2px solid ${col}`,background:col.replace("0.9","0.1"),boxSizing:"border-box"}}
+                      onPointerDown={e=>onObjPitPointerDown(e,zi as 0|1,"move")}>
+                      <span style={{position:"absolute",top:2,left:3,fontSize:"9px",color:col,fontWeight:"bold",lineHeight:1,pointerEvents:"none"}}>{label}</span>
+                      <div style={{position:"absolute",bottom:0,right:0,width:14,height:14,background:col,cursor:"se-resize",touchAction:"none"}}
+                        onPointerDown={e=>{e.stopPropagation();onObjPitPointerDown(e,zi as 0|1,"resize");}}/>
+                    </div>
+                  );
+                })}
+              </div>
+            ):(
+              <p className="text-[10px] text-white/30 text-center py-3">Upload a screenshot first so the minimap appears here.</p>
+            )}
+            <div className="space-y-1.5">
+              <p className="text-[10px] text-white/40 font-display uppercase tracking-widest">Objective Colors</p>
+              <div className="grid grid-cols-2 gap-1.5">
+                {OBJ_DETECT_TYPES.map(t=>(
+                  <div key={t.id} className="flex items-center gap-1.5">
+                    <input type="color"
+                      value={objPitConfig.colors[t.id]??t.def}
+                      onChange={e=>setObjPitConfig(prev=>({...prev,colors:{...prev.colors,[t.id]:e.target.value}}))}
+                      className="w-7 h-7 rounded-md cursor-pointer border border-border/40 p-0.5 shrink-0 bg-transparent"/>
+                    <span className="text-[10px] text-white/70 flex-1 truncate">{t.label}</span>
+                    <button
+                      onClick={()=>setObjPickingColorFor(prev=>prev===t.id?null:t.id)}
+                      className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${objPickingColorFor===t.id?"border-yellow-400/70 bg-yellow-400/20 text-yellow-300":"border-border/30 text-white/30 hover:text-white/60"}`}>
+                      💧
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={()=>setObjPitConfig(DEFAULT_OBJ_PIT_CONFIG)}
+                className="flex-1 text-[11px] py-1.5 rounded-lg border border-border/40 text-white/50 hover:text-white/70 transition-colors">
+                Reset
+              </button>
+              <button
+                onClick={()=>{localStorage.setItem("wr_obj_pit_config",JSON.stringify(objPitConfig));setShowObjPitCalib(false);setObjPickingColorFor(null);}}
+                className="flex-1 text-[11px] py-1.5 rounded-lg bg-violet-500/20 border border-violet-500/40 text-violet-300 font-semibold hover:bg-violet-500/30 transition-colors">
+                Save & Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Strip detect calibration popup (per-slot portrait crop areas) ──── */}
+      {showStripDetectCalib&&(
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-3 bg-black/85" onClick={()=>setShowStripDetectCalib(false)}>
+          <div className="bg-[#0d1117] rounded-2xl border border-border/50 p-4 space-y-3 w-full max-w-sm" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-display font-bold text-white/90">Champion Detection Calibration</h3>
+                <p className="text-[9px] text-white/35 mt-0.5">Drag circles to be centered over each portrait face. Use +/− to adjust crop size per slot.</p>
+              </div>
+              <button onClick={()=>setShowStripDetectCalib(false)} className="text-white/40 hover:text-white/70 text-lg leading-none px-1">✕</button>
+            </div>
+            {portraitStripCrop?(
+              <div
+                ref={stripDetectImgRef}
+                className="relative rounded-xl overflow-hidden select-none border border-border/30"
+                style={{touchAction:"none"}}
+                onPointerMove={onStripDetectPointerMove}
+                onPointerUp={onStripDetectPointerUp}
+                onPointerLeave={onStripDetectPointerUp}
+              >
+                <img src={portraitStripCrop} alt="Portrait strip" className="w-full h-auto block pointer-events-none"/>
+                {(["ally","enemy"] as const).map(team=>
+                  getStripDetectBoxes()[team].map((box,i)=>{
+                    const isAlly=team==="ally";
+                    const col=isAlly?"rgba(56,189,248,0.9)":"rgba(239,68,68,0.9)";
+                    const bg=isAlly?"rgba(56,189,248,0.1)":"rgba(239,68,68,0.1)";
+                    const name=isAlly?detectedStripAllies[i]:detectedStripEnemies[i];
+                    const label=isAlly?`A${i+1}`:`E${i+1}`;
+                    return(
+                      <div key={`sdc-${team}${i}`}
+                        className="absolute cursor-move rounded-full flex items-center justify-center"
+                        style={{left:`${box.x}%`,top:`${box.y}%`,width:`${box.sz}%`,aspectRatio:"1",
+                          transform:"translate(-50%,-50%)",border:`2px solid ${col}`,background:bg,boxSizing:"border-box",touchAction:"none"}}
+                        onPointerDown={e=>onStripDetectPointerDown(e,team,i)}>
+                        <span style={{fontSize:"6px",color:col,fontWeight:"bold",lineHeight:1,pointerEvents:"none",textAlign:"center",maxWidth:"90%",overflow:"hidden"}}>
+                          {name??label}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            ):(
+              <p className="text-[10px] text-white/30 text-center py-3">Upload a screenshot first.</p>
+            )}
+            <div className="space-y-1">
+              <p className="text-[10px] text-white/40 font-display uppercase tracking-widest">Crop size</p>
+              {(["ally","enemy"] as const).map(team=>
+                getStripDetectBoxes()[team].map((box,i)=>{
+                  const isAlly=team==="ally";
+                  const name=isAlly?detectedStripAllies[i]:detectedStripEnemies[i];
+                  const label=isAlly?`A${i+1}`:`E${i+1}`;
+                  return(
+                    <div key={`szc-${team}${i}`} className="flex items-center gap-2">
+                      <span className={`text-[9px] w-16 truncate ${isAlly?"text-sky-400":"text-red-400"}`}>{name??label}</span>
+                      <button onClick={()=>onStripDetectResizeSz(team,i,-1)} className="text-white/50 hover:text-white/80 text-xs px-2 py-0.5 rounded border border-border/30">−</button>
+                      <span className="text-[9px] text-white/40 w-8 text-center">{box.sz.toFixed(1)}%</span>
+                      <button onClick={()=>onStripDetectResizeSz(team,i,+1)} className="text-white/50 hover:text-white/80 text-xs px-2 py-0.5 rounded border border-border/30">+</button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={()=>{setStripDetectConfig(null);localStorage.removeItem("wr_strip_detect_config");}}
+                className="flex-1 text-[11px] py-1.5 rounded-lg border border-border/40 text-white/50 hover:text-white/70 transition-colors">
+                Reset to defaults
+              </button>
+              <button
+                onClick={()=>{
+                  const cfg=getStripDetectBoxes();
+                  localStorage.setItem("wr_strip_detect_config",JSON.stringify(cfg));
+                  setStripDetectConfig(cfg);
+                  setShowStripDetectCalib(false);
+                }}
                 className="flex-1 text-[11px] py-1.5 rounded-lg bg-sky-500/20 border border-sky-500/40 text-sky-300 font-semibold hover:bg-sky-500/30 transition-colors">
                 Save & Close
               </button>
