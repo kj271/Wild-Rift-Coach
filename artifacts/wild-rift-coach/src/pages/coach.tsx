@@ -25,10 +25,10 @@ import {
   Target, Settings, AlertCircle, Loader2, Send, Upload,
   MessageSquare, X, Search, UserRound, Users, Swords,
   ChevronDown, ChevronUp, Crop, Map as MapIcon, Star, RotateCcw, Bug, Timer, Clock, Building2, Plus,
-  Database, Trash2, Pipette, Check,
+  Database, Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { detectMapCircles, loadDetectConfig, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, updatePortraitAnchorColors, prewarmChampSigs, detectTowerStatus, detectMinionWavesInLanes, detectDeadBySlotBoxes, SlotBox, PortraitDbEntry, AnchorColor, DetectedCircle } from "@/lib/champion-detection";
+import { detectMapCircles, loadDetectConfig, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, detectTowerStatus, detectMinionWavesInLanes, detectDeadBySlotBoxes, SlotBox, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
 
 // ─── Champions ────────────────────────────────────────────────────────────────
 const CHAMPIONS = [
@@ -1183,29 +1183,6 @@ export default function CoachPage(){
   const[portraitDbEntries,setPortraitDbEntries]=useState<PortraitDbEntry[]>([]);
   const loadPortraitDb=useCallback(()=>{getAllPortraitEntries().then(setPortraitDbEntries).catch(()=>{});},[]);
   const[portraitCropPct,_setPortraitCropPct]=useState(()=>parseInt(localStorage.getItem("wr_portrait_crop_pct")??"12"));
-  // Eyedropper colour picker for portrait entries
-  const[eyedropperEntry,setEyedropperEntry]=useState<PortraitDbEntry|null>(null);
-  const[pendingAnchors,setPendingAnchors]=useState<AnchorColor[]>([]);
-  const eyedropperCanvasRef=useRef<HTMLCanvasElement>(null);
-  useEffect(()=>{
-    if(!eyedropperEntry||!eyedropperCanvasRef.current)return;
-    const img=new Image();
-    img.onload=()=>{const ctx=eyedropperCanvasRef.current?.getContext("2d");if(!ctx)return;ctx.drawImage(img,0,0,200,200);};
-    img.src=eyedropperEntry.cropDataUrl;
-  },[eyedropperEntry]);
-  const handleEyedropperPick=useCallback((e:React.PointerEvent<HTMLCanvasElement>)=>{
-    if(!eyedropperCanvasRef.current||pendingAnchors.length>=6)return;
-    const rect=e.currentTarget.getBoundingClientRect();
-    const x=Math.round((e.clientX-rect.left)/rect.width*200);
-    const y=Math.round((e.clientY-rect.top)/rect.height*200);
-    const d=eyedropperCanvasRef.current.getContext("2d")!.getImageData(x,y,1,1).data;
-    setPendingAnchors(prev=>[...prev,{r:d[0],g:d[1],b:d[2]}]);
-  },[pendingAnchors.length]);
-  const handleSaveAnchors=useCallback(async()=>{
-    if(!eyedropperEntry?.id)return;
-    await updatePortraitAnchorColors(eyedropperEntry.id,pendingAnchors).catch(()=>{});
-    loadPortraitDb();setEyedropperEntry(null);
-  },[eyedropperEntry,pendingAnchors,loadPortraitDb]);
   // Dead-timer detection calibration
   const[deadSlotBoxes,setDeadSlotBoxes]=useState<DeadSlotBoxes>(loadDeadBoxes);
   const[showDeadCalib,setShowDeadCalib]=useState(false);
@@ -3021,38 +2998,22 @@ export default function CoachPage(){
                         <div className="text-xs font-semibold text-[#58a6ff] mb-1.5">{champ}</div>
                         <div className="flex flex-wrap gap-2">
                           {grouped[champ].map(e=>(
-                            <div key={e.id} className="flex flex-col items-center gap-1">
-                              <div className="relative">
-                                <img
-                                  src={e.cropDataUrl}
-                                  className="w-12 h-12 rounded-full border border-[#30363d] object-cover"
-                                  style={{clipPath:"circle(50%)"}}
-                                  title={new Date(e.ts).toLocaleDateString()}
-                                />
-                                {/* Delete — top-right */}
-                                <button
-                                  className="absolute top-0 right-0 w-5 h-5 flex items-center justify-center bg-black/80 rounded-bl rounded-tr border-b border-l border-red-800/60 active:bg-red-900/80"
-                                  onClick={()=>{if(!e.id)return;deletePortraitEntry(e.id).then(loadPortraitDb).catch(()=>{});}}
-                                  title="Delete"
-                                ><X size={10} className="text-red-400"/></button>
-                                {/* Eyedropper — bottom-left */}
-                                <button
-                                  className={cn("absolute bottom-0 left-0 w-5 h-5 flex items-center justify-center rounded-tr rounded-bl border-t border-r active:scale-95 transition-colors",
-                                    (e.anchorColors?.length??0)>0
-                                      ?"bg-sky-700/90 border-sky-500/60":"bg-black/80 border-[#30363d] hover:bg-sky-900/70 hover:border-sky-700/60")}
-                                  onClick={()=>{setEyedropperEntry(e);setPendingAnchors(e.anchorColors??[]);}}
-                                  title="Pick key colors"
-                                ><Pipette size={10} className="text-sky-300"/></button>
-                              </div>
-                              {/* Anchor colour swatches */}
-                              {(e.anchorColors?.length??0)>0&&(
-                                <div className="flex gap-0.5 flex-wrap justify-center max-w-[52px]">
-                                  {e.anchorColors!.map((c,i)=>(
-                                    <div key={i} className="w-2 h-2 rounded-full border border-white/20 shrink-0"
-                                      style={{background:`rgb(${c.r},${c.g},${c.b})`}}/>
-                                  ))}
-                                </div>
-                              )}
+                            <div key={e.id} className="relative">
+                              <img
+                                src={e.cropDataUrl}
+                                className="w-12 h-12 rounded-full border border-[#30363d] object-cover"
+                                style={{clipPath:"circle(50%)"}}
+                                title={new Date(e.ts).toLocaleDateString()}
+                              />
+                              {/* Always-visible X button — top-right corner — works on touch */}
+                              <button
+                                className="absolute top-0 right-0 w-5 h-5 flex items-center justify-center bg-black/80 rounded-bl rounded-tr border-b border-l border-red-800/60 active:bg-red-900/80"
+                                onClick={()=>{
+                                  if(!e.id)return;
+                                  deletePortraitEntry(e.id).then(loadPortraitDb).catch(()=>{});
+                                }}
+                                title="Delete"
+                              ><X size={10} className="text-red-400"/></button>
                             </div>
                           ))}
                         </div>
@@ -3090,64 +3051,6 @@ export default function CoachPage(){
           </div>
         );
       })()}
-
-      {/* ── Eyedropper colour picker modal ───────────────────────────────── */}
-      {eyedropperEntry&&(
-        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/75 p-4"
-          onClick={()=>setEyedropperEntry(null)}>
-          <div className="bg-[#0d1117] border border-sky-500/30 rounded-xl shadow-2xl w-[min(92vw,340px)] flex flex-col gap-3 p-4"
-            onClick={e=>e.stopPropagation()}>
-            {/* Header */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Pipette size={14} className="text-sky-400"/>
-                <span className="text-sm font-semibold text-[#c9d1d9]">{eyedropperEntry.champName}</span>
-                <span className="text-xs text-[#8b949e]">— pick key colors</span>
-              </div>
-              <button onClick={()=>setEyedropperEntry(null)} className="text-[#8b949e] hover:text-white p-1"><X size={14}/></button>
-            </div>
-            <p className="text-[11px] text-[#8b949e] leading-relaxed">
-              Tap the portrait to add up to 6 distinctive colors. Pick bright, unique hues — avoid dark/black edges. Brightness shifts are handled automatically.
-            </p>
-            {/* Portrait canvas — enlarged for easy tapping */}
-            <div className="flex justify-center">
-              <canvas
-                ref={eyedropperCanvasRef}
-                width={200} height={200}
-                className="rounded-full border-2 border-sky-400/40 cursor-crosshair"
-                style={{width:200,height:200,touchAction:"none"}}
-                onPointerUp={handleEyedropperPick}
-              />
-            </div>
-            {/* Picked swatches */}
-            <div className="min-h-[32px] flex items-center gap-2 flex-wrap">
-              {pendingAnchors.length===0
-                ?<span className="text-xs text-[#8b949e] italic">No colors picked yet</span>
-                :pendingAnchors.map((c,i)=>(
-                  <button key={i}
-                    className="w-7 h-7 rounded-full border-2 border-white/20 hover:border-red-400/80 active:scale-90 transition-all shrink-0"
-                    style={{background:`rgb(${c.r},${c.g},${c.b})`}}
-                    onClick={()=>setPendingAnchors(prev=>prev.filter((_,j)=>j!==i))}
-                    title="Tap to remove"
-                  />
-                ))
-              }
-              {pendingAnchors.length>=6&&<span className="text-[10px] text-amber-400/80">Max 6</span>}
-            </div>
-            {/* Actions */}
-            <div className="flex gap-2">
-              <button
-                onClick={handleSaveAnchors}
-                className="flex-1 flex items-center justify-center gap-1.5 bg-sky-600 hover:bg-sky-500 active:scale-95 text-white text-xs font-medium py-2 rounded-lg transition-all"
-              ><Check size={12}/>Save colors</button>
-              <button
-                onClick={()=>setPendingAnchors([])}
-                className="text-xs text-[#8b949e] hover:text-white border border-[#30363d] hover:border-[#555] px-3 py-2 rounded-lg transition-colors"
-              >Clear</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Quick champ picker — appears after placing ally/enemy pin, or on pin tap */}
       {quickPickPinId&&(()=>{

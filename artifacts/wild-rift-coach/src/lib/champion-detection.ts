@@ -85,8 +85,6 @@ function dist(a: Float32Array, b: Float32Array): number {
 const _PDBNAME = "wr_portrait_db_v1";
 const _PSTORE  = "portraits";
 
-export interface AnchorColor { r: number; g: number; b: number }
-
 export interface PortraitDbEntry {
   id?: number;
   champName: string;
@@ -94,7 +92,6 @@ export interface PortraitDbEntry {
   cropDataUrl: string;
   ts: number;
   cropPct?: number; // crop size used when saving
-  anchorColors?: AnchorColor[]; // user-picked key colors for reliable matching
 }
 
 function _openPortraitDb(): Promise<IDBDatabase> {
@@ -147,7 +144,6 @@ interface PortraitDbEntryJson {
   cropDataUrl: string;
   ts: number;
   cropPct?: number;
-  anchorColors?: AnchorColor[];
 }
 
 /** Download all portrait entries as a JSON file. */
@@ -159,7 +155,6 @@ export async function exportPortraitDb(): Promise<number> {
     cropDataUrl: e.cropDataUrl,
     ts: e.ts,
     cropPct: e.cropPct,
-    anchorColors: e.anchorColors,
   }));
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -189,7 +184,6 @@ export async function importPortraitDb(
       cropDataUrl: e.cropDataUrl,
       ts: e.ts,
       cropPct: e.cropPct,
-      anchorColors: e.anchorColors,
     });
     count++;
     onProgress?.(count, entries.length);
@@ -243,79 +237,9 @@ export async function saveChampPortrait(
   await _savePortraitEntry({ champName, sig, cropDataUrl, ts: Date.now(), cropPct: cropSizePct });
 }
 
-// ── Anchor-colour helpers ─────────────────────────────────────────────────────
-
-function _rgbToHsl(r: number, g: number, b: number): [number, number, number] {
-  r /= 255; g /= 255; b /= 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  const l = (max + min) / 2;
-  if (max === min) return [0, 0, l];
-  const d = max - min;
-  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-  let h: number;
-  switch (max) {
-    case r:  h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
-    case g:  h = ((b - r) / d + 2) / 6; break;
-    default: h = ((r - g) / d + 4) / 6; break;
-  }
-  return [h * 360, s, l];
-}
-
-/**
- * Returns true if `color` (or a brightness-shifted variant of it) is present
- * anywhere in `pixels`.  Matching is done in HS space (hue + saturation only)
- * so dimmed or brightened portraits still match.  For near-neutral colours
- * (grey / white / black, low saturation) lightness is compared instead.
- */
-function _anchorColorPresent(pixels: Uint8ClampedArray, color: AnchorColor): boolean {
-  const [th, ts, tl] = _rgbToHsl(color.r, color.g, color.b);
-  const neutral = ts < 0.15; // grey / white / black
-  const HUE_TOL = 28;   // degrees
-  const SAT_TOL = 0.38;
-  const LIG_TOL = 0.20;
-  for (let i = 0; i < pixels.length; i += 4) {
-    if (pixels[i + 3] < 10) continue; // skip fully transparent
-    const [ph, ps, pl] = _rgbToHsl(pixels[i], pixels[i + 1], pixels[i + 2]);
-    if (neutral) {
-      if (Math.abs(pl - tl) < LIG_TOL) return true;
-    } else {
-      const dh = Math.min(Math.abs(ph - th), 360 - Math.abs(ph - th));
-      if (dh < HUE_TOL && Math.abs(ps - ts) < SAT_TOL) return true;
-    }
-  }
-  return false;
-}
-
-/** Fetch the raw RGBA pixels from a data-URL at the given render size. */
-function _pixelsFromUrl(url: string, size = 48): Promise<Uint8ClampedArray | null> {
-  return new Promise(resolve => {
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const c = document.createElement("canvas");
-        c.width = size; c.height = size;
-        c.getContext("2d")!.drawImage(img, 0, 0, size, size);
-        resolve(c.getContext("2d")!.getImageData(0, 0, size, size).data);
-      } catch { resolve(null); }
-    };
-    img.onerror = () => resolve(null);
-    img.src = url;
-  });
-}
-
 /** Match a portrait crop against the personal DB.
- *
- *  Primary signal: multi-scale colour signature (handles size variation).
- *  Boost signal (when set): user-picked anchor colours are matched in HS space
- *  so dimmed / brightened portraits still register correctly.
- *
- *  Scoring:
- *   - Entry has NO anchor colours → pure signature distance (existing behaviour).
- *   - Entry HAS anchor colours:
- *       ≥ 85 % found → distance collapsed to 15 % of sig dist  (near-certain)
- *       ≥ 60 % found → distance halved
- *       ≥ 40 % found → distance × 0.85
- *       < 40 % found → distance × 1.8  (penalise wrong champion)
+ *  Tries three inner-crop scales (55 %, 75 %, 100 %) to stay robust when the
+ *  champion portrait appears at a different minimap size than when it was saved.
  */
 export async function matchPersonalDb(
   cropDataUrl: string,
@@ -325,58 +249,19 @@ export async function matchPersonalDb(
   const sigs = await sigFromUrlMultiScale(cropDataUrl);
   if (!sigs.length) return null;
 
-  // Only pay the cost of decoding pixels when at least one entry has anchors.
-  const needsPixels = entries.some(e => e.anchorColors?.length);
-  const detectedPixels = needsPixels ? await _pixelsFromUrl(cropDataUrl) : null;
-
   let best: { name: string; id: number; d: number } | null = null;
-
   for (const e of entries) {
-    let bestSigDist = Infinity;
     for (const sig of sigs) {
       const d = dist(sig, e.sig);
-      if (d < bestSigDist) bestSigDist = d;
+      if (!best || d < best.d) best = { name: e.champName, id: e.id!, d };
     }
-
-    let effectiveDist = bestSigDist;
-
-    if (e.anchorColors?.length && detectedPixels) {
-      const total = e.anchorColors.length;
-      const found = e.anchorColors.filter(c => _anchorColorPresent(detectedPixels, c)).length;
-      const score = found / total;
-      if      (score >= 0.85) effectiveDist = bestSigDist * 0.15;
-      else if (score >= 0.60) effectiveDist = bestSigDist * 0.50;
-      else if (score >= 0.40) effectiveDist = bestSigDist * 0.85;
-      else                    effectiveDist = Math.min(1.0, bestSigDist * 1.80);
-    }
-
-    if (!best || effectiveDist < best.d) best = { name: e.champName, id: e.id!, d: effectiveDist };
   }
-
   if (!best) return null;
+
+  // Slightly more permissive threshold to accommodate scale + partial-occlusion variance
   const THRESHOLD = 0.20;
   if (best.d > THRESHOLD) return null;
   return { name: best.name, id: best.id, confidence: +(1 - best.d / THRESHOLD).toFixed(2) };
-}
-
-/** Persist anchor colours for an existing portrait DB entry (read-modify-write). */
-export async function updatePortraitAnchorColors(
-  id: number,
-  anchorColors: AnchorColor[],
-): Promise<void> {
-  const db = await _openPortraitDb();
-  return new Promise((res, rej) => {
-    const tx = db.transaction(_PSTORE, "readwrite");
-    const store = tx.objectStore(_PSTORE);
-    const req = store.get(id);
-    req.onsuccess = () => {
-      const entry = req.result as PortraitDbEntry | undefined;
-      if (!entry) { rej(new Error("Portrait entry not found")); return; }
-      store.put({ ...entry, anchorColors });
-    };
-    tx.oncomplete = () => res();
-    tx.onerror    = () => rej(tx.error);
-  });
 }
 
 // ── Adjustable detection config ───────────────────────────────────────────────
