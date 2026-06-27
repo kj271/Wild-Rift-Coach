@@ -1928,9 +1928,11 @@ export default function CoachPage(){
               {/* Minimap + bench zone flex row */}
               <div className="flex items-stretch gap-1">
               <div ref={minimapDivRef}
-                className={cn("relative flex-1",
+                className={cn("relative flex-1 select-none",
                   placeMode?"cursor-crosshair":"cursor-default")}
+                style={{WebkitTouchCallout:"none"} as React.CSSProperties}
                 onClick={handleMinimapTap}
+                onContextMenu={e=>e.preventDefault()}
                 onTouchStart={handleMinimapTouchStart}
                 onTouchMove={handleMinimapTouchMove}
                 onTouchEnd={handleMinimapTouchEnd}>
@@ -2749,20 +2751,21 @@ export default function CoachPage(){
                         <div className="text-xs font-semibold text-[#58a6ff] mb-1.5">{champ}</div>
                         <div className="flex flex-wrap gap-2">
                           {grouped[champ].map(e=>(
-                            <div key={e.id} className="relative group">
+                            <div key={e.id} className="relative">
                               <img
                                 src={e.cropDataUrl}
                                 className="w-12 h-12 rounded border border-[#30363d] object-cover"
                                 title={new Date(e.ts).toLocaleDateString()}
                               />
+                              {/* Always-visible X button — top-right corner — works on touch */}
                               <button
-                                className="absolute inset-0 flex items-center justify-center bg-red-900/80 opacity-0 group-hover:opacity-100 rounded transition-opacity"
+                                className="absolute top-0 right-0 w-5 h-5 flex items-center justify-center bg-black/80 rounded-bl rounded-tr border-b border-l border-red-800/60 active:bg-red-900/80"
                                 onClick={()=>{
                                   if(!e.id)return;
                                   deletePortraitEntry(e.id).then(loadPortraitDb).catch(()=>{});
                                 }}
                                 title="Delete"
-                              ><Trash2 size={14} className="text-red-300"/></button>
+                              ><X size={10} className="text-red-400"/></button>
                             </div>
                           ))}
                         </div>
