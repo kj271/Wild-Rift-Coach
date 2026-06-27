@@ -28,7 +28,7 @@ import {
   Database, Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { detectMapCircles, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, detectTowerStatus, detectMinionWaves, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
+import { detectMapCircles, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, detectTowerStatus, detectMinionWaves, detectDeadSlots, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
 
 // ─── Champions ────────────────────────────────────────────────────────────────
 const CHAMPIONS = [
@@ -50,7 +50,7 @@ const CHAMPIONS = [
   "Pantheon",
   "Quinn",
   "Rakan","Rammus","Renekton","Rengar","Riven","Ryze",
-  "Seraphine","Senna","Sett","Singed","Skarner","Smolder","Sona","Soraka","Swain",
+  "Seraphine","Senna","Sett","Shyvana","Singed","Skarner","Smolder","Sona","Soraka","Swain",
   "Taliyah","Teemo","Thresh","Tristana","Tryndamere","Twisted Fate","Twitch",
   "Varus","Vayne","Veigar","Vi","Viego","Viktor","Vladimir","Volibear",
   "Warwick","Wukong",
@@ -924,8 +924,9 @@ export default function CoachPage(){
           // Remove previous auto wave pins; keep manual wave pins
           const noAutoWave=prev.filter(p=>!((p.type==="ally_wave"||p.type==="enemy_wave")&&p.auto));
           const next=[...noAutoWave];
-          aw.forEach((w,i)=>next.push({id:`aw-auto-${ts2}-${i}`,type:"ally_wave",x:w.x,y:w.y,pos:classifyPos(w.x,w.y,lanePaths,zones),champ:null,auto:true}));
-          ew.forEach((w,i)=>next.push({id:`ew-auto-${ts2}-${i}`,type:"enemy_wave",x:w.x,y:w.y,pos:classifyPos(w.x,w.y,lanePaths,zones),champ:null,auto:true}));
+          // Only place wave pins in actual lane paths — filters river/jungle false positives
+          aw.forEach((w,i)=>{const pos=classifyPos(w.x,w.y,lanePaths,zones);if(pos.kind!=="lane")return;next.push({id:`aw-auto-${ts2}-${i}`,type:"ally_wave",x:w.x,y:w.y,pos,champ:null,auto:true});});
+          ew.forEach((w,i)=>{const pos=classifyPos(w.x,w.y,lanePaths,zones);if(pos.kind!=="lane")return;next.push({id:`ew-auto-${ts2}-${i}`,type:"enemy_wave",x:w.x,y:w.y,pos,champ:null,auto:true});});
           return next;
         });
       }).catch(()=>{});
@@ -938,6 +939,8 @@ export default function CoachPage(){
     try{
       const ps=await cropDataUrl(dataUrl,portraitStripConfig.x,portraitStripConfig.y,portraitStripConfig.w,portraitStripConfig.h);
       setPortraitStripCrop(ps);
+      // Auto-detect dead allies from red death-timer text in portrait strip
+      detectDeadSlots(ps,5).then(dead=>{if(dead.length>0)setAlliesDown(dead);}).catch(()=>{});
     }catch{}
     setDetectingChamps(true);
   },[recropMinimap,timerCropConfig,portraitStripConfig,portraitConfig,lanePaths,zones,myChamp,portraitCropPct]);

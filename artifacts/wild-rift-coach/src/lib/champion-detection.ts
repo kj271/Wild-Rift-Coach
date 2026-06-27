@@ -265,7 +265,7 @@ function findBlobs(
       // solid=true  (minion fill):   reject if interior is NOT team-coloured (ring)
       const solidRatio = intTotal > 0 ? intColor / intTotal : 0;
       if (!solid && solidRatio > 0.30) continue;
-      if (solid  && solidRatio < 0.25) continue;
+      if (solid  && solidRatio < 0.15) continue; // loosened: catch shallow-filled minion shapes
 
       out.push({
         cx: sx / cnt / W * 100,
@@ -294,11 +294,21 @@ export type MinionLane = "Top" | "Mid" | "Bot";
 export interface MinionWavePin { lane: MinionLane; x: number; y: number }
 export interface MinionWaveResult { ally: MinionWavePin[]; enemy: MinionWavePin[] }
 
-function _minionLane(cy: number): MinionLane {
-  // Wild Rift minimap: top lane → upper region, bot lane → lower region
-  if (cy < 37) return "Top";
-  if (cy > 63) return "Bot";
-  return "Mid";
+/**
+ * Classify a point as a lane or return null (river/jungle).
+ * Uses both cx (0-100) and cy (0-100) to reject baron pit and JG areas.
+ *
+ * WR minimap geometry (origin top-left):
+ *   Top lane  → upper-right strip  (cy < 35 AND cx > 40)
+ *   Bot lane  → lower-left strip   (cy > 65 AND cx < 60)
+ *   Mid lane  → diagonal corridor  |cx + cy - 100| < 22
+ *   Everything else → river/JG → null (rejected)
+ */
+function _minionLane(cx: number, cy: number): MinionLane | null {
+  if (cy < 35 && cx > 40) return "Top";
+  if (cy > 65 && cx < 60) return "Bot";
+  if (Math.abs(cx + cy - 100) < 22) return "Mid";
+  return null; // river / jungle — no lane pin
 }
 
 /** Cluster blobs within maxDist of each other (single-linkage). */
@@ -348,12 +358,14 @@ export function detectMinionWaves(minimapDataUrl: string): Promise<MinionWaveRes
       const enemyBlobs = findBlobs(px, W, H, isRed,  MIN, MAX, true);
 
       const toWavePins = (blobs: Blob[]): MinionWavePin[] => {
-        const clusters = _cluster(blobs, 14); // 14% distance threshold
+        const clusters = _cluster(blobs, 18); // 18% distance threshold (catch spread-out waves)
         const byLane = new Map<MinionLane, Blob[]>();
         for (const cl of clusters) {
           if (cl.length < 2) continue; // lone pixel/dot → skip
+          const cx = cl.reduce((s, b) => s + b.cx, 0) / cl.length;
           const cy = cl.reduce((s, b) => s + b.cy, 0) / cl.length;
-          const lane = _minionLane(cy);
+          const lane = _minionLane(cx, cy);
+          if (!lane) continue; // river / jungle → reject
           const existing = byLane.get(lane);
           // Keep the cluster with the most blobs per lane (densest wave)
           if (!existing || cl.length > existing.length) byLane.set(lane, cl);
@@ -546,3 +558,54 @@ export async function matchPortrait(
   _dataUrl: string,
   _candidates: string[],
 ): Promise<{ name: string; confidence: number } | null> { return null; }
+
+// ── Dead-champion detection via portrait strip death timers ───────────────────
+
+/**
+ * Scan a cropped portrait-strip image for red death-timer text.
+ *
+ * Wild Rift shows a bright-red countdown number (e.g. "42") below/overlapping
+ * each dead champion's portrait.  We divide the strip into `numSlots` equal
+ * columns and count pixels where r > 190, g < 90, b < 90.  Slots with ≥15
+ * such pixels are flagged as dead.
+ *
+ * Returns the 0-based indices of dead slots (e.g. [0, 2] means slots 0 and 2
+ * are dead).  Pass numSlots = 5 for the ally portrait strip.
+ */
+export function detectDeadSlots(
+  stripDataUrl: string,
+  numSlots = 5,
+): Promise<number[]> {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const W = img.width, H = img.height;
+      const c = document.createElement("canvas");
+      c.width = W; c.height = H;
+      c.getContext("2d")!.drawImage(img, 0, 0);
+      const data = c.getContext("2d")!.getImageData(0, 0, W, H).data;
+
+      const slotW = W / numSlots;
+      const dead: number[] = [];
+
+      for (let i = 0; i < numSlots; i++) {
+        const x0 = Math.round(i * slotW);
+        const x1 = Math.round((i + 1) * slotW);
+        let redPx = 0;
+        for (let y = 0; y < H; y++) {
+          for (let x = x0; x < x1; x++) {
+            const idx = (y * W + x) * 4;
+            const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+            // Bright red death-timer digits: high R, low G, low B
+            if (r > 190 && g < 90 && b < 90 && r > g * 2.5) redPx++;
+          }
+        }
+        if (redPx >= 15) dead.push(i);
+      }
+
+      resolve(dead);
+    };
+    img.onerror = () => resolve([]);
+    img.src = stripDataUrl;
+  });
+}
