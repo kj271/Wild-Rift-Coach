@@ -730,7 +730,10 @@ export function detectMapCircles(
         const bigAxis = Math.max(b.bw, b.bh);
         const smallAxis = Math.min(b.bw, b.bh);
         const n = Math.min(5, Math.max(1, Math.round(bigAxis / TYPICAL_RING)));
-        if (n > 1 && smallAxis / bigAxis > 0.25) {
+        // Only split elongated blobs (bigAxis clearly longer than smallAxis).
+        // A single large portrait is roughly square (ratio ≈ 1), so bigAxis/smallAxis < 1.4
+        // means it's one big circle — don't split it into phantom pins.
+        if (n > 1 && smallAxis / bigAxis > 0.25 && bigAxis / smallAxis > 1.4) {
           // n overlapping rings — place pins at (k+0.5)/n along the longer axis
           const piecePixels = Math.round(b.pixels / n);
           for (let k = 0; k < n; k++) {

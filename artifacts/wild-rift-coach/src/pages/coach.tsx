@@ -823,6 +823,134 @@ function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,recent}:{
   );
 }
 
+// ─── CropAdjuster — full-screen modal to precisely crop a portrait before saving ─
+function CropAdjuster({champ,minimapSrc,pinX,pinY,initialCropPct,onConfirm,onCancel}:{
+  champ:string; minimapSrc:string;
+  pinX:number; pinY:number; initialCropPct:number;
+  onConfirm:(cxPct:number,cyPct:number,diamPct:number)=>void;
+  onCancel:()=>void;
+}){
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [disp,setDisp] = useState(320);
+  const [cx,setCx] = useState(0);
+  const [cy,setCy] = useState(0);
+  const [r,setR] = useState(24);
+
+  // Set display size and initial circle position once mounted
+  useEffect(()=>{
+    const s = Math.min(window.innerWidth-32, window.innerHeight-160, 420);
+    setDisp(s);
+    setCx(pinX/100*s);
+    setCy(pinY/100*s);
+    setR((initialCropPct/100)*s/2);
+  },[pinX,pinY,initialCropPct]);
+
+  const dragRef = useRef<{
+    mode:"move"|"resize";
+    startX:number; startY:number;
+    startCx:number; startCy:number; startR:number;
+  }|null>(null);
+
+  const getClientXY = (e:React.MouseEvent|React.TouchEvent)=>{
+    const rect = containerRef.current?.getBoundingClientRect();
+    if(!rect) return {x:0,y:0};
+    const src = "touches" in e ? e.touches[0] : e;
+    return {x:src.clientX-rect.left, y:src.clientY-rect.top};
+  };
+
+  const onDown = (e:React.MouseEvent|React.TouchEvent)=>{
+    e.preventDefault();
+    const {x,y} = getClientXY(e);
+    const dr = Math.hypot(x-cx, y-cy);
+    // Inner 65% → move; outer 35% (near edge) → resize
+    const mode:("move"|"resize") = dr < r*0.65 ? "move" : "resize";
+    dragRef.current = {mode,startX:x,startY:y,startCx:cx,startCy:cy,startR:r};
+  };
+
+  const onMove = (e:React.MouseEvent|React.TouchEvent)=>{
+    if(!dragRef.current) return;
+    e.preventDefault();
+    const {x,y} = getClientXY(e);
+    if(dragRef.current.mode==="move"){
+      const nr = dragRef.current.startR;
+      setCx(Math.max(nr, Math.min(disp-nr, dragRef.current.startCx+(x-dragRef.current.startX))));
+      setCy(Math.max(nr, Math.min(disp-nr, dragRef.current.startCy+(y-dragRef.current.startY))));
+    } else {
+      const newR = Math.max(10, Math.min(disp/2-4, Math.hypot(x-cx, y-cy)));
+      setR(newR);
+    }
+  };
+
+  const onUp = ()=>{ dragRef.current=null; };
+
+  const confirm = ()=>{
+    const cxPct = cx/disp*100;
+    const cyPct = cy/disp*100;
+    const diamPct = (r*2/disp)*100; // diameter as % of minimap — matches cropSizePct convention
+    onConfirm(cxPct, cyPct, diamPct);
+  };
+
+  return(
+    <div className="fixed inset-0 z-[200] bg-black/95 flex flex-col">
+      <div className="px-4 py-3 border-b border-[#30363d] flex items-center justify-between shrink-0">
+        <div>
+          <h3 className="text-sm font-display font-bold text-white">
+            Crop portrait — <span className="text-sky-300">{champ}</span>
+          </h3>
+          <p className="text-[11px] text-[#8b949e] mt-0.5">
+            Drag <span className="text-white/70">inside</span> to move · drag <span className="text-white/70">near edge</span> to resize · exclude the coloured ring
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onCancel}
+            className="px-3 py-1.5 text-xs rounded border border-[#30363d] text-[#8b949e] active:bg-white/5">
+            Cancel
+          </button>
+          <button onClick={confirm}
+            className="px-4 py-1.5 text-xs rounded bg-sky-600 text-white font-medium active:bg-sky-700">
+            Save
+          </button>
+        </div>
+      </div>
+      <div className="flex-1 flex items-center justify-center p-4">
+        <div
+          ref={containerRef}
+          className="relative select-none touch-none"
+          style={{width:disp,height:disp,cursor:"crosshair"}}
+          onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
+          onTouchStart={onDown} onTouchMove={onMove} onTouchEnd={onUp}
+        >
+          {/* Minimap image */}
+          <img src={minimapSrc}
+            style={{width:disp,height:disp,display:"block",userSelect:"none",pointerEvents:"none",borderRadius:4}}/>
+          {/* SVG overlay */}
+          <svg className="absolute inset-0" width={disp} height={disp} style={{touchAction:"none",pointerEvents:"none"}}>
+            <defs>
+              <mask id="ca-hole">
+                <rect width={disp} height={disp} fill="white"/>
+                <circle cx={cx} cy={cy} r={r} fill="black"/>
+              </mask>
+            </defs>
+            {/* Dark vignette outside the crop circle */}
+            <rect width={disp} height={disp} fill="rgba(0,0,0,0.62)" mask="url(#ca-hole)"/>
+            {/* Dashed ring outline */}
+            <circle cx={cx} cy={cy} r={r} fill="none" stroke="white" strokeWidth="2" strokeDasharray="6 3" opacity="0.85"/>
+            {/* Centre crosshair */}
+            <line x1={cx-6} y1={cy} x2={cx+6} y2={cy} stroke="white" strokeWidth="1.5" opacity="0.7"/>
+            <line x1={cx} y1={cy-6} x2={cx} y2={cy+6} stroke="white" strokeWidth="1.5" opacity="0.7"/>
+            {/* Resize hint badge at right edge */}
+            <circle cx={cx+r} cy={cy} r={11} fill="#0ea5e9" opacity="0.85"/>
+            <text x={cx+r} y={cy} textAnchor="middle" dominantBaseline="central" fontSize="10" fill="white">⇔</text>
+          </svg>
+        </div>
+      </div>
+      <p className="text-center text-[11px] text-[#8b949e] pb-3 shrink-0">
+        Blue badge = resize handle · centre of circle = move zone
+      </p>
+    </div>
+  );
+}
+
 // ─── LongPressMenu — appears after 500ms hold on minimap to pick pin type ───────
 function LongPressMenu({pos,onClose,onPlace}:{
   pos:{x:number;y:number};
@@ -1107,6 +1235,7 @@ export default function CoachPage(){
   };
   const[quickPickPinId,setQuickPickPinId]=useState<string|null>(null);
   const[quickPickPos,setQuickPickPos]=useState<{x:number;y:number}>({x:0,y:0});
+  const[cropAdjust,setCropAdjust]=useState<{champ:string;pinX:number;pinY:number}|null>(null);
   const[longPressMenu,setLongPressMenu]=useState<{screenX:number;screenY:number;mapX:number;mapY:number}|null>(null);
   const longPressTimerRef=useRef<ReturnType<typeof setTimeout>|null>(null);
   const longPressTouchRef=useRef<{x:number;y:number}|null>(null);
@@ -2754,7 +2883,8 @@ export default function CoachPage(){
                             <div key={e.id} className="relative">
                               <img
                                 src={e.cropDataUrl}
-                                className="w-12 h-12 rounded border border-[#30363d] object-cover"
+                                className="w-12 h-12 rounded-full border border-[#30363d] object-cover"
+                                style={{clipPath:"circle(50%)"}}
                                 title={new Date(e.ts).toLocaleDateString()}
                               />
                               {/* Always-visible X button — top-right corner — works on touch */}
@@ -2824,9 +2954,9 @@ export default function CoachPage(){
               const pin=pins.find(p=>p.id===quickPickPinId);
               setPins(prev=>prev.map(p=>p.id===quickPickPinId?{...p,champ}:p));
               if(champ)trackRecentChamp(champ);
-              // Save portrait crop → personal database only if save=true (not hidden behind another)
               if(pin&&minimapBase64&&champ&&save){
-                saveChampPortrait(champ,minimapBase64,pin.x,pin.y,portraitCropPct).catch(()=>{});
+                // Open the crop adjuster so user can frame portrait precisely before saving
+                setCropAdjust({champ,pinX:pin.x,pinY:pin.y});
               }
               setQuickPickPinId(null);
             }}
@@ -2836,6 +2966,24 @@ export default function CoachPage(){
           />
         );
       })()}
+
+      {/* ── Portrait Crop Adjuster ──────────────────────────────────────── */}
+      {cropAdjust&&minimapBase64&&(
+        <CropAdjuster
+          champ={cropAdjust.champ}
+          minimapSrc={minimapBase64}
+          pinX={cropAdjust.pinX}
+          pinY={cropAdjust.pinY}
+          initialCropPct={portraitCropPct}
+          onConfirm={(cxPct,cyPct,diamPct)=>{
+            saveChampPortrait(cropAdjust.champ,minimapBase64,cxPct,cyPct,diamPct)
+              .then(()=>loadPortraitDb())
+              .catch(()=>{});
+            setCropAdjust(null);
+          }}
+          onCancel={()=>setCropAdjust(null)}
+        />
+      )}
 
       {/* Long-press place-pin menu */}
       {longPressMenu&&(
