@@ -824,6 +824,16 @@ function QuickChampPicker({pin,label,pos,onAssign,onRemove,onClose,recent}:{
 }
 
 // ─── CropAdjuster — full-screen modal to precisely crop a portrait before saving ─
+//
+// Design:
+//  • cx/cy/r are stored in BASE (zoom=1) display pixels.
+//  • The image is scaled with CSS transform so the crop circle is ALWAYS
+//    visible at the centre of the container — the map pans under it.
+//  • SVG overlay lives in CONTAINER space: circle is always at (disp/2, disp/2).
+//  • Pinch two fingers to zoom (non-passive listeners via useEffect).
+//  • Move mode: single-finger drag pans the circle; resize mode: drag near edge.
+//  • Resize is delta-based — lifting and re-touching does not jump.
+//
 function CropAdjuster({champ,minimapSrc,pinX,pinY,initialCropPct,onConfirm,onCancel}:{
   champ:string; minimapSrc:string;
   pinX:number; pinY:number; initialCropPct:number;
@@ -831,84 +841,147 @@ function CropAdjuster({champ,minimapSrc,pinX,pinY,initialCropPct,onConfirm,onCan
   onCancel:()=>void;
 }){
   const containerRef = useRef<HTMLDivElement>(null);
-  const [disp,setDisp] = useState(320);
-  // cx/cy/r stored in base (zoom=1) display pixels
-  const [cx,setCx] = useState(0);
-  const [cy,setCy] = useState(0);
-  const [r,setR] = useState(24);
-  const [zoom,setZoom] = useState(1);
+  const [disp,setDisp]   = useState(320);
+  const [cx,setCx]       = useState(160);
+  const [cy,setCy]       = useState(160);
+  const [r,setR]         = useState(24);
+  const [zoom,setZoom]   = useState(1);
 
   useEffect(()=>{
-    const s = Math.min(window.innerWidth-32, window.innerHeight-180, 420);
+    const s = Math.min(window.innerWidth-32, window.innerHeight-140, 480);
     setDisp(s);
     setCx(pinX/100*s);
     setCy(pinY/100*s);
     setR(Math.max(12,(initialCropPct/100)*s/2));
   },[pinX,pinY,initialCropPct]);
 
-  // Zoom-aware view: translate so circle stays centred in the container
-  const effDisp = disp*zoom;
-  const rawTX = disp/2 - cx*zoom;
-  const rawTY = disp/2 - cy*zoom;
-  const tx = zoom<=1 ? 0 : Math.min(0,Math.max(disp-effDisp,rawTX));
-  const ty = zoom<=1 ? 0 : Math.min(0,Math.max(disp-effDisp,rawTY));
+  // Current state is stored in a ref so native (non-React) event handlers
+  // can read it without stale-closure issues.
+  const S = useRef({cx:160,cy:160,r:24,zoom:1,disp:320});
+  S.current = {cx,cy,r,zoom,disp};
 
-  // Keep latest view params accessible inside event handlers without stale closures
-  const viewRef = useRef({tx:0,ty:0,zoom:1,disp:320});
-  viewRef.current = {tx,ty,zoom,disp};
-
+  // Single-finger drag state
   const dragRef = useRef<{
     mode:"move"|"resize";
-    startX:number; startY:number;
+    startSx:number; startSy:number;          // screen coords at drag start
     startCx:number; startCy:number; startR:number;
-    startDr:number; // distance from centre at first touch — for delta-based resize
+    startDr:number; zoom:number; disp:number; // snapshot at drag start
   }|null>(null);
 
-  // Convert container-space touch → base circle coordinates
-  const getXY = (e:React.MouseEvent|React.TouchEvent)=>{
-    const rect = containerRef.current?.getBoundingClientRect();
-    if(!rect) return {x:0,y:0};
-    const src = "touches" in e ? e.touches[0] : e;
-    const {tx:vtx,ty:vty,zoom:vz} = viewRef.current;
-    return {
-      x:(src.clientX-rect.left-vtx)/vz,
-      y:(src.clientY-rect.top-vty)/vz,
-    };
+  // Pinch state
+  const pinchRef = useRef<{startDist:number; startZoom:number}|null>(null);
+
+  // ── Geometry helpers ────────────────────────────────────────────────────────
+  //
+  // Image transform: scale(zoom) translate(tx, ty) with transform-origin: 0 0
+  //   tx = disp/2/zoom − cx   →  circle centre maps to screen (disp/2, disp/2)
+  //   ty = disp/2/zoom − cy
+  //
+  // Touch coords (screen) vs base coords:
+  //   Move:   base_delta = screen_delta / zoom
+  //   Resize: base_dist_from_centre = screenDist(touch, (disp/2,disp/2)) / zoom
+  //
+  const imgTX = (d:number,c:number,z:number) => d/2/z - c;
+  const imgTY = (d:number,c:number,z:number) => d/2/z - c;
+
+  // Native pointer helpers — read rect fresh each time
+  const getRect = () => containerRef.current?.getBoundingClientRect();
+
+  // ── Drag logic (runs in native listeners) ──────────────────────────────────
+  const startDrag = (sx:number,sy:number)=>{
+    const {cx:ccx,cy:ccy,r:cr,zoom:vz,disp:vd} = S.current;
+    const screenDist = Math.hypot(sx-vd/2, sy-vd/2);
+    const baseDist   = screenDist/vz;
+    const mode:("move"|"resize") = baseDist < cr*0.75 ? "move" : "resize";
+    dragRef.current = {mode,startSx:sx,startSy:sy,startCx:ccx,startCy:ccy,startR:cr,startDr:baseDist,zoom:vz,disp:vd};
   };
 
-  const onDown = (e:React.MouseEvent|React.TouchEvent)=>{
-    e.preventDefault();
-    const {x,y}=getXY(e);
-    const dr=Math.hypot(x-cx,y-cy);
-    const mode:("move"|"resize")=dr<r*0.7?"move":"resize";
-    dragRef.current={mode,startX:x,startY:y,startCx:cx,startCy:cy,startR:r,startDr:dr};
-  };
-
-  const onMove = (e:React.MouseEvent|React.TouchEvent)=>{
-    if(!dragRef.current)return;
-    e.preventDefault();
-    const {x,y}=getXY(e);
-    const d=dragRef.current;
+  const moveDrag = (sx:number,sy:number)=>{
+    const d = dragRef.current;
+    if(!d) return;
     if(d.mode==="move"){
-      setCx(Math.max(d.startR,Math.min(disp-d.startR,d.startCx+(x-d.startX))));
-      setCy(Math.max(d.startR,Math.min(disp-d.startR,d.startCy+(y-d.startY))));
+      const dx=(sx-d.startSx)/d.zoom, dy=(sy-d.startSy)/d.zoom;
+      setCx(Math.max(d.startR,Math.min(d.disp-d.startR, d.startCx+dx)));
+      setCy(Math.max(d.startR,Math.min(d.disp-d.startR, d.startCy+dy)));
     } else {
-      // Delta-based: r changes by how much the distance to centre changed.
-      // Lifting & re-touching resets the delta origin, so the circle doesn't jump.
-      const curDr=Math.hypot(x-d.startCx,y-d.startCy);
-      setR(Math.max(8,Math.min(disp/2-4,d.startR+(curDr-d.startDr))));
+      const screenDist = Math.hypot(sx-d.disp/2, sy-d.disp/2);
+      const curDr = screenDist/d.zoom;
+      setR(Math.max(8,Math.min(d.disp/2-4, d.startR+(curDr-d.startDr))));
     }
   };
 
-  const onUp=()=>{dragRef.current=null;};
+  // ── Native (non-passive) touch listeners ───────────────────────────────────
+  useEffect(()=>{
+    const el = containerRef.current;
+    if(!el) return;
 
-  const confirm=()=>{
-    onConfirm(cx/disp*100, cy/disp*100, (r*2/disp)*100);
+    const onTS = (e:TouchEvent)=>{
+      e.preventDefault();
+      if(e.touches.length===2){
+        dragRef.current = null;
+        const d = Math.hypot(
+          e.touches[1].clientX-e.touches[0].clientX,
+          e.touches[1].clientY-e.touches[0].clientY,
+        );
+        pinchRef.current = {startDist:d, startZoom:S.current.zoom};
+      } else if(e.touches.length===1){
+        pinchRef.current = null;
+        const rect = getRect(); if(!rect) return;
+        const t=e.touches[0];
+        startDrag(t.clientX-rect.left, t.clientY-rect.top);
+      }
+    };
+
+    const onTM = (e:TouchEvent)=>{
+      e.preventDefault();
+      if(e.touches.length===2 && pinchRef.current){
+        const d = Math.hypot(
+          e.touches[1].clientX-e.touches[0].clientX,
+          e.touches[1].clientY-e.touches[0].clientY,
+        );
+        setZoom(Math.max(1,Math.min(12, pinchRef.current.startZoom*d/pinchRef.current.startDist)));
+      } else if(e.touches.length===1 && dragRef.current){
+        const rect = getRect(); if(!rect) return;
+        const t=e.touches[0];
+        moveDrag(t.clientX-rect.left, t.clientY-rect.top);
+      }
+    };
+
+    const onTE = (e:TouchEvent)=>{
+      if(e.touches.length===0){ dragRef.current=null; pinchRef.current=null; }
+      else if(e.touches.length===1){ pinchRef.current=null; }
+    };
+
+    el.addEventListener("touchstart",  onTS, {passive:false});
+    el.addEventListener("touchmove",   onTM, {passive:false});
+    el.addEventListener("touchend",    onTE, {passive:false});
+    el.addEventListener("touchcancel", onTE, {passive:false});
+    return ()=>{
+      el.removeEventListener("touchstart",  onTS);
+      el.removeEventListener("touchmove",   onTM);
+      el.removeEventListener("touchend",    onTE);
+      el.removeEventListener("touchcancel", onTE);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+
+  // ── Mouse handlers (desktop) ───────────────────────────────────────────────
+  const onMouseDown=(e:React.MouseEvent)=>{
+    e.preventDefault();
+    const rect=getRect(); if(!rect) return;
+    startDrag(e.clientX-rect.left, e.clientY-rect.top);
   };
+  const onMouseMove=(e:React.MouseEvent)=>{
+    if(!dragRef.current) return;
+    const rect=getRect(); if(!rect) return;
+    moveDrag(e.clientX-rect.left, e.clientY-rect.top);
+  };
+  const onMouseUp=()=>{dragRef.current=null;};
 
-  const ZOOMS=[1,1.5,2,3] as const;
-  // Zoomed circle coords for SVG rendering
-  const dcx=cx*zoom+tx, dcy=cy*zoom+ty, dr=r*zoom;
+  const confirm=()=>{ onConfirm(cx/disp*100, cy/disp*100, r*2/disp*100); };
+
+  // Circle in container (screen) space: always at centre
+  const scx=disp/2, scy=disp/2, sr=r*zoom;
 
   return(
     <div className="fixed inset-0 z-[200] bg-black/95 flex flex-col">
@@ -919,7 +992,7 @@ function CropAdjuster({champ,minimapSrc,pinX,pinY,initialCropPct,onConfirm,onCan
             Crop — <span className="text-sky-300">{champ}</span>
           </h3>
           <p className="text-[11px] text-[#8b949e] mt-0.5">
-            Inside → move · near edge → resize (picks up where you left off)
+            Inside circle → pan map · near edge / ⇔ → resize · pinch to zoom
           </p>
         </div>
         <div className="flex gap-2">
@@ -933,52 +1006,54 @@ function CropAdjuster({champ,minimapSrc,pinX,pinY,initialCropPct,onConfirm,onCan
           </button>
         </div>
       </div>
-      {/* Zoom buttons */}
-      <div className="flex items-center justify-center gap-2 py-2 shrink-0">
-        <span className="text-[11px] text-[#8b949e]">Zoom:</span>
-        {ZOOMS.map(z=>(
-          <button key={z} onClick={()=>setZoom(z)}
-            className={cn("px-2.5 py-1 text-xs rounded border active:scale-95",
-              zoom===z?"bg-sky-600 border-sky-500 text-white":"border-[#30363d] text-[#8b949e]")}>
-            {z}×
-          </button>
-        ))}
+      {/* Zoom indicator */}
+      <div className="flex items-center justify-center py-1.5 shrink-0">
+        <span className="text-[11px] text-[#5a6472]">
+          <span className="text-white/50 font-mono">{zoom.toFixed(1)}×</span>
+          &nbsp;· pinch to zoom
+        </span>
       </div>
-      {/* Map area */}
+      {/* Canvas */}
       <div className="flex-1 flex items-center justify-center">
         <div
           ref={containerRef}
-          className="relative select-none touch-none overflow-hidden"
-          style={{width:disp,height:disp,cursor:"crosshair"}}
-          onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
-          onTouchStart={onDown} onTouchMove={onMove} onTouchEnd={onUp}
+          className="relative overflow-hidden"
+          style={{width:disp,height:disp,cursor:"crosshair",touchAction:"none",userSelect:"none"}}
+          onMouseDown={onMouseDown}
+          onMouseMove={onMouseMove}
+          onMouseUp={onMouseUp}
+          onMouseLeave={onMouseUp}
         >
-          <img src={minimapSrc}
-            style={{
-              width:effDisp,height:effDisp,display:"block",
-              userSelect:"none",pointerEvents:"none",
-              transform:`translate(${tx}px,${ty}px)`,
-              transformOrigin:"0 0",
-            }}/>
-          <svg className="absolute inset-0" width={disp} height={disp}
-            style={{touchAction:"none",pointerEvents:"none"}}>
+          {/* Minimap image — CSS transform centres it on (cx,cy) */}
+          <div style={{
+            position:"absolute", width:disp, height:disp,
+            transform:`scale(${zoom}) translate(${imgTX(disp,cx,zoom)}px,${imgTY(disp,cy,zoom)}px)`,
+            transformOrigin:"0 0",
+            willChange:"transform",
+            pointerEvents:"none",
+          }}>
+            <img src={minimapSrc} style={{width:disp,height:disp,display:"block",userSelect:"none"}}/>
+          </div>
+          {/* SVG overlay — in container (screen) space; circle always at centre */}
+          <svg className="absolute inset-0" width={disp} height={disp} style={{pointerEvents:"none",overflow:"visible"}}>
             <defs>
               <mask id="ca-hole">
                 <rect width={disp} height={disp} fill="white"/>
-                <circle cx={dcx} cy={dcy} r={dr} fill="black"/>
+                <circle cx={scx} cy={scy} r={sr} fill="black"/>
               </mask>
             </defs>
-            <rect width={disp} height={disp} fill="rgba(0,0,0,0.6)" mask="url(#ca-hole)"/>
-            <circle cx={dcx} cy={dcy} r={dr} fill="none" stroke="white" strokeWidth="2" strokeDasharray="6 3" opacity="0.9"/>
-            <line x1={dcx-7} y1={dcy} x2={dcx+7} y2={dcy} stroke="white" strokeWidth="1.5" opacity="0.6"/>
-            <line x1={dcx} y1={dcy-7} x2={dcx} y2={dcy+7} stroke="white" strokeWidth="1.5" opacity="0.6"/>
-            <circle cx={dcx+dr} cy={dcy} r={13} fill="#0ea5e9" opacity="0.9"/>
-            <text x={dcx+dr} y={dcy} textAnchor="middle" dominantBaseline="central" fontSize="12" fill="white">⇔</text>
+            <rect width={disp} height={disp} fill="rgba(0,0,0,0.55)" mask="url(#ca-hole)"/>
+            <circle cx={scx} cy={scy} r={sr} fill="none" stroke="white" strokeWidth="2" strokeDasharray="6 3" opacity="0.9"/>
+            <line x1={scx-7} y1={scy} x2={scx+7} y2={scy} stroke="white" strokeWidth="1.5" opacity="0.55"/>
+            <line x1={scx} y1={scy-7} x2={scx} y2={scy+7} stroke="white" strokeWidth="1.5" opacity="0.55"/>
+            {/* Resize badge — at right edge of circle */}
+            <circle cx={scx+sr} cy={scy} r={14} fill="#0ea5e9" opacity="0.9"/>
+            <text x={scx+sr} y={scy} textAnchor="middle" dominantBaseline="central" fontSize="13" fill="white">⇔</text>
           </svg>
         </div>
       </div>
       <p className="text-center text-[11px] text-[#8b949e] pb-3 shrink-0">
-        ⇔ = resize handle · zoom in for precision · lift &amp; re-touch to continue resizing
+        Drag inside = pan · drag edge / ⇔ = resize · lift &amp; retap to continue
       </p>
     </div>
   );
