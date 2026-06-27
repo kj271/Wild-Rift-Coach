@@ -28,7 +28,7 @@ import {
   Database, Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { detectMapCircles, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, detectTowerStatus, detectMinionWaves, detectDeadSlots, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
+import { detectMapCircles, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, detectTowerStatus, detectMinionWaves, detectDeadChampions, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
 
 // ─── Champions ────────────────────────────────────────────────────────────────
 const CHAMPIONS = [
@@ -916,20 +916,43 @@ export default function CoachPage(){
         setTowersDown({ally:allyDown,enemy:enemyDown});
       }).catch(()=>{});
 
-      // ── Auto-detect minion waves ──────────────────────────────────────────
+      // ── Auto-detect minion waves (always place 1 per lane per team) ──────────
+      // Detection refines the position; if a lane isn't detected use lane-center defaults.
+      // WR map defaults (0-100 coords, origin top-left, ally base bottom-left):
+      //   Top lane runs along upper-right edge; bot along lower-left; mid diagonal.
+      const WAVE_DEFAULTS={
+        ally:  {Top:{x:68,y:22},Mid:{x:42,y:58},Bot:{x:18,y:72}},
+        enemy: {Top:{x:86,y:8}, Mid:{x:58,y:42},Bot:{x:8, y:86}},
+      } as const;
       detectMinionWaves(minimap).then(({ally:aw,enemy:ew})=>{
-        if(!aw.length&&!ew.length)return;
         const ts2=Date.now();
         setPins(prev=>{
-          // Remove previous auto wave pins; keep manual wave pins
           const noAutoWave=prev.filter(p=>!((p.type==="ally_wave"||p.type==="enemy_wave")&&p.auto));
           const next=[...noAutoWave];
-          // Only place wave pins in actual lane paths — filters river/jungle false positives
-          aw.forEach((w,i)=>{const pos=classifyPos(w.x,w.y,lanePaths,zones);if(pos.kind!=="lane")return;next.push({id:`aw-auto-${ts2}-${i}`,type:"ally_wave",x:w.x,y:w.y,pos,champ:null,auto:true});});
-          ew.forEach((w,i)=>{const pos=classifyPos(w.x,w.y,lanePaths,zones);if(pos.kind!=="lane")return;next.push({id:`ew-auto-${ts2}-${i}`,type:"enemy_wave",x:w.x,y:w.y,pos,champ:null,auto:true});});
+          (["Top","Mid","Bot"] as const).forEach(lane=>{
+            const ad=aw.find(w=>w.lane===lane);
+            const ed=ew.find(w=>w.lane===lane);
+            const ap=ad??WAVE_DEFAULTS.ally[lane];
+            const ep=ed??WAVE_DEFAULTS.enemy[lane];
+            next.push({id:`aw-auto-${ts2}-${lane}`,type:"ally_wave",x:ap.x,y:ap.y,pos:classifyPos(ap.x,ap.y,lanePaths,zones),champ:null,auto:true});
+            next.push({id:`ew-auto-${ts2}-${lane}`,type:"enemy_wave",x:ep.x,y:ep.y,pos:classifyPos(ep.x,ep.y,lanePaths,zones),champ:null,auto:true});
+          });
           return next;
         });
-      }).catch(()=>{});
+      }).catch(()=>{
+        // Even if detection throws, still place all 6 default pins
+        const ts2=Date.now();
+        setPins(prev=>{
+          const noAutoWave=prev.filter(p=>!((p.type==="ally_wave"||p.type==="enemy_wave")&&p.auto));
+          const next=[...noAutoWave];
+          (["Top","Mid","Bot"] as const).forEach(lane=>{
+            const ap=WAVE_DEFAULTS.ally[lane];const ep=WAVE_DEFAULTS.enemy[lane];
+            next.push({id:`aw-auto-${ts2}-${lane}`,type:"ally_wave",x:ap.x,y:ap.y,pos:classifyPos(ap.x,ap.y,lanePaths,zones),champ:null,auto:true});
+            next.push({id:`ew-auto-${ts2}-${lane}`,type:"enemy_wave",x:ep.x,y:ep.y,pos:classifyPos(ep.x,ep.y,lanePaths,zones),champ:null,auto:true});
+          });
+          return next;
+        });
+      });
     }
 
     try{
@@ -939,8 +962,14 @@ export default function CoachPage(){
     try{
       const ps=await cropDataUrl(dataUrl,portraitStripConfig.x,portraitStripConfig.y,portraitStripConfig.w,portraitStripConfig.h);
       setPortraitStripCrop(ps);
-      // Auto-detect dead allies from red death-timer text in portrait strip
-      detectDeadSlots(ps,5).then(dead=>{if(dead.length>0)setAlliesDown(dead);}).catch(()=>{});
+      // Auto-detect dead champions from red death-timer text in portrait strip.
+      // Top half of strip = allies, bottom half = enemies (handles 2-row layout).
+      detectDeadChampions(ps,5).then(({allySlots,enemySlots})=>{
+        if(allySlots.length>0||enemySlots.length>0){
+          if(allySlots.length>0)setAlliesDown(allySlots);
+          if(enemySlots.length>0)setEnemiesDown(enemySlots);
+        }
+      }).catch(()=>{});
     }catch{}
     setDetectingChamps(true);
   },[recropMinimap,timerCropConfig,portraitStripConfig,portraitConfig,lanePaths,zones,myChamp,portraitCropPct]);

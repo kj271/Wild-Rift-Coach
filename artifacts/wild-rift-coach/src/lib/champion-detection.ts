@@ -561,21 +561,31 @@ export async function matchPortrait(
 
 // ── Dead-champion detection via portrait strip death timers ───────────────────
 
+export interface DeadChampResult {
+  /** 0-based slot indices for ally team (top half of the portrait strip). */
+  allySlots: number[];
+  /** 0-based slot indices for enemy team (bottom half of the portrait strip). */
+  enemySlots: number[];
+}
+
 /**
- * Scan a cropped portrait-strip image for red death-timer text.
+ * Scan a cropped portrait-strip image for red death-timer text and return
+ * which champion slots are dead for each team.
  *
- * Wild Rift shows a bright-red countdown number (e.g. "42") below/overlapping
- * each dead champion's portrait.  We divide the strip into `numSlots` equal
- * columns and count pixels where r > 190, g < 90, b < 90.  Slots with ≥15
- * such pixels are flagged as dead.
+ * WR portrait strips can show:
+ *  - A single row (allies only), or
+ *  - Two rows stacked (top = allies, bottom = enemies)
  *
- * Returns the 0-based indices of dead slots (e.g. [0, 2] means slots 0 and 2
- * are dead).  Pass numSlots = 5 for the ally portrait strip.
+ * The strip is divided into a `slotsPerTeam`-column × 2-row grid.  Each cell
+ * counts red pixels (r > 190, g < 90, b < 90).  Cells with ≥ 20 red pixels
+ * are flagged as dead.  Top-half cells → allySlots, bottom-half → enemySlots.
+ *
+ * @param slotsPerTeam  Usually 5 for WR (5v5).
  */
-export function detectDeadSlots(
+export function detectDeadChampions(
   stripDataUrl: string,
-  numSlots = 5,
-): Promise<number[]> {
+  slotsPerTeam = 5,
+): Promise<DeadChampResult> {
   return new Promise(resolve => {
     const img = new Image();
     img.onload = () => {
@@ -585,27 +595,40 @@ export function detectDeadSlots(
       c.getContext("2d")!.drawImage(img, 0, 0);
       const data = c.getContext("2d")!.getImageData(0, 0, W, H).data;
 
-      const slotW = W / numSlots;
-      const dead: number[] = [];
+      const midY = H / 2;
+      const slotW = W / slotsPerTeam;
 
-      for (let i = 0; i < numSlots; i++) {
-        const x0 = Math.round(i * slotW);
-        const x1 = Math.round((i + 1) * slotW);
-        let redPx = 0;
-        for (let y = 0; y < H; y++) {
-          for (let x = x0; x < x1; x++) {
-            const idx = (y * W + x) * 4;
-            const r = data[idx], g = data[idx + 1], b = data[idx + 2];
-            // Bright red death-timer digits: high R, low G, low B
-            if (r > 190 && g < 90 && b < 90 && r > g * 2.5) redPx++;
+      // Per-cell red pixel counts: allyRow[slot] and enemyRow[slot]
+      const allyCount  = new Array<number>(slotsPerTeam).fill(0);
+      const enemyCount = new Array<number>(slotsPerTeam).fill(0);
+
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const idx = (y * W + x) * 4;
+          const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+          if (r > 190 && g < 90 && b < 90 && r > g * 2.5) {
+            const slot = Math.min(Math.floor(x / slotW), slotsPerTeam - 1);
+            if (y < midY) allyCount[slot]++;
+            else          enemyCount[slot]++;
           }
         }
-        if (redPx >= 15) dead.push(i);
       }
 
-      resolve(dead);
+      const THRESHOLD = 20;
+      const allySlots  = allyCount.map((n,i) => n >= THRESHOLD ? i : -1).filter(i => i >= 0);
+      const enemySlots = enemyCount.map((n,i) => n >= THRESHOLD ? i : -1).filter(i => i >= 0);
+
+      resolve({ allySlots, enemySlots });
     };
-    img.onerror = () => resolve([]);
+    img.onerror = () => resolve({ allySlots: [], enemySlots: [] });
     img.src = stripDataUrl;
   });
+}
+
+/** @deprecated Use detectDeadChampions instead */
+export function detectDeadSlots(
+  stripDataUrl: string,
+  numSlots = 5,
+): Promise<number[]> {
+  return detectDeadChampions(stripDataUrl, numSlots).then(r => r.allySlots);
 }
