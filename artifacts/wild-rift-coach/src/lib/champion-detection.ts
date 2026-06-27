@@ -263,8 +263,11 @@ function findBlobs(
       }
       // solid=false (champion ring): reject if interior IS team-coloured (ward/minion)
       // solid=true  (minion fill):   reject if interior is NOT team-coloured (ring)
+      // Threshold scales up for larger blobs: merged/overlapping rings have colored centers
+      // (0.30–0.60 range) while solid wards/structures stay >0.80 regardless.
       const solidRatio = intTotal > 0 ? intColor / intTotal : 0;
-      if (!solid && solidRatio > 0.30) continue;
+      const ringThreshold = !solid ? Math.min(0.60, 0.30 + (Math.max(0, bw - 8) / 20) * 0.30) : 0;
+      if (!solid && solidRatio > ringThreshold) continue;
       if (solid  && solidRatio < 0.15) continue; // loosened: catch shallow-filled minion shapes
 
       out.push({
@@ -515,8 +518,8 @@ export function detectMapCircles(
       ctx.drawImage(img, 0, 0);
       const px = ctx.getImageData(0, 0, W, H).data;
 
-      const MIN_BBOX = 6;  // % — catches edge rings; ring-shape filter handles wards
-      const MAX_BBOX = 22; // % — filters base structures and large patches
+      const MIN_BBOX = 4.5; // % — lowered to catch partial/occluded rings (JG terrain)
+      const MAX_BBOX = 30;  // % — raised to catch merged clusters of 2–3 overlapping circles
 
       const pt = (x: number, y: number) => ({ x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
 
