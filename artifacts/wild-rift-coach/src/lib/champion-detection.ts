@@ -337,12 +337,13 @@ function isGreen(r: number, g: number, b: number): boolean {
   return g > 145 && r < 120 && b < 130 && g > r * 1.7 && g > b * 1.5;
 }
 function isBlue(r: number, g: number, b: number): boolean {
-  // Require blue to clearly exceed green so teal sight wards (b ≈ g) are rejected
-  return b > 155 && r < 160 && b > r * 1.25 && b > g * 1.15;
+  // Lowered brightness floor + relaxed ratios to catch dimmer/darker ally rings
+  // Still rejects teal wards (b ≈ g) via b > g * 1.08
+  return b > 110 && r < 180 && b > r * 1.08 && b > g * 1.08;
 }
 function isRed(r: number, g: number, b: number): boolean {
-  // Lower threshold to catch dimmer enemy rings in jungle terrain
-  return r > 150 && g < 110 && b < 105 && r > g * 2.0;
+  // Relaxed ratio (1.5 → was 2.0) to catch dimmer enemy rings on dark jungle terrain
+  return r > 130 && g < 120 && b < 115 && r > g * 1.5;
 }
 
 // ── Minion wave detection ─────────────────────────────────────────────────────

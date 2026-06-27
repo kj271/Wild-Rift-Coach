@@ -885,6 +885,7 @@ export default function CoachPage(){
   const stripDetectDragRef=useRef<{team:'ally'|'enemy';idx:number;sx:number;sy:number;bx:number;by:number;bsz:number}|null>(null);
   const stripDetectImgRef=useRef<HTMLDivElement>(null);
   const[detectingChamps,setDetectingChamps]=useState(false);
+  const[autoDetectStrip,setAutoDetectStrip]=useState(()=>localStorage.getItem("wr_auto_detect_strip")!=="false");
 
   // Portrait database viewer + crop-size calibration
   const[showPortraitDb,setShowPortraitDb]=useState(false);
@@ -1272,13 +1273,18 @@ export default function CoachPage(){
       }).catch(()=>{});
       // Detect champion names per strip slot (uses per-slot calibrated positions when available)
       const sz=portraitConfig.sizePct??5.5;
-      detectStripSlotChamps(ps,portraitConfig.allies,portraitStripConfig,sz,stripDetectConfig?.ally)
-        .then(setDetectedStripAllies).catch(()=>{});
-      detectStripSlotChamps(ps,portraitConfig.enemies,portraitStripConfig,sz,stripDetectConfig?.enemy)
-        .then(setDetectedStripEnemies).catch(()=>{});
+      if(autoDetectStrip){
+        detectStripSlotChamps(ps,portraitConfig.allies,portraitStripConfig,sz,stripDetectConfig?.ally)
+          .then(setDetectedStripAllies).catch(()=>{});
+        detectStripSlotChamps(ps,portraitConfig.enemies,portraitStripConfig,sz,stripDetectConfig?.enemy)
+          .then(setDetectedStripEnemies).catch(()=>{});
+      } else {
+        setDetectedStripAllies([]);
+        setDetectedStripEnemies([]);
+      }
     }catch{}
     setDetectingChamps(true);
-  },[recropMinimap,timerCropConfig,portraitStripConfig,portraitConfig,lanePaths,zones,myChamp,portraitCropPct,deadSlotBoxes,objPitConfig,stripDetectConfig]);
+  },[recropMinimap,timerCropConfig,portraitStripConfig,portraitConfig,lanePaths,zones,myChamp,portraitCropPct,deadSlotBoxes,objPitConfig,stripDetectConfig,autoDetectStrip]);
 
   const clearPinState=()=>{setPins([]);setBenchPins([]);setObjPins([]);setAlliesDown([]);setEnemiesDown([]);setTowersDown({ally:[],enemy:[]});};
   const applySlotState=(s:ImageSlotState|undefined)=>{
@@ -2159,11 +2165,22 @@ export default function CoachPage(){
                       );
                     })}
                   </div>
-                  <button
-                    onClick={()=>setShowDeadCalib(true)}
-                    className="shrink-0 text-[9px] px-2 py-1 rounded-lg border border-border/40 text-white/40 hover:text-white/70 hover:border-border/60 transition-colors">
-                    ⚙ Calibrate
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      onClick={()=>{const n=!autoDetectStrip;setAutoDetectStrip(n);localStorage.setItem("wr_auto_detect_strip",String(n));}}
+                      className={cn("text-[9px] px-2 py-1 rounded-lg border transition-colors",
+                        autoDetectStrip
+                          ?"border-sky-500/50 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20"
+                          :"border-border/40 text-white/30 hover:text-white/60 hover:border-border/60")}
+                      title={autoDetectStrip?"Auto-detect champ names from strip: ON (tap to disable)":"Auto-detect champ names from strip: OFF (tap to enable)"}>
+                      {autoDetectStrip?"🔍 Champs ON":"🔍 Champs OFF"}
+                    </button>
+                    <button
+                      onClick={()=>setShowDeadCalib(true)}
+                      className="text-[9px] px-2 py-1 rounded-lg border border-border/40 text-white/40 hover:text-white/70 hover:border-border/60 transition-colors">
+                      ⚙ Calibrate
+                    </button>
+                  </div>
                 </div>
                 </div>
               )}
