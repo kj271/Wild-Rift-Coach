@@ -52,7 +52,7 @@ const CHAMPIONS = [
   "Rakan","Rammus","Renekton","Rengar","Riven","Ryze",
   "Seraphine","Senna","Sett","Shen","Shyvana","Singed","Skarner","Smolder","Sona","Soraka","Swain",
   "Taliyah","Teemo","Thresh","Tristana","Tryndamere","Twisted Fate","Twitch",
-  "Varus","Vayne","Veigar","Vi","Viego","Viktor","Vladimir","Volibear",
+  "Varus","Vayne","Veigar","Vel'Koz","Vi","Viego","Viktor","Vladimir","Volibear",
   "Warwick","Wukong",
   "Xayah","Xin Zhao",
   "Yasuo","Yone","Yuumi",

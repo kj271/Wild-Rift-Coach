@@ -318,7 +318,7 @@ function findBlobs(
       // solid=false (champion ring): reject if interior IS team-coloured (ward/minion)
       // solid=true  (minion fill):   reject if interior is NOT team-coloured (ring)
       const solidRatio = intTotal > 0 ? intColor / intTotal : 0;
-      if (!solid && solidRatio > 0.30) continue;
+      if (!solid && solidRatio > 0.38) continue;
       if (solid  && solidRatio < 0.15) continue; // loosened: catch shallow-filled minion shapes
 
       out.push({
@@ -336,7 +336,8 @@ function isGreen(r: number, g: number, b: number): boolean {
   return g > 145 && r < 120 && b < 130 && g > r * 1.7 && g > b * 1.5;
 }
 function isBlue(r: number, g: number, b: number): boolean {
-  return b > 155 && r < 160 && b > r * 1.25 && b > g * 0.75;
+  // Require blue to clearly exceed green so teal sight wards (b ≈ g) are rejected
+  return b > 155 && r < 160 && b > r * 1.25 && b > g * 1.15;
 }
 function isRed(r: number, g: number, b: number): boolean {
   return r > 170 && g < 120 && b < 110 && r > g * 2.2;
