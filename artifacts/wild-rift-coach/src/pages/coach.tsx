@@ -28,7 +28,7 @@ import {
   Database, Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { detectMapCircles, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, detectTowerStatus, detectMinionWaves, detectDeadChampions, DeadDetectOptions, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
+import { detectMapCircles, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, detectTowerStatus, detectMinionWaves, detectDeadBySlotBoxes, SlotBox, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
 
 // ─── Champions ────────────────────────────────────────────────────────────────
 const CHAMPIONS = [
@@ -225,6 +225,33 @@ function classifyPos(x:number,y:number,lanePaths:LanePaths,zones:ZoneData[]):Pos
 function posLabel(pos:PosInfo):string{
   if(pos.kind==="lane")return`${pos.lane} ${pos.progress}% (${pos.category})`;
   return pos.zone;
+}
+
+// ── Lane midpoint helper ──────────────────────────────────────────────────────
+// Returns a point at fraction t (0=ally base, 1=enemy base) along a polyline.
+function lanePoint(path:Point[],t:number):{x:number;y:number}{
+  if(!path.length)return{x:50,y:50};
+  if(path.length===1)return{x:path[0].x,y:path[0].y};
+  const lens:number[]=[];
+  for(let i=0;i<path.length-1;i++){const dx=path[i+1].x-path[i].x,dy=path[i+1].y-path[i].y;lens.push(Math.sqrt(dx*dx+dy*dy));}
+  const total=lens.reduce((s,l)=>s+l,0);
+  let walked=0,target=t*total;
+  for(let i=0;i<lens.length;i++){
+    if(walked+lens[i]>=target){const f=lens[i]>0?(target-walked)/lens[i]:0;return{x:path[i].x+f*(path[i+1].x-path[i].x),y:path[i].y+f*(path[i+1].y-path[i].y)};}
+    walked+=lens[i];
+  }
+  return{x:path[path.length-1].x,y:path[path.length-1].y};
+}
+
+// ── Per-slot dead calibration box types ──────────────────────────────────────
+type DeadSlotBoxes={ally:SlotBox[];enemy:SlotBox[]};
+const DEFAULT_DEAD_SLOT_BOXES:DeadSlotBoxes={
+  ally: Array.from({length:5},(_,i)=>({x:i*20,y:0,w:20,h:50})),
+  enemy:Array.from({length:5},(_,i)=>({x:i*20,y:50,w:20,h:50})),
+};
+function loadDeadBoxes():DeadSlotBoxes{
+  try{const s=localStorage.getItem("wr_dead_slot_boxes");return s?JSON.parse(s):DEFAULT_DEAD_SLOT_BOXES;}
+  catch{return DEFAULT_DEAD_SLOT_BOXES;}
 }
 
 // Returns the slot number for the i-th pin of a given type, skipping slots already
@@ -708,9 +735,32 @@ export default function CoachPage(){
   const loadPortraitDb=useCallback(()=>{getAllPortraitEntries().then(setPortraitDbEntries).catch(()=>{});},[]);
   const[portraitCropPct,_setPortraitCropPct]=useState(()=>parseInt(localStorage.getItem("wr_portrait_crop_pct")??"12"));
   // Dead-timer detection calibration
-  const[deadSplitY,setDeadSplitY]=useState(()=>parseInt(localStorage.getItem("wr_dead_split_y")??"50"));
-  const[deadScanY0,setDeadScanY0]=useState(()=>parseInt(localStorage.getItem("wr_dead_scan_y0")??"50"));
-  const[deadScanY1,setDeadScanY1]=useState(()=>parseInt(localStorage.getItem("wr_dead_scan_y1")??"100"));
+  const[deadSlotBoxes,setDeadSlotBoxes]=useState<DeadSlotBoxes>(loadDeadBoxes);
+  const[showDeadCalib,setShowDeadCalib]=useState(false);
+  const deadDragRef=useRef<{team:'ally'|'enemy';idx:number;type:'move'|'resize';sx:number;sy:number;bx:number;by:number;bw:number;bh:number}|null>(null);
+  const deadCalibImgRef=useRef<HTMLDivElement>(null);
+  const onDeadBoxPointerDown=useCallback((e:React.PointerEvent,team:'ally'|'enemy',idx:number,type:'move'|'resize')=>{
+    e.stopPropagation();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    const boxes=team==='ally'?deadSlotBoxes.ally:deadSlotBoxes.enemy;
+    const b=boxes[idx];
+    deadDragRef.current={team,idx,type,sx:e.clientX,sy:e.clientY,bx:b.x,by:b.y,bw:b.w,bh:b.h};
+  },[deadSlotBoxes]);
+  const onDeadCalibPointerMove=useCallback((e:React.PointerEvent)=>{
+    const drag=deadDragRef.current;if(!drag||!deadCalibImgRef.current)return;
+    const rect=deadCalibImgRef.current.getBoundingClientRect();
+    const dx=(e.clientX-drag.sx)/rect.width*100;
+    const dy=(e.clientY-drag.sy)/rect.height*100;
+    const clamp=(v:number,lo:number,hi:number)=>Math.max(lo,Math.min(hi,v));
+    setDeadSlotBoxes(prev=>{
+      const boxes=[...prev[drag.team]];
+      const b=boxes[drag.idx];
+      if(drag.type==='move'){boxes[drag.idx]={...b,x:clamp(drag.bx+dx,0,100-b.w),y:clamp(drag.by+dy,0,100-b.h)};}
+      else{boxes[drag.idx]={...b,w:clamp(drag.bw+dx,5,100-b.x),h:clamp(drag.bh+dy,5,100-b.y)};}
+      return{...prev,[drag.team]:boxes};
+    });
+  },[]);
+  const onDeadCalibPointerUp=useCallback(()=>{deadDragRef.current=null;},[]);
   const setPortraitCropPct=useCallback((v:number)=>{
     const clamped=Math.max(6,Math.min(25,v));
     _setPortraitCropPct(clamped);
@@ -921,15 +971,15 @@ export default function CoachPage(){
         setTowersDown({ally:allyDown,enemy:enemyDown});
       }).catch(()=>{});
 
-      // ── Auto-detect minion waves (always place 1 per lane per team) ──────────
-      // Detection refines the position; if a lane isn't detected use lane-center defaults.
-      // WR map defaults (0-100 coords, origin top-left, ally base bottom-left):
-      //   Top lane runs along upper-right edge; bot along lower-left; mid diagonal.
-      const WAVE_DEFAULTS={
-        ally:  {Top:{x:68,y:22},Mid:{x:42,y:58},Bot:{x:18,y:72}},
-        enemy: {Top:{x:86,y:8}, Mid:{x:58,y:42},Bot:{x:8, y:86}},
-      } as const;
-      detectMinionWaves(minimap).then(({ally:aw,enemy:ew})=>{
+      // ── Auto-detect minion waves (1 ally + 1 enemy per lane, ON the user's configured lane paths) ──
+      // Wave defaults are midpoints along the user's calibrated lane paths so pins always land in the right lane.
+      // lanePaths.baron = Top lane, lanePaths.mid = Mid, lanePaths.dragon = Bot.
+      // t=0.35 → toward ally base (ally wave front); t=0.65 → toward enemy base (enemy wave front).
+      const waveDefaults={
+        ally:  {Top:lanePoint(lanePaths.baron,0.35),Mid:lanePoint(lanePaths.mid,0.35),Bot:lanePoint(lanePaths.dragon,0.35)},
+        enemy: {Top:lanePoint(lanePaths.baron,0.65),Mid:lanePoint(lanePaths.mid,0.65),Bot:lanePoint(lanePaths.dragon,0.65)},
+      };
+      const placeWavePins=(aw:{lane:string;x:number;y:number}[],ew:{lane:string;x:number;y:number}[])=>{
         const ts2=Date.now();
         setPins(prev=>{
           const noAutoWave=prev.filter(p=>!((p.type==="ally_wave"||p.type==="enemy_wave")&&p.auto));
@@ -937,27 +987,15 @@ export default function CoachPage(){
           (["Top","Mid","Bot"] as const).forEach(lane=>{
             const ad=aw.find(w=>w.lane===lane);
             const ed=ew.find(w=>w.lane===lane);
-            const ap=ad??WAVE_DEFAULTS.ally[lane];
-            const ep=ed??WAVE_DEFAULTS.enemy[lane];
+            const ap=ad??waveDefaults.ally[lane];
+            const ep=ed??waveDefaults.enemy[lane];
             next.push({id:`aw-auto-${ts2}-${lane}`,type:"ally_wave",x:ap.x,y:ap.y,pos:classifyPos(ap.x,ap.y,lanePaths,zones),champ:null,auto:true});
             next.push({id:`ew-auto-${ts2}-${lane}`,type:"enemy_wave",x:ep.x,y:ep.y,pos:classifyPos(ep.x,ep.y,lanePaths,zones),champ:null,auto:true});
           });
           return next;
         });
-      }).catch(()=>{
-        // Even if detection throws, still place all 6 default pins
-        const ts2=Date.now();
-        setPins(prev=>{
-          const noAutoWave=prev.filter(p=>!((p.type==="ally_wave"||p.type==="enemy_wave")&&p.auto));
-          const next=[...noAutoWave];
-          (["Top","Mid","Bot"] as const).forEach(lane=>{
-            const ap=WAVE_DEFAULTS.ally[lane];const ep=WAVE_DEFAULTS.enemy[lane];
-            next.push({id:`aw-auto-${ts2}-${lane}`,type:"ally_wave",x:ap.x,y:ap.y,pos:classifyPos(ap.x,ap.y,lanePaths,zones),champ:null,auto:true});
-            next.push({id:`ew-auto-${ts2}-${lane}`,type:"enemy_wave",x:ep.x,y:ep.y,pos:classifyPos(ep.x,ep.y,lanePaths,zones),champ:null,auto:true});
-          });
-          return next;
-        });
-      });
+      };
+      detectMinionWaves(minimap).then(({ally:aw,enemy:ew})=>placeWavePins(aw,ew)).catch(()=>placeWavePins([],[]));
     }
 
     try{
@@ -969,14 +1007,13 @@ export default function CoachPage(){
       setPortraitStripCrop(ps);
       // Auto-detect dead champions from red death-timer text in portrait strip.
       // Top half of strip = allies, bottom half = enemies (handles 2-row layout).
-      const deadOpts:DeadDetectOptions={splitY:deadSplitY,sectionScanY0:deadScanY0,sectionScanY1:deadScanY1};
-      detectDeadChampions(ps,5,deadOpts).then(({allySlots,enemySlots})=>{
-        if(allySlots.length>0)setAlliesDown(allySlots);
-        if(enemySlots.length>0)setEnemiesDown(enemySlots);
+      detectDeadBySlotBoxes(ps,deadSlotBoxes.ally,deadSlotBoxes.enemy).then(({allySlots,enemySlots})=>{
+        if(allySlots.length>0)setAlliesDown(allySlots.map(i=>i+1));
+        if(enemySlots.length>0)setEnemiesDown(enemySlots.map(i=>i+1));
       }).catch(()=>{});
     }catch{}
     setDetectingChamps(true);
-  },[recropMinimap,timerCropConfig,portraitStripConfig,portraitConfig,lanePaths,zones,myChamp,portraitCropPct,deadSplitY,deadScanY0,deadScanY1]);
+  },[recropMinimap,timerCropConfig,portraitStripConfig,portraitConfig,lanePaths,zones,myChamp,portraitCropPct,deadSlotBoxes]);
 
   const clearPinState=()=>{setPins([]);setBenchPins([]);setObjPins([]);setAlliesDown([]);setEnemiesDown([]);setTowersDown({ally:[],enemy:[]});};
   const applySlotState=(s:ImageSlotState|undefined)=>{
@@ -1755,36 +1792,29 @@ export default function CoachPage(){
                   )}
                 </div>
               )}
-              {/* Portrait strip with calibrated tap zones + dead-timer scan band overlaid */}
+              {/* Portrait strip with calibrated tap zones */}
               {portraitStripCrop&&(
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                 <div className="relative rounded-xl overflow-hidden border border-border/30">
                   <img src={portraitStripCrop} alt="Portrait strip" className="w-full h-auto block pointer-events-none select-none"/>
-                  {/* Ally scan band (blue) */}
-                  <div className="absolute inset-x-0 pointer-events-none"
-                    style={{top:`${deadSplitY*deadScanY0/100}%`,height:`${deadSplitY*(deadScanY1-deadScanY0)/100}%`,background:"rgba(56,189,248,0.15)",borderTop:"1px solid rgba(56,189,248,0.5)",borderBottom:"1px solid rgba(56,189,248,0.5)"}}/>
-                  {/* Ally/enemy split line */}
-                  <div className="absolute inset-x-0 pointer-events-none border-t border-dashed border-white/30" style={{top:`${deadSplitY}%`}}/>
-                  {/* Enemy scan band (red) */}
-                  <div className="absolute inset-x-0 pointer-events-none"
-                    style={{top:`${deadSplitY+(100-deadSplitY)*deadScanY0/100}%`,height:`${(100-deadSplitY)*(deadScanY1-deadScanY0)/100}%`,background:"rgba(239,68,68,0.15)",borderTop:"1px solid rgba(239,68,68,0.5)",borderBottom:"1px solid rgba(239,68,68,0.5)"}}/>
-                  {/* Ally tap zones — translate full-image % coords to strip-relative % */}
+                  {/* Ally tap zones — tap to toggle dead; shows champ name if known */}
                   {portraitConfig.allies.map((pos,i)=>{
                     const n=i+1,dead=alliesDown.includes(n);
                     const sx=((pos.x-portraitStripConfig.x)/portraitStripConfig.w)*100;
                     const sy=((pos.y-portraitStripConfig.y)/portraitStripConfig.h)*100;
                     const sz=portraitConfig.sizePct??5.5;
                     if(sx<-5||sx>105||sy<-5||sy>105)return null;
+                    const champName=detectedAllies[i]||null;
                     return(
                       <button key={`ps-a${n}`}
                         onClick={()=>setAlliesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
-                        className="absolute rounded-full flex items-center justify-center font-bold leading-none select-none"
+                        className="absolute rounded-full flex flex-col items-center justify-center leading-none select-none"
                         style={{left:`${sx}%`,top:`${sy}%`,transform:"translate(-50%,-50%)",width:`${sz}%`,aspectRatio:"1",
-                          background:dead?"rgba(2,6,23,0.85)":"transparent",
-                          border:dead?"2px solid rgba(56,189,248,0.7)":"2px solid transparent",
+                          background:dead?"rgba(2,6,23,0.92)":"transparent",
+                          border:dead?"2px solid rgba(56,189,248,0.8)":"2px solid transparent",
                           color:dead?"#7dd3fc":"transparent",
-                          fontSize:`${sz*0.13}vw`}}>
-                        {dead?`A${n}`:""}
+                          fontSize:`${sz*0.12}vw`}}>
+                        {dead&&<span className="font-bold leading-none">{champName??"A"+n}</span>}
                       </button>
                     );
                   })}
@@ -1795,37 +1825,53 @@ export default function CoachPage(){
                     const sy=((pos.y-portraitStripConfig.y)/portraitStripConfig.h)*100;
                     const sz=portraitConfig.sizePct??5.5;
                     if(sx<-5||sx>105||sy<-5||sy>105)return null;
+                    const champName=detectedEnemies[i]||null;
                     return(
                       <button key={`ps-e${n}`}
                         onClick={()=>setEnemiesDown(p=>dead?p.filter(x=>x!==n):[...p,n])}
-                        className="absolute rounded-full flex items-center justify-center font-bold leading-none select-none"
+                        className="absolute rounded-full flex flex-col items-center justify-center leading-none select-none"
                         style={{left:`${sx}%`,top:`${sy}%`,transform:"translate(-50%,-50%)",width:`${sz}%`,aspectRatio:"1",
-                          background:dead?"rgba(2,6,23,0.85)":"transparent",
-                          border:dead?"2px solid rgba(239,68,68,0.7)":"2px solid transparent",
+                          background:dead?"rgba(2,6,23,0.92)":"transparent",
+                          border:dead?"2px solid rgba(239,68,68,0.8)":"2px solid transparent",
                           color:dead?"#fca5a5":"transparent",
-                          fontSize:`${sz*0.13}vw`}}>
-                        {dead?`E${n}`:""}
+                          fontSize:`${sz*0.12}vw`}}>
+                        {dead&&<span className="font-bold leading-none">{champName??"E"+n}</span>}
                       </button>
                     );
                   })}
                 </div>
-                {/* Dead-timer calibration sliders */}
-                <div className="px-1 space-y-1.5">
-                  <p className="text-[9px] font-display uppercase tracking-widest text-white/30">Dead timer detection</p>
-                  {[
-                    {label:"Ally / Enemy split",val:deadSplitY,set:(v:number)=>{setDeadSplitY(v);localStorage.setItem("wr_dead_split_y",String(v));}},
-                    {label:"Scan band top",val:deadScanY0,set:(v:number)=>{setDeadScanY0(v);localStorage.setItem("wr_dead_scan_y0",String(v));}},
-                    {label:"Scan band bottom",val:deadScanY1,set:(v:number)=>{setDeadScanY1(v);localStorage.setItem("wr_dead_scan_y1",String(v));}},
-                  ].map(({label,val,set})=>(
-                    <div key={label} className="flex items-center gap-2">
-                      <span className="text-[9px] text-white/40 w-28 shrink-0">{label}</span>
-                      <input type="range" min={0} max={100} value={val}
-                        onChange={e=>set(Number(e.target.value))}
-                        className="flex-1 accent-sky-400 h-1"/>
-                      <span className="text-[9px] text-white/50 w-7 text-right tabular-nums">{val}%</span>
-                    </div>
-                  ))}
-                  <p className="text-[8px] text-white/20 leading-tight">Blue band = where app scans for ally death timers. Red band = enemy. Drag sliders so the coloured bands cover the red countdown numbers on your portrait strip.</p>
+                {/* Who's down + calibrate row */}
+                <div className="flex items-center justify-between gap-2 px-0.5">
+                  <div className="flex flex-wrap gap-1 flex-1 min-w-0">
+                    {alliesDown.length===0&&enemiesDown.length===0&&(
+                      <span className="text-[9px] text-white/25">Tap a portrait to mark dead · auto-detects on screenshot</span>
+                    )}
+                    {alliesDown.sort((a,b)=>a-b).map(n=>{
+                      const champName=detectedAllies[n-1]||null;
+                      return(
+                        <button key={`ad${n}`}
+                          onClick={()=>setAlliesDown(p=>p.filter(x=>x!==n))}
+                          className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full border border-sky-400/40 bg-sky-400/10 text-sky-300 text-[9px] font-bold">
+                          ☠ {champName??`A${n}`}
+                        </button>
+                      );
+                    })}
+                    {enemiesDown.sort((a,b)=>a-b).map(n=>{
+                      const champName=detectedEnemies[n-1]||null;
+                      return(
+                        <button key={`ed${n}`}
+                          onClick={()=>setEnemiesDown(p=>p.filter(x=>x!==n))}
+                          className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full border border-red-400/40 bg-red-400/10 text-red-300 text-[9px] font-bold">
+                          ☠ {champName??`E${n}`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    onClick={()=>setShowDeadCalib(true)}
+                    className="shrink-0 text-[9px] px-2 py-1 rounded-lg border border-border/40 text-white/40 hover:text-white/70 hover:border-border/60 transition-colors">
+                    ⚙ Calibrate
+                  </button>
                 </div>
                 </div>
               )}
@@ -2338,6 +2384,79 @@ export default function CoachPage(){
           />
         );
       })()}
+
+      {/* ── Dead-timer calibration popup ──────────────────────────────────── */}
+      {showDeadCalib&&(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85" onClick={()=>setShowDeadCalib(false)}>
+          <div className="bg-[#0d1117] rounded-2xl border border-border/50 p-4 space-y-3 w-full max-w-md" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-display font-bold text-white/90">Dead Timer Calibration</h3>
+                <p className="text-[9px] text-white/35 mt-0.5">Drag boxes onto where each champion's countdown number appears. Blue = allies, red = enemies.</p>
+              </div>
+              <button onClick={()=>setShowDeadCalib(false)} className="text-white/40 hover:text-white/70 text-lg leading-none px-1">✕</button>
+            </div>
+
+            {/* Portrait strip with drag boxes */}
+            {portraitStripCrop?(
+              <div
+                ref={deadCalibImgRef}
+                className="relative rounded-xl overflow-hidden select-none border border-border/30"
+                style={{touchAction:"none"}}
+                onPointerMove={onDeadCalibPointerMove}
+                onPointerUp={onDeadCalibPointerUp}
+                onPointerLeave={onDeadCalibPointerUp}
+              >
+                <img src={portraitStripCrop} alt="Portrait strip" className="w-full h-auto block pointer-events-none"/>
+                {/* Ally boxes (blue) */}
+                {deadSlotBoxes.ally.map((box,i)=>(
+                  <div key={`dab${i}`}
+                    className="absolute cursor-move"
+                    style={{left:`${box.x}%`,top:`${box.y}%`,width:`${box.w}%`,height:`${box.h}%`,
+                      border:"2px solid rgba(56,189,248,0.8)",background:"rgba(56,189,248,0.12)",boxSizing:"border-box"}}
+                    onPointerDown={e=>onDeadBoxPointerDown(e,"ally",i,"move")}>
+                    <span style={{position:"absolute",top:1,left:2,fontSize:"10px",color:"#38bdf8",fontWeight:"bold",lineHeight:1,pointerEvents:"none"}}>
+                      {detectedAllies[i]??`A${i+1}`}
+                    </span>
+                    {/* Resize corner */}
+                    <div style={{position:"absolute",bottom:0,right:0,width:12,height:12,background:"rgba(56,189,248,0.6)",cursor:"se-resize",touchAction:"none"}}
+                      onPointerDown={e=>{e.stopPropagation();onDeadBoxPointerDown(e,"ally",i,"resize");}}/>
+                  </div>
+                ))}
+                {/* Enemy boxes (red) */}
+                {deadSlotBoxes.enemy.map((box,i)=>(
+                  <div key={`deb${i}`}
+                    className="absolute cursor-move"
+                    style={{left:`${box.x}%`,top:`${box.y}%`,width:`${box.w}%`,height:`${box.h}%`,
+                      border:"2px solid rgba(239,68,68,0.8)",background:"rgba(239,68,68,0.12)",boxSizing:"border-box"}}
+                    onPointerDown={e=>onDeadBoxPointerDown(e,"enemy",i,"move")}>
+                    <span style={{position:"absolute",top:1,left:2,fontSize:"10px",color:"#f87171",fontWeight:"bold",lineHeight:1,pointerEvents:"none"}}>
+                      {detectedEnemies[i]??`E${i+1}`}
+                    </span>
+                    <div style={{position:"absolute",bottom:0,right:0,width:12,height:12,background:"rgba(239,68,68,0.6)",cursor:"se-resize",touchAction:"none"}}
+                      onPointerDown={e=>{e.stopPropagation();onDeadBoxPointerDown(e,"enemy",i,"resize");}}/>
+                  </div>
+                ))}
+              </div>
+            ):(
+              <p className="text-[10px] text-white/30 text-center py-4">Upload a screenshot first so the portrait strip appears here.</p>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={()=>setDeadSlotBoxes(DEFAULT_DEAD_SLOT_BOXES)}
+                className="flex-1 text-[11px] py-1.5 rounded-lg border border-border/40 text-white/50 hover:text-white/70 transition-colors">
+                Reset to defaults
+              </button>
+              <button
+                onClick={()=>{localStorage.setItem("wr_dead_slot_boxes",JSON.stringify(deadSlotBoxes));setShowDeadCalib(false);}}
+                className="flex-1 text-[11px] py-1.5 rounded-lg bg-sky-500/20 border border-sky-500/40 text-sky-300 font-semibold hover:bg-sky-500/30 transition-colors">
+                Save & Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

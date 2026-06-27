@@ -651,6 +651,56 @@ export function detectDeadChampions(
   });
 }
 
+// ── Per-slot box-based dead detection ────────────────────────────────────────
+
+/** A rectangle region on the portrait strip expressed as % of strip dimensions. */
+export interface SlotBox { x: number; y: number; w: number; h: number }
+
+/**
+ * Detect dead champion slots by scanning user-configured rectangles for bright
+ * red death-timer text (r>190, g<90, b<90).  Each slot has its own box so the
+ * user can calibrate exactly where each champion's countdown number appears.
+ */
+export function detectDeadBySlotBoxes(
+  stripDataUrl: string,
+  allyBoxes: SlotBox[],
+  enemyBoxes: SlotBox[],
+): Promise<DeadChampResult> {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const W = img.width, H = img.height;
+      const c = document.createElement("canvas");
+      c.width = W; c.height = H;
+      c.getContext("2d")!.drawImage(img, 0, 0);
+      const data = c.getContext("2d")!.getImageData(0, 0, W, H).data;
+
+      const scanBox = (box: SlotBox): number => {
+        const x0 = Math.round(Math.max(0, box.x * W / 100));
+        const x1 = Math.round(Math.min(W, (box.x + box.w) * W / 100));
+        const y0 = Math.round(Math.max(0, box.y * H / 100));
+        const y1 = Math.round(Math.min(H, (box.y + box.h) * H / 100));
+        let count = 0;
+        for (let y = y0; y < y1; y++) {
+          for (let x = x0; x < x1; x++) {
+            const idx = (y * W + x) * 4;
+            const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+            if (r > 190 && g < 90 && b < 90 && r > g * 2.5) count++;
+          }
+        }
+        return count;
+      };
+
+      const THRESHOLD = 15;
+      const allySlots  = allyBoxes.map((box, i) => scanBox(box) >= THRESHOLD ? i : -1).filter(i => i >= 0);
+      const enemySlots = enemyBoxes.map((box, i) => scanBox(box) >= THRESHOLD ? i : -1).filter(i => i >= 0);
+      resolve({ allySlots, enemySlots });
+    };
+    img.onerror = () => resolve({ allySlots: [], enemySlots: [] });
+    img.src = stripDataUrl;
+  });
+}
+
 /** @deprecated Use detectDeadChampions instead */
 export function detectDeadSlots(
   stripDataUrl: string,
