@@ -27,7 +27,7 @@ import {
   ChevronDown, ChevronUp, Crop, Map as MapIcon, Star, RotateCcw, Bug, Timer, Clock, Building2, Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { detectGreenCircle, matchPortrait, prewarmChampSigs } from "@/lib/champion-detection";
+import { detectMapCircles, matchCropToStrip, matchPortrait, prewarmChampSigs } from "@/lib/champion-detection";
 
 // ─── Champions ────────────────────────────────────────────────────────────────
 const CHAMPIONS = [
@@ -71,7 +71,7 @@ type LanePos = { kind: "lane"; lane: string; progress: number; category: string 
 type ZonePos = { kind: "zone"; zone: string };
 type PosInfo = LanePos | ZonePos;
 
-interface MapPin { id: string; type: PinType; x: number; y: number; pos: PosInfo; champ: string | null }
+interface MapPin { id: string; type: PinType; x: number; y: number; pos: PosInfo; champ: string | null; auto?: boolean }
 interface ImageSlotState { pins:MapPin[]; benchPins:MapPin[]; objPins:ObjPin[]; alliesDown:number[]; enemiesDown:number[]; towersDown:{ally:number[];enemy:number[]} }
 
 // ─── Session persistence ───────────────────────────────────────────────────────
@@ -865,12 +865,74 @@ export default function CoachPage(){
 
     const minimap=await recropMinimap(dataUrl);
 
-    // Auto-detect player position from green circle on minimap
+    // ── Detect all minimap circles (me/allies/enemies) ──────────────────────
     if(minimap){
-      detectGreenCircle(minimap).then(pos=>{
-        if(!pos)return;
-        const classPos=classifyPos(pos.x,pos.y,lanePaths,zones);
-        setPins(p=>[...p.filter(pp=>pp.type!=="me"),{id:`me-${Date.now()}`,type:"me",x:pos.x,y:pos.y,pos:classPos,champ:myChamp}]);
+      detectMapCircles(minimap).then(({me,allies,enemies})=>{
+        const ts=Date.now();
+        // Remove previous auto-placed champion pins; keep manual ones
+        setPins(prev=>{
+          const manual=prev.filter(p=>!p.auto);
+          const next:[...typeof manual]=manual;
+          if(me){
+            next.push({id:`me-${ts}`,type:"me",x:me.x,y:me.y,pos:classifyPos(me.x,me.y,lanePaths,zones),champ:myChamp,auto:true});
+          }
+          allies.forEach((a,i)=>{
+            next.push({id:`ally-auto-${ts}-${i}`,type:"ally",x:a.x,y:a.y,pos:classifyPos(a.x,a.y,lanePaths,zones),champ:null,auto:true});
+          });
+          enemies.forEach((e,i)=>{
+            next.push({id:`enemy-auto-${ts}-${i}`,type:"enemy",x:e.x,y:e.y,pos:classifyPos(e.x,e.y,lanePaths,zones),champ:null,auto:true});
+          });
+          return next;
+        });
+
+        // ── Match minimap portrait crops against portrait strip thumbnails ──
+        // Crop portrait strip slot images from the full screenshot
+        const sz=portraitConfig.sizePct??5.5;
+        const half=sz/2;
+        Promise.all([
+          ...portraitConfig.allies.map(pos=>cropDataUrl(dataUrl,pos.x-half,pos.y-half,sz,sz).catch(():null=>null)),
+          ...portraitConfig.enemies.map(pos=>cropDataUrl(dataUrl,pos.x-half,pos.y-half,sz,sz).catch(():null=>null)),
+        ]).then(async stripCrops=>{
+          const allyCrops=stripCrops.slice(0,4);
+          const enemyCrops=stripCrops.slice(4);
+
+          // Match each detected ally/enemy circle to closest strip slot
+          const assignChamp=async(detected:{x:number;y:number;portraitDataUrl:string|null}[],slotCrops:(string|null)[],type:"ally"|"enemy")=>{
+            const updates:Array<{id:string;champ:string|null}>=[];
+            for(let i=0;i<detected.length;i++){
+              const d=detected[i];
+              if(!d.portraitDataUrl)continue;
+              const slotIdx=await matchCropToStrip(d.portraitDataUrl,slotCrops).catch(():null=>null);
+              if(slotIdx!==null&&slotCrops[slotIdx]){
+                // Also try to name the champion by matching strip crop vs Data Dragon
+                const name=await matchPortrait(slotCrops[slotIdx]!,CHAMPIONS).catch(():null=>null);
+                updates.push({id:`${type}-auto-${ts}-${i}`,champ:name?.name??null});
+              }
+            }
+            return updates;
+          };
+
+          const [allyUpdates,enemyUpdates]=await Promise.all([
+            assignChamp(allies,allyCrops,"ally"),
+            assignChamp(enemies,enemyCrops,"enemy"),
+          ]);
+          const allUpdates=[...allyUpdates,...enemyUpdates];
+          if(allUpdates.length){
+            setPins(prev=>prev.map(p=>{
+              const u=allUpdates.find(u=>u.id===p.id);
+              return u?{...p,champ:u.champ}:p;
+            }));
+          }
+
+          // Also set detected chips from strip slot Data Dragon matching
+          const [detectedA,detectedE]=await Promise.all([
+            Promise.all(allyCrops.map(c=>c?matchPortrait(c,CHAMPIONS).catch(():null=>null):Promise.resolve(null))),
+            Promise.all(enemyCrops.map(c=>c?matchPortrait(c,CHAMPIONS).catch(():null=>null):Promise.resolve(null))),
+          ]);
+          setDetectedAllies(detectedA.map(r=>r?.name??null));
+          setDetectedEnemies(detectedE.map(r=>r?.name??null));
+          setDetectingChamps(false);
+        }).catch(()=>setDetectingChamps(false));
       }).catch(()=>{});
     }
 
@@ -882,27 +944,7 @@ export default function CoachPage(){
       const ps=await cropDataUrl(dataUrl,portraitStripConfig.x,portraitStripConfig.y,portraitStripConfig.w,portraitStripConfig.h);
       setPortraitStripCrop(ps);
     }catch{}
-
-    // Auto-detect champions from portrait positions (runs in background)
-    const sz=portraitConfig.sizePct??5.5;
-    const half=sz/2;
     setDetectingChamps(true);
-    Promise.all([
-      ...portraitConfig.allies.map(pos=>
-        cropDataUrl(dataUrl,pos.x-half,pos.y-half,sz,sz)
-          .then(c=>matchPortrait(c,CHAMPIONS))
-          .catch(():null=>null)
-      ),
-      ...portraitConfig.enemies.map(pos=>
-        cropDataUrl(dataUrl,pos.x-half,pos.y-half,sz,sz)
-          .then(c=>matchPortrait(c,CHAMPIONS))
-          .catch(():null=>null)
-      ),
-    ]).then(results=>{
-      setDetectedAllies(results.slice(0,4).map(r=>r?.name??null));
-      setDetectedEnemies(results.slice(4).map(r=>r?.name??null));
-      setDetectingChamps(false);
-    }).catch(()=>setDetectingChamps(false));
   },[recropMinimap,timerCropConfig,portraitStripConfig,portraitConfig,lanePaths,zones,myChamp]);
 
   const clearPinState=()=>{setPins([]);setBenchPins([]);setObjPins([]);setAlliesDown([]);setEnemiesDown([]);setTowersDown({ally:[],enemy:[]});};
