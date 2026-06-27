@@ -386,6 +386,86 @@ export function detectMinionWaves(minimapDataUrl: string): Promise<MinionWaveRes
   });
 }
 
+/** Point-to-polyline distance in % coordinates. */
+function _distToPath(cx: number, cy: number, path: {x:number;y:number}[]): number {
+  let min = Infinity;
+  for (let i = 0; i < path.length - 1; i++) {
+    const a = path[i], b = path[i+1];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len2 = dx*dx + dy*dy;
+    let t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((cx-a.x)*dx + (cy-a.y)*dy) / len2));
+    const nx = a.x + t*dx, ny = a.y + t*dy;
+    min = Math.min(min, Math.sqrt((cx-nx)**2 + (cy-ny)**2));
+  }
+  return min;
+}
+
+/**
+ * Detect minion waves ONLY within calibrated lane corridors.
+ *
+ * For each lane (Top/Mid/Bot), scans only blobs within `corridorPct` (default 8%)
+ * of the calibrated lane path. Among those blobs, picks the most-advanced one:
+ *   – Ally  (blue): furthest from ally base (0%, 100%) = most pushed toward enemy
+ *   – Enemy (red):  furthest from enemy base (100%, 0%) = most pushed toward ally
+ *
+ * Returns at most one ally pin and one enemy pin per lane.
+ * Returns no pin for a lane when no blobs are found inside its corridor
+ * (coach.tsx falls back to the calibrated lane midpoint default).
+ */
+export function detectMinionWavesInLanes(
+  minimapDataUrl: string,
+  lanes: { baron: {x:number;y:number}[]; mid: {x:number;y:number}[]; dragon: {x:number;y:number}[] },
+  corridorPct = 8,
+): Promise<MinionWaveResult> {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const W = img.width, H = img.height;
+      const c = document.createElement("canvas");
+      c.width = W; c.height = H;
+      c.getContext("2d")!.drawImage(img, 0, 0);
+      const px = c.getContext("2d")!.getImageData(0, 0, W, H).data;
+
+      const MIN = 1.5, MAX = 6;
+      const allyBlobs  = findBlobs(px, W, H, isBlue, MIN, MAX, true);
+      const enemyBlobs = findBlobs(px, W, H, isRed,  MIN, MAX, true);
+
+      // Distance from ally base (bottom-left 0,100) and enemy base (top-right 100,0)
+      const dAllyBase  = (b: Blob) => Math.sqrt(b.cx**2 + (100-b.cy)**2);
+      const dEnemyBase = (b: Blob) => Math.sqrt((100-b.cx)**2 + b.cy**2);
+
+      const laneEntries: [MinionLane, {x:number;y:number}[]][] = [
+        ["Top", lanes.baron],
+        ["Mid", lanes.mid],
+        ["Bot", lanes.dragon],
+      ];
+
+      const allyPins:  MinionWavePin[] = [];
+      const enemyPins: MinionWavePin[] = [];
+
+      for (const [lane, path] of laneEntries) {
+        if (path.length < 2) continue;
+
+        const allyInLane  = allyBlobs .filter(b => _distToPath(b.cx, b.cy, path) <= corridorPct);
+        const enemyInLane = enemyBlobs.filter(b => _distToPath(b.cx, b.cy, path) <= corridorPct);
+
+        if (allyInLane.length > 0) {
+          const best = allyInLane.reduce((a, b) => dAllyBase(b) > dAllyBase(a) ? b : a);
+          allyPins.push({ lane, x: Math.round(best.cx*10)/10, y: Math.round(best.cy*10)/10 });
+        }
+        if (enemyInLane.length > 0) {
+          const best = enemyInLane.reduce((a, b) => dEnemyBase(b) > dEnemyBase(a) ? b : a);
+          enemyPins.push({ lane, x: Math.round(best.cx*10)/10, y: Math.round(best.cy*10)/10 });
+        }
+      }
+
+      resolve({ ally: allyPins, enemy: enemyPins });
+    };
+    img.onerror = () => resolve({ ally: [], enemy: [] });
+    img.src = minimapDataUrl;
+  });
+}
+
 /**
  * Crop the blob portrait using cropSizePct — MUST match what saveChampPortrait uses
  * so that detection and DB signatures have the same framing and scale.

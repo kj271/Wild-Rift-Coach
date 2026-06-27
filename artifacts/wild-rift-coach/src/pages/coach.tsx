@@ -28,7 +28,7 @@ import {
   Database, Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { detectMapCircles, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, detectTowerStatus, detectMinionWaves, detectDeadBySlotBoxes, SlotBox, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
+import { detectMapCircles, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, detectTowerStatus, detectMinionWavesInLanes, detectDeadBySlotBoxes, SlotBox, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
 
 // ─── Champions ────────────────────────────────────────────────────────────────
 const CHAMPIONS = [
@@ -1249,7 +1249,8 @@ export default function CoachPage(){
           return next;
         });
       };
-      detectMinionWaves(minimap).then(({ally:aw,enemy:ew})=>placeWavePins(aw,ew)).catch(()=>placeWavePins([],[]));
+      // Search ONLY within each calibrated lane corridor; pick most-advanced blob per team per lane
+      detectMinionWavesInLanes(minimap,lanePaths).then(({ally:aw,enemy:ew})=>placeWavePins(aw,ew)).catch(()=>placeWavePins([],[]));
     }
 
     try{
