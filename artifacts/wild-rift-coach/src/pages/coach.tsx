@@ -28,7 +28,7 @@ import {
   Database, Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { detectMapCircles, loadDetectConfig, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, invalidateSigCache, prewarmChampSigs, detectTowerStatus, detectMinionWavesInLanes, detectDeadBySlotBoxes, SlotBox, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
+import { detectMapCircles, loadDetectConfig, matchPersonalDb, saveChampPortrait, getAllPortraitEntries, deletePortraitEntry, prewarmChampSigs, detectTowerStatus, detectMinionWavesInLanes, detectDeadBySlotBoxes, SlotBox, PortraitDbEntry, DetectedCircle } from "@/lib/champion-detection";
 
 // ─── Champions ────────────────────────────────────────────────────────────────
 const CHAMPIONS = [
@@ -832,73 +832,94 @@ function CropAdjuster({champ,minimapSrc,pinX,pinY,initialCropPct,onConfirm,onCan
 }){
   const containerRef = useRef<HTMLDivElement>(null);
   const [disp,setDisp] = useState(320);
+  // cx/cy/r stored in base (zoom=1) display pixels
   const [cx,setCx] = useState(0);
   const [cy,setCy] = useState(0);
   const [r,setR] = useState(24);
+  const [zoom,setZoom] = useState(1);
 
-  // Set display size and initial circle position once mounted
   useEffect(()=>{
-    const s = Math.min(window.innerWidth-32, window.innerHeight-160, 420);
+    const s = Math.min(window.innerWidth-32, window.innerHeight-180, 420);
     setDisp(s);
     setCx(pinX/100*s);
     setCy(pinY/100*s);
-    setR((initialCropPct/100)*s/2);
+    setR(Math.max(12,(initialCropPct/100)*s/2));
   },[pinX,pinY,initialCropPct]);
+
+  // Zoom-aware view: translate so circle stays centred in the container
+  const effDisp = disp*zoom;
+  const rawTX = disp/2 - cx*zoom;
+  const rawTY = disp/2 - cy*zoom;
+  const tx = zoom<=1 ? 0 : Math.min(0,Math.max(disp-effDisp,rawTX));
+  const ty = zoom<=1 ? 0 : Math.min(0,Math.max(disp-effDisp,rawTY));
+
+  // Keep latest view params accessible inside event handlers without stale closures
+  const viewRef = useRef({tx:0,ty:0,zoom:1,disp:320});
+  viewRef.current = {tx,ty,zoom,disp};
 
   const dragRef = useRef<{
     mode:"move"|"resize";
     startX:number; startY:number;
     startCx:number; startCy:number; startR:number;
+    startDr:number; // distance from centre at first touch — for delta-based resize
   }|null>(null);
 
-  const getClientXY = (e:React.MouseEvent|React.TouchEvent)=>{
+  // Convert container-space touch → base circle coordinates
+  const getXY = (e:React.MouseEvent|React.TouchEvent)=>{
     const rect = containerRef.current?.getBoundingClientRect();
     if(!rect) return {x:0,y:0};
     const src = "touches" in e ? e.touches[0] : e;
-    return {x:src.clientX-rect.left, y:src.clientY-rect.top};
+    const {tx:vtx,ty:vty,zoom:vz} = viewRef.current;
+    return {
+      x:(src.clientX-rect.left-vtx)/vz,
+      y:(src.clientY-rect.top-vty)/vz,
+    };
   };
 
   const onDown = (e:React.MouseEvent|React.TouchEvent)=>{
     e.preventDefault();
-    const {x,y} = getClientXY(e);
-    const dr = Math.hypot(x-cx, y-cy);
-    // Inner 65% → move; outer 35% (near edge) → resize
-    const mode:("move"|"resize") = dr < r*0.65 ? "move" : "resize";
-    dragRef.current = {mode,startX:x,startY:y,startCx:cx,startCy:cy,startR:r};
+    const {x,y}=getXY(e);
+    const dr=Math.hypot(x-cx,y-cy);
+    const mode:("move"|"resize")=dr<r*0.7?"move":"resize";
+    dragRef.current={mode,startX:x,startY:y,startCx:cx,startCy:cy,startR:r,startDr:dr};
   };
 
   const onMove = (e:React.MouseEvent|React.TouchEvent)=>{
-    if(!dragRef.current) return;
+    if(!dragRef.current)return;
     e.preventDefault();
-    const {x,y} = getClientXY(e);
-    if(dragRef.current.mode==="move"){
-      const nr = dragRef.current.startR;
-      setCx(Math.max(nr, Math.min(disp-nr, dragRef.current.startCx+(x-dragRef.current.startX))));
-      setCy(Math.max(nr, Math.min(disp-nr, dragRef.current.startCy+(y-dragRef.current.startY))));
+    const {x,y}=getXY(e);
+    const d=dragRef.current;
+    if(d.mode==="move"){
+      setCx(Math.max(d.startR,Math.min(disp-d.startR,d.startCx+(x-d.startX))));
+      setCy(Math.max(d.startR,Math.min(disp-d.startR,d.startCy+(y-d.startY))));
     } else {
-      const newR = Math.max(10, Math.min(disp/2-4, Math.hypot(x-cx, y-cy)));
-      setR(newR);
+      // Delta-based: r changes by how much the distance to centre changed.
+      // Lifting & re-touching resets the delta origin, so the circle doesn't jump.
+      const curDr=Math.hypot(x-d.startCx,y-d.startCy);
+      setR(Math.max(8,Math.min(disp/2-4,d.startR+(curDr-d.startDr))));
     }
   };
 
-  const onUp = ()=>{ dragRef.current=null; };
+  const onUp=()=>{dragRef.current=null;};
 
-  const confirm = ()=>{
-    const cxPct = cx/disp*100;
-    const cyPct = cy/disp*100;
-    const diamPct = (r*2/disp)*100; // diameter as % of minimap — matches cropSizePct convention
-    onConfirm(cxPct, cyPct, diamPct);
+  const confirm=()=>{
+    onConfirm(cx/disp*100, cy/disp*100, (r*2/disp)*100);
   };
+
+  const ZOOMS=[1,1.5,2,3] as const;
+  // Zoomed circle coords for SVG rendering
+  const dcx=cx*zoom+tx, dcy=cy*zoom+ty, dr=r*zoom;
 
   return(
     <div className="fixed inset-0 z-[200] bg-black/95 flex flex-col">
+      {/* Header */}
       <div className="px-4 py-3 border-b border-[#30363d] flex items-center justify-between shrink-0">
         <div>
           <h3 className="text-sm font-display font-bold text-white">
-            Crop portrait — <span className="text-sky-300">{champ}</span>
+            Crop — <span className="text-sky-300">{champ}</span>
           </h3>
           <p className="text-[11px] text-[#8b949e] mt-0.5">
-            Drag <span className="text-white/70">inside</span> to move · drag <span className="text-white/70">near edge</span> to resize · exclude the coloured ring
+            Inside → move · near edge → resize (picks up where you left off)
           </p>
         </div>
         <div className="flex gap-2">
@@ -912,40 +933,52 @@ function CropAdjuster({champ,minimapSrc,pinX,pinY,initialCropPct,onConfirm,onCan
           </button>
         </div>
       </div>
-      <div className="flex-1 flex items-center justify-center p-4">
+      {/* Zoom buttons */}
+      <div className="flex items-center justify-center gap-2 py-2 shrink-0">
+        <span className="text-[11px] text-[#8b949e]">Zoom:</span>
+        {ZOOMS.map(z=>(
+          <button key={z} onClick={()=>setZoom(z)}
+            className={cn("px-2.5 py-1 text-xs rounded border active:scale-95",
+              zoom===z?"bg-sky-600 border-sky-500 text-white":"border-[#30363d] text-[#8b949e]")}>
+            {z}×
+          </button>
+        ))}
+      </div>
+      {/* Map area */}
+      <div className="flex-1 flex items-center justify-center">
         <div
           ref={containerRef}
-          className="relative select-none touch-none"
+          className="relative select-none touch-none overflow-hidden"
           style={{width:disp,height:disp,cursor:"crosshair"}}
           onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
           onTouchStart={onDown} onTouchMove={onMove} onTouchEnd={onUp}
         >
-          {/* Minimap image */}
           <img src={minimapSrc}
-            style={{width:disp,height:disp,display:"block",userSelect:"none",pointerEvents:"none",borderRadius:4}}/>
-          {/* SVG overlay */}
-          <svg className="absolute inset-0" width={disp} height={disp} style={{touchAction:"none",pointerEvents:"none"}}>
+            style={{
+              width:effDisp,height:effDisp,display:"block",
+              userSelect:"none",pointerEvents:"none",
+              transform:`translate(${tx}px,${ty}px)`,
+              transformOrigin:"0 0",
+            }}/>
+          <svg className="absolute inset-0" width={disp} height={disp}
+            style={{touchAction:"none",pointerEvents:"none"}}>
             <defs>
               <mask id="ca-hole">
                 <rect width={disp} height={disp} fill="white"/>
-                <circle cx={cx} cy={cy} r={r} fill="black"/>
+                <circle cx={dcx} cy={dcy} r={dr} fill="black"/>
               </mask>
             </defs>
-            {/* Dark vignette outside the crop circle */}
-            <rect width={disp} height={disp} fill="rgba(0,0,0,0.62)" mask="url(#ca-hole)"/>
-            {/* Dashed ring outline */}
-            <circle cx={cx} cy={cy} r={r} fill="none" stroke="white" strokeWidth="2" strokeDasharray="6 3" opacity="0.85"/>
-            {/* Centre crosshair */}
-            <line x1={cx-6} y1={cy} x2={cx+6} y2={cy} stroke="white" strokeWidth="1.5" opacity="0.7"/>
-            <line x1={cx} y1={cy-6} x2={cx} y2={cy+6} stroke="white" strokeWidth="1.5" opacity="0.7"/>
-            {/* Resize hint badge at right edge */}
-            <circle cx={cx+r} cy={cy} r={11} fill="#0ea5e9" opacity="0.85"/>
-            <text x={cx+r} y={cy} textAnchor="middle" dominantBaseline="central" fontSize="10" fill="white">⇔</text>
+            <rect width={disp} height={disp} fill="rgba(0,0,0,0.6)" mask="url(#ca-hole)"/>
+            <circle cx={dcx} cy={dcy} r={dr} fill="none" stroke="white" strokeWidth="2" strokeDasharray="6 3" opacity="0.9"/>
+            <line x1={dcx-7} y1={dcy} x2={dcx+7} y2={dcy} stroke="white" strokeWidth="1.5" opacity="0.6"/>
+            <line x1={dcx} y1={dcy-7} x2={dcx} y2={dcy+7} stroke="white" strokeWidth="1.5" opacity="0.6"/>
+            <circle cx={dcx+dr} cy={dcy} r={13} fill="#0ea5e9" opacity="0.9"/>
+            <text x={dcx+dr} y={dcy} textAnchor="middle" dominantBaseline="central" fontSize="12" fill="white">⇔</text>
           </svg>
         </div>
       </div>
       <p className="text-center text-[11px] text-[#8b949e] pb-3 shrink-0">
-        Blue badge = resize handle · centre of circle = move zone
+        ⇔ = resize handle · zoom in for precision · lift &amp; re-touch to continue resizing
       </p>
     </div>
   );
@@ -2892,7 +2925,6 @@ export default function CoachPage(){
                                 className="absolute top-0 right-0 w-5 h-5 flex items-center justify-center bg-black/80 rounded-bl rounded-tr border-b border-l border-red-800/60 active:bg-red-900/80"
                                 onClick={()=>{
                                   if(!e.id)return;
-                                  invalidateSigCache(e.id);
                                   deletePortraitEntry(e.id).then(loadPortraitDb).catch(()=>{});
                                 }}
                                 title="Delete"
@@ -2924,7 +2956,6 @@ export default function CoachPage(){
                   className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 px-3 py-1.5 rounded border border-red-800/50 hover:border-red-600/50 transition-colors"
                   onClick={()=>{
                     if(!window.confirm("Delete ALL saved portraits?"))return;
-                    portraitDbEntries.filter(e=>e.id!=null).forEach(e=>invalidateSigCache(e.id!));
                     Promise.all(portraitDbEntries.filter(e=>e.id!=null).map(e=>deletePortraitEntry(e.id!))).then(loadPortraitDb).catch(()=>{});
                   }}
                 >
