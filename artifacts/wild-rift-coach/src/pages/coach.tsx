@@ -27,6 +27,7 @@ import {
   ChevronDown, ChevronUp, Crop, Map as MapIcon, Star, RotateCcw, Bug, Timer, Clock, Building2, Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { detectGreenCircle, matchPortrait, prewarmChampSigs } from "@/lib/champion-detection";
 
 // ─── Champions ────────────────────────────────────────────────────────────────
 const CHAMPIONS = [
@@ -695,6 +696,14 @@ export default function CoachPage(){
   const[gameTimeCrop,setGameTimeCrop]=useState<string|null>(null);
   const[portraitStripCrop,setPortraitStripCrop]=useState<string|null>(null);
 
+  // Champion auto-detection from portrait strip
+  const[detectedAllies,setDetectedAllies]=useState<(string|null)[]>([null,null,null,null]);
+  const[detectedEnemies,setDetectedEnemies]=useState<(string|null)[]>([null,null,null,null,null]);
+  const[detectingChamps,setDetectingChamps]=useState(false);
+
+  // Pre-warm champion signature cache in background on mount
+  useEffect(()=>{ prewarmChampSigs(CHAMPIONS).catch(()=>{}); },[]);
+
   // Pins
   const[pins,setPins]=useState<MapPin[]>((_sess.pins as MapPin[])??[]);
   const[benchPins,setBenchPins]=useState<MapPin[]>([]);
@@ -851,7 +860,20 @@ export default function CoachPage(){
     setImageBase64(dataUrl);setMinimapBase64(null);setPlaceMode(null);
     setGameTimeCrop(null);setPortraitStripCrop(null);
     setAdvice("");setChatMessages([]);setActiveConversationId(null);
-    await recropMinimap(dataUrl);
+    setDetectedAllies([null,null,null,null]);
+    setDetectedEnemies([null,null,null,null,null]);
+
+    const minimap=await recropMinimap(dataUrl);
+
+    // Auto-detect player position from green circle on minimap
+    if(minimap){
+      detectGreenCircle(minimap).then(pos=>{
+        if(!pos)return;
+        const classPos=classifyPos(pos.x,pos.y,lanePaths,zones);
+        setPins(p=>[...p.filter(pp=>pp.type!=="me"),{id:`me-${Date.now()}`,type:"me",x:pos.x,y:pos.y,pos:classPos,champ:myChamp}]);
+      }).catch(()=>{});
+    }
+
     try{
       const strip=await cropDataUrl(dataUrl,timerCropConfig.x,timerCropConfig.y,timerCropConfig.w,timerCropConfig.h);
       setGameTimeCrop(strip);
@@ -860,7 +882,28 @@ export default function CoachPage(){
       const ps=await cropDataUrl(dataUrl,portraitStripConfig.x,portraitStripConfig.y,portraitStripConfig.w,portraitStripConfig.h);
       setPortraitStripCrop(ps);
     }catch{}
-  },[recropMinimap,timerCropConfig,portraitStripConfig]);
+
+    // Auto-detect champions from portrait positions (runs in background)
+    const sz=portraitConfig.sizePct??5.5;
+    const half=sz/2;
+    setDetectingChamps(true);
+    Promise.all([
+      ...portraitConfig.allies.map(pos=>
+        cropDataUrl(dataUrl,pos.x-half,pos.y-half,sz,sz)
+          .then(c=>matchPortrait(c,CHAMPIONS))
+          .catch(():null=>null)
+      ),
+      ...portraitConfig.enemies.map(pos=>
+        cropDataUrl(dataUrl,pos.x-half,pos.y-half,sz,sz)
+          .then(c=>matchPortrait(c,CHAMPIONS))
+          .catch(():null=>null)
+      ),
+    ]).then(results=>{
+      setDetectedAllies(results.slice(0,4).map(r=>r?.name??null));
+      setDetectedEnemies(results.slice(4).map(r=>r?.name??null));
+      setDetectingChamps(false);
+    }).catch(()=>setDetectingChamps(false));
+  },[recropMinimap,timerCropConfig,portraitStripConfig,portraitConfig,lanePaths,zones,myChamp]);
 
   const clearPinState=()=>{setPins([]);setBenchPins([]);setObjPins([]);setAlliesDown([]);setEnemiesDown([]);setTowersDown({ally:[],enemy:[]});};
   const applySlotState=(s:ImageSlotState|undefined)=>{
@@ -1674,6 +1717,34 @@ export default function CoachPage(){
                       </button>
                     );
                   })}
+                </div>
+              )}
+
+              {/* Detected champions row */}
+              {(portraitStripCrop||detectingChamps)&&(
+                <div className="flex flex-col gap-1 px-0.5">
+                  {detectingChamps&&(
+                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                      <Loader2 className="w-3 h-3 animate-spin"/>
+                      <span>Detecting champions…</span>
+                    </div>
+                  )}
+                  {!detectingChamps&&detectedAllies.some(Boolean)&&(
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="text-[9px] font-display uppercase tracking-widest text-sky-400/70 mr-0.5">Allies:</span>
+                      {detectedAllies.map((c,i)=>c&&(
+                        <span key={`da${i}`} className="text-[9px] px-1.5 py-0.5 rounded-md bg-sky-900/40 border border-sky-700/40 text-sky-300 font-medium">{c}</span>
+                      ))}
+                    </div>
+                  )}
+                  {!detectingChamps&&detectedEnemies.some(Boolean)&&(
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="text-[9px] font-display uppercase tracking-widest text-red-400/70 mr-0.5">Enemies:</span>
+                      {detectedEnemies.map((c,i)=>c&&(
+                        <span key={`de${i}`} className="text-[9px] px-1.5 py-0.5 rounded-md bg-red-900/40 border border-red-700/40 text-red-300 font-medium">{c}</span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
