@@ -49,7 +49,7 @@ const CHAMPIONS = [
   "Olaf","Orianna","Ornn",
   "Pantheon",
   "Quinn",
-  "Rakan","Rammus","Renekton","Rengar","Riven","Ryze",
+  "Rakan","Rammus","Rell","Renekton","Rengar","Riven","Ryze",
   "Seraphine","Senna","Sett","Shen","Shyvana","Singed","Skarner","Smolder","Sona","Soraka","Swain",
   "Taliyah","Teemo","Thresh","Tristana","Tryndamere","Twisted Fate","Twitch",
   "Varus","Vayne","Veigar","Vel'Koz","Vi","Viego","Viktor","Vladimir","Volibear",
@@ -2117,29 +2117,6 @@ export default function CoachPage(){
             )}
 
             <div className="p-3 space-y-3">
-              {/* Mode buttons */}
-              <div className="grid grid-cols-3 gap-1.5">
-                {(["me","ally","enemy","obj","ally_wave","enemy_wave"] as const).map(type=>{
-                  const cfg=PLACE_CFG[type];
-                  const active=placeMode===type;
-                  const count=type==="me"?(myPin?1:0):type==="ally"?allyPins.length:type==="enemy"?enemyPins.length:type==="obj"?objPins.length:type==="ally_wave"?allyWavePins.length:enemyWavePins.length;
-                  return(
-                    <button key={type} onClick={()=>setPlaceMode(p=>p===type?null:type)}
-                      className={cn("flex flex-col items-center justify-center gap-0.5 py-2 rounded-lg border text-[10px] font-bold transition-all active:scale-95 font-display bg-black/30",
-                        active?cfg.active:`bg-black/30 ${cfg.idle}`)}>
-                      {type==="me"&&<UserRound className="w-3.5 h-3.5"/>}
-                      {type==="ally"&&<Users className="w-3.5 h-3.5"/>}
-                      {type==="enemy"&&<Swords className="w-3.5 h-3.5"/>}
-                      {type==="obj"&&<Target className="w-3.5 h-3.5"/>}
-                      {type==="ally_wave"&&<span className="text-sm leading-none">≋</span>}
-                      {type==="enemy_wave"&&<span className="text-sm leading-none">≋</span>}
-                      <span>{type==="me"?"Me":type==="ally"?"Ally":type==="enemy"?"Enemy":type==="obj"?"Obj":type==="ally_wave"?"A.Wave":"E.Wave"}</span>
-                      {count>0&&<span className={cn("w-3.5 h-3.5 rounded-full text-[8px] font-bold flex items-center justify-center text-black",cfg.dot)}>{count}</span>}
-                    </button>
-                  );
-                })}
-              </div>
-
               {/* Portrait database button */}
               <button
                 onClick={()=>{setShowPortraitDb(true);loadPortraitDb();}}
@@ -2161,6 +2138,28 @@ export default function CoachPage(){
                   {PLACE_CFG[placeMode].hint}
                 </p>
               )}
+
+              {/* Compact pin-type strip — always right above the minimap */}
+              <div className="flex gap-1">
+                {(["me","ally","enemy","obj","ally_wave","enemy_wave"] as const).map(type=>{
+                  const cfg=PLACE_CFG[type];
+                  const active=placeMode===type;
+                  const count=type==="me"?(myPin?1:0):type==="ally"?allyPins.length:type==="enemy"?enemyPins.length:type==="obj"?objPins.length:type==="ally_wave"?allyWavePins.length:enemyWavePins.length;
+                  return(
+                    <button key={type} onClick={()=>setPlaceMode(p=>p===type?null:type)}
+                      className={cn("relative flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-lg border text-[9px] font-bold transition-all active:scale-95 font-display",
+                        active?cfg.active:`bg-black/30 ${cfg.idle}`)}>
+                      {type==="me"&&<UserRound className="w-3 h-3"/>}
+                      {type==="ally"&&<Users className="w-3 h-3"/>}
+                      {type==="enemy"&&<Swords className="w-3 h-3"/>}
+                      {type==="obj"&&<Target className="w-3 h-3"/>}
+                      {(type==="ally_wave"||type==="enemy_wave")&&<span className="text-[11px] leading-none">≋</span>}
+                      <span>{type==="me"?"Me":type==="ally"?"Ally":type==="enemy"?"Enemy":type==="obj"?"Obj":type==="ally_wave"?"A≋":"E≋"}</span>
+                      {count>0&&<span className={cn("absolute -top-1 -right-1 min-w-[14px] h-3.5 rounded-full px-0.5 text-[8px] font-bold flex items-center justify-center text-black",cfg.dot)}>{count}</span>}
+                    </button>
+                  );
+                })}
+              </div>
 
               {/* Minimap + bench zone flex row */}
               <div className="flex items-stretch gap-1">
@@ -2550,7 +2549,7 @@ export default function CoachPage(){
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
-                      onClick={()=>{const n=!autoDetectStrip;setAutoDetectStrip(n);localStorage.setItem("wr_auto_detect_strip",String(n));}}
+                      onClick={()=>{const n=!autoDetectStrip;setAutoDetectStrip(n);localStorage.setItem("wr_auto_detect_strip",String(n));if(!n){setDetectedStripAllies([]);setDetectedStripEnemies([]);}}}
                       className={cn("text-[9px] px-2 py-1 rounded-lg border transition-colors",
                         autoDetectStrip
                           ?"border-sky-500/50 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20"
