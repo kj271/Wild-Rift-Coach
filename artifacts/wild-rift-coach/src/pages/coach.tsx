@@ -2140,7 +2140,7 @@ export default function CoachPage(){
               )}
 
               {/* Minimap + bench zone flex row */}
-              <div className="flex items-stretch gap-1 min-w-0">
+              <div className="flex flex-row flex-nowrap items-stretch gap-1 min-w-0">
               <div ref={minimapDivRef}
                 className={cn("relative flex-1 min-w-0 select-none",
                   placeMode?"cursor-crosshair":"cursor-default")}
@@ -2407,10 +2407,11 @@ export default function CoachPage(){
                   );
                 })}
               </div>
+            </div>
 
               {/* Position tags */}
               {pins.length>0&&(
-                <div className="flex gap-1.5 flex-wrap">
+                <div className="flex gap-1.5 flex-wrap mt-1">
                   {myPin&&(
                     <span className="flex items-center gap-1.5 text-[10px] text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-full px-2.5 py-1">
                       <span className="w-2 h-2 rounded-full bg-amber-400"/>
@@ -2431,7 +2432,6 @@ export default function CoachPage(){
                   ))}
                 </div>
               )}
-            </div>
           </div>
 
           {/* ── SCORE BAR + PORTRAIT STRIP WITH TAP ZONES ─────────── */}
