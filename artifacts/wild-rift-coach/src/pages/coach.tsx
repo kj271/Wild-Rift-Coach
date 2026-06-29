@@ -2140,9 +2140,9 @@ export default function CoachPage(){
               )}
 
               {/* Minimap + bench zone flex row */}
-              <div className="flex flex-row flex-nowrap items-stretch gap-1 min-w-0">
+              <div className="grid grid-cols-[1fr_auto] gap-1 items-stretch min-w-0">
               <div ref={minimapDivRef}
-                className={cn("relative flex-1 min-w-0 select-none",
+                className={cn("relative min-w-0 select-none",
                   placeMode?"cursor-crosshair":"cursor-default")}
                 style={{WebkitTouchCallout:"none"} as React.CSSProperties}
                 onClick={handleMinimapTap}
@@ -2385,7 +2385,7 @@ export default function CoachPage(){
                 </div>
               </div>
               {/* Vertical pin-type column — to the right of bench */}
-              <div className="flex flex-col gap-1 shrink-0 justify-end">
+              <div className="flex flex-col gap-1 justify-end">
                 {(["me","ally","enemy","obj","ally_wave","enemy_wave"] as const).map(type=>{
                   const cfg=PLACE_CFG[type];
                   const active=placeMode===type;
