@@ -2140,7 +2140,7 @@ export default function CoachPage(){
               )}
 
               {/* Minimap + bench zone flex row */}
-              <div className="grid grid-cols-[1fr_auto_auto] gap-1 items-stretch min-w-0">
+              <div className="grid grid-cols-[1fr_auto] gap-1 items-stretch min-w-0">
               <div ref={minimapDivRef}
                 className={cn("relative min-w-0 select-none",
                   placeMode?"cursor-crosshair":"cursor-default")}
