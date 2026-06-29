@@ -2312,6 +2312,7 @@ export default function CoachPage(){
                 )}
               </div>
               </div>
+              {/* Bench zone — separate column to the right of minimap */}
               <div ref={benchRef}
                 className="relative w-14 shrink-0 rounded-lg border-2 border-dashed border-border/30 bg-black/20">
                   {benchPins.length===0&&(
@@ -2431,7 +2432,6 @@ export default function CoachPage(){
                   ))}
                 </div>
               )}
-            </div>
           </div>
 
           {/* ── SCORE BAR + PORTRAIT STRIP WITH TAP ZONES ─────────── */}
