@@ -2159,31 +2159,6 @@ export default function CoachPage(){
                     <X className="w-5 h-5"/>
                   </button>
                 )}
-                {/* Vertical pin-type overlay — bottom-right corner, always visible */}
-                <div className="absolute bottom-2 right-2 z-20 flex flex-col gap-1" onClick={e=>e.stopPropagation()}>
-                  {(["me","ally","enemy","obj","ally_wave","enemy_wave"] as const).map(type=>{
-                    const cfg=PLACE_CFG[type];
-                    const active=placeMode===type;
-                    const count=type==="me"?(myPin?1:0):type==="ally"?allyPins.length:type==="enemy"?enemyPins.length:type==="obj"?objPins.length:type==="ally_wave"?allyWavePins.length:enemyWavePins.length;
-                    const label=type==="me"?"Me":type==="ally"?"Ally":type==="enemy"?"Enemy":type==="obj"?"Obj":type==="ally_wave"?"A≋":"E≋";
-                    return(
-                      <button key={type}
-                        onClick={()=>setPlaceMode(p=>p===type?null:type)}
-                        className={cn("relative flex items-center justify-center gap-0.5 px-1.5 py-1 rounded-lg border text-[9px] font-bold transition-all active:scale-95 font-display backdrop-blur-sm",
-                          active?cfg.active:"bg-black/70 border-white/10 text-white/50 hover:text-white/80 hover:border-white/30")}
-                        title={label}>
-                        {type==="me"&&<UserRound className="w-2.5 h-2.5 shrink-0"/>}
-                        {type==="ally"&&<Users className="w-2.5 h-2.5 shrink-0"/>}
-                        {type==="enemy"&&<Swords className="w-2.5 h-2.5 shrink-0"/>}
-                        {type==="obj"&&<Target className="w-2.5 h-2.5 shrink-0"/>}
-                        {(type==="ally_wave"||type==="enemy_wave")&&<span className="text-[10px] leading-none shrink-0">≋</span>}
-                        <span className="leading-none">{label}</span>
-                        {count>0&&<span className={cn("ml-0.5 min-w-[13px] h-3.5 rounded-full px-0.5 text-[8px] font-bold flex items-center justify-center text-black",cfg.dot)}>{count}</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-
                 {/* Image in its own clipping wrapper so pins can render past the edge */}
                 <div className="rounded-lg overflow-hidden border border-border/30">
                   {minimapBase64?(
@@ -2408,6 +2383,29 @@ export default function CoachPage(){
                     );
                   })}
                 </div>
+              </div>
+              {/* Vertical pin-type column — to the right of bench */}
+              <div className="flex flex-col gap-1 shrink-0 justify-center">
+                {(["me","ally","enemy","obj","ally_wave","enemy_wave"] as const).map(type=>{
+                  const cfg=PLACE_CFG[type];
+                  const active=placeMode===type;
+                  const count=type==="me"?(myPin?1:0):type==="ally"?allyPins.length:type==="enemy"?enemyPins.length:type==="obj"?objPins.length:type==="ally_wave"?allyWavePins.length:enemyWavePins.length;
+                  const label=type==="me"?"Me":type==="ally"?"Ally":type==="enemy"?"Enemy":type==="obj"?"Obj":type==="ally_wave"?"A≋":"E≋";
+                  return(
+                    <button key={type}
+                      onClick={()=>setPlaceMode(p=>p===type?null:type)}
+                      className={cn("relative flex items-center gap-1 px-2 py-1.5 rounded-lg border text-[9px] font-bold transition-all active:scale-95 font-display w-14",
+                        active?cfg.active:`bg-black/30 ${cfg.idle}`)}>
+                      {type==="me"&&<UserRound className="w-2.5 h-2.5 shrink-0"/>}
+                      {type==="ally"&&<Users className="w-2.5 h-2.5 shrink-0"/>}
+                      {type==="enemy"&&<Swords className="w-2.5 h-2.5 shrink-0"/>}
+                      {type==="obj"&&<Target className="w-2.5 h-2.5 shrink-0"/>}
+                      {(type==="ally_wave"||type==="enemy_wave")&&<span className="text-[10px] leading-none shrink-0">≋</span>}
+                      <span className="leading-none truncate">{label}</span>
+                      {count>0&&<span className={cn("absolute -top-1 -right-1 min-w-[13px] h-3.5 rounded-full px-0.5 text-[8px] font-bold flex items-center justify-center text-black",cfg.dot)}>{count}</span>}
+                    </button>
+                  );
+                })}
               </div>
 
               {/* Position tags */}
