@@ -2311,9 +2311,9 @@ export default function CoachPage(){
                   })
                 )}
               </div>
-              </div>
+              {/* Bench zone — separate column to the right of minimap */}
               <div ref={benchRef}
-                className="relative w-14 shrink-0 rounded-lg border-2 border-dashed border-border/30 bg-black/20">
+                className="relative w-16 shrink-0 rounded-lg border-2 border-dashed border-border/30 bg-black/20">
                   {benchPins.length===0&&(
                     <span className="absolute inset-0 flex items-center justify-center text-[8px] uppercase tracking-widest text-muted-foreground/30 font-display text-center leading-tight pointer-events-none">Off<br/>map</span>
                   )}
@@ -2383,6 +2383,7 @@ export default function CoachPage(){
                     );
                   })}
                 </div>
+              </div>
               {/* Vertical pin-type column — to the right of bench */}
               <div className="flex flex-col gap-1 shrink-0 justify-center">
                 {(["me","ally","enemy","obj","ally_wave","enemy_wave"] as const).map(type=>{
@@ -2405,7 +2406,6 @@ export default function CoachPage(){
                     </button>
                   );
                 })}
-              </div>
               </div>
 
               {/* Position tags */}
