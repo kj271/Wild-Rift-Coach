@@ -2140,9 +2140,9 @@ export default function CoachPage(){
               )}
 
               {/* Minimap + bench zone flex row */}
-              <div className="flex items-stretch gap-1">
+              <div className="flex items-stretch gap-1 min-w-0">
               <div ref={minimapDivRef}
-                className={cn("relative flex-1 select-none",
+                className={cn("relative flex-1 min-w-0 select-none",
                   placeMode?"cursor-crosshair":"cursor-default")}
                 style={{WebkitTouchCallout:"none"} as React.CSSProperties}
                 onClick={handleMinimapTap}
