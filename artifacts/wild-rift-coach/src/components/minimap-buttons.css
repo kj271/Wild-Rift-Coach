@@ -1,0 +1,46 @@
+/* Minimap buttons container - positioned to the right of minimap */
+.minimap-buttons-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-left: auto; /* Push to the right */
+  align-items: stretch;
+}
+
+/* Ensure minimap wrapper is flex for proper alignment */
+.minimap-wrapper {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  width: 100%;
+}
+
+/* Minimap itself takes only needed space */
+.minimap-content {
+  flex-shrink: 0;
+}
+
+/* Buttons stack vertically on the right */
+.minimap-buttons-container button {
+  white-space: nowrap;
+}
+
+/* For off-map bench zone - ensure it's positioned properly */
+.off-map-bench {
+  margin-right: 0.5rem;
+}
+
+/* Mobile responsive - stack buttons below on smaller screens */
+@media (max-width: 768px) {
+  .minimap-wrapper {
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .minimap-buttons-container {
+    margin-left: 0;
+    flex-direction: row;
+    width: 100%;
+    justify-content: center;
+  }
+}
